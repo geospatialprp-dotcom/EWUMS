@@ -113,7 +113,11 @@ export class WorkflowsService {
     }));
   }
 
-  async submit(tenantId: string, userId: string, dto: SubmitWorkflowDto) {
+  async submit(tenantId: string, user: JwtPayload, dto: SubmitWorkflowDto) {
+    if (isSuperAdmin(user.roles)) {
+      throw new ForbiddenException('Super Admin cannot submit workflow requests. Use an HQ or division account.');
+    }
+    const userId = user.sub;
     const def = await this.defsRepo.findOne({
       where: { tenantId, code: dto.definitionCode, isActive: true },
     });
@@ -156,11 +160,12 @@ export class WorkflowsService {
 
   async actOnTask(
     tenantId: string,
-    userId: string,
-    roles: string[],
+    user: JwtPayload,
     taskId: string,
     dto: ActOnTaskDto,
   ) {
+    const userId = user.sub;
+    const roles = user.roles ?? [];
     const task = await this.tasksRepo.findOne({
       where: { id: taskId },
       relations: ['instance'],
@@ -174,6 +179,7 @@ export class WorkflowsService {
     if (isSuperAdmin(roles)) {
       throw new ForbiddenException('Super Admin cannot act on workflow tasks. Use an HQ or division account.');
     }
+    await this.assertInstanceDivisionAccess(user, tenantId, task.instance);
     if (!roles.includes(task.assignedRole)) {
       throw new BadRequestException('You are not authorized to act on this task');
     }
@@ -223,6 +229,22 @@ export class WorkflowsService {
       instanceStatus: instance.status,
       currentStep: instance.currentStep,
     };
+  }
+
+  private async assertInstanceDivisionAccess(
+    user: JwtPayload,
+    tenantId: string,
+    instance: Pick<WorkflowInstance, 'resourceType' | 'resourceId' | 'payload'>,
+  ): Promise<void> {
+    const divisionIds = await this.divisionAccess.getAccessibleDivisionIds(user, tenantId);
+    if (divisionIds === null) return;
+    if (divisionIds.length === 0) {
+      throw new ForbiddenException('This workflow belongs to another division.');
+    }
+    const divisionId = await this.resolveInstanceDivisionId(tenantId, instance);
+    if (!divisionId || !divisionIds.includes(divisionId)) {
+      throw new ForbiddenException('This workflow belongs to another division.');
+    }
   }
 
   private readPayloadDivisionId(payload: Record<string, unknown> | null | undefined): string | null {

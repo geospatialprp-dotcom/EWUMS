@@ -98,7 +98,7 @@ export const en = {
     loginFailedHttp: 'Login failed (HTTP {status}).',
     backendUnreachable: 'Cannot connect to backend API on port 3000. Run: cd backend/api && npm run start:dev',
     backendNotRunning: 'Backend not running. Start: cd backend/api && npm run start:dev',
-    databaseError: 'Database/API error. Stop NestJS and run: cd backend/api && npm run dev:mock',
+    databaseError: 'Database/API error. Ensure PostgreSQL is running, then restart: cd backend/api && npm run start:dev',
     secureAccess: 'Secure access',
     demoCredentials: 'Demo credentials',
     consumerPortal: 'Consumer portal',

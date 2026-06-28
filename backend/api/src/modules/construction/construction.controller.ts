@@ -189,7 +189,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
-    return this.constructionService.submitDpr(user.tenantId, projectId, user.sub, id);
+    return this.constructionService.submitDpr(user.tenantId, projectId, user, id);
   }
 
   @Post('dprs/:id/workflow')
@@ -201,7 +201,7 @@ export class ConstructionController {
     @Body() dto: WorkflowActionDto,
   ) {
     return this.constructionService.actOnResourceWorkflow(
-      user.tenantId, user.sub, user.roles, 'dpr', id, dto,
+      user.tenantId, user, 'dpr', id, dto,
     );
   }
 
@@ -249,7 +249,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
-    return this.constructionService.submitMb(user.tenantId, projectId, user.sub, id, user.roles);
+    return this.constructionService.submitMb(user.tenantId, projectId, user, id);
   }
 
   @Post('measurement-books/:id/workflow')
@@ -261,7 +261,7 @@ export class ConstructionController {
     @Body() dto: WorkflowActionDto,
   ) {
     return this.constructionService.actOnResourceWorkflow(
-      user.tenantId, user.sub, user.roles, 'measurement_book', id, dto,
+      user.tenantId, user, 'measurement_book', id, dto,
     );
   }
 
@@ -298,7 +298,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
-    return this.constructionService.submitRaBill(user.tenantId, projectId, user.sub, id);
+    return this.constructionService.submitRaBill(user.tenantId, projectId, user, id);
   }
 
   @Delete('ra-bills/:id')
@@ -320,7 +320,7 @@ export class ConstructionController {
     @Body() dto: WorkflowActionDto,
   ) {
     return this.constructionService.actOnResourceWorkflow(
-      user.tenantId, user.sub, user.roles, 'ra_bill', id, dto,
+      user.tenantId, user, 'ra_bill', id, dto,
     );
   }
 
@@ -370,7 +370,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
-    return this.constructionService.submitInvoice(user.tenantId, projectId, user.sub, id);
+    return this.constructionService.submitInvoice(user.tenantId, projectId, user, id);
   }
 
   @Post('invoices/:id/workflow')
@@ -382,7 +382,7 @@ export class ConstructionController {
     @Body() dto: WorkflowActionDto,
   ) {
     return this.constructionService.actOnResourceWorkflow(
-      user.tenantId, user.sub, user.roles, 'invoice', id, dto,
+      user.tenantId, user, 'invoice', id, dto,
     );
   }
 

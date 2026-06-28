@@ -101,7 +101,7 @@ const mainNav: NavItem[] = [
 
   { path: '/map', labelKey: 'nav.mapExplorer', icon: <MapIcon /> },
 
-  { path: '/dashboard', labelKey: 'nav.executiveDashboard', icon: <DashboardIcon /> },
+  { path: '/dashboard', labelKey: 'nav.executiveDashboard', icon: <DashboardIcon />, permission: 'dashboard:read' },
 
   { path: '/assets', labelKey: 'nav.assetRegistry', icon: <InventoryIcon />, permission: 'asset:read' },
 

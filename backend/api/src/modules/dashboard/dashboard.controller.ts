@@ -15,7 +15,7 @@ export class DashboardController {
   constructor(private dashboardService: DashboardService) {}
 
   @Get('executive')
-  @RequirePermissions('report:read')
+  @RequirePermissions('dashboard:read')
   @ApiOperation({ summary: 'Get executive dashboard KPIs and charts' })
   getExecutive(@CurrentUser() user: JwtPayload) {
     return this.dashboardService.getExecutiveDashboard(user.tenantId, user);

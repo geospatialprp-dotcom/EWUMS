@@ -131,7 +131,7 @@ export const hi: {
     backendUnreachable:
       'पोर्ट 3000 पर बैकएंड API से कनेक्ट नहीं हो सका। चलाएँ: cd backend/api && npm run start:dev',
     backendNotRunning: 'बैकएंड नहीं चल रहा। शुरू करें: cd backend/api && npm run start:dev',
-    databaseError: 'डेटाबेस/API त्रुटि। NestJS बंद करें और चलाएँ: cd backend/api && npm run dev:mock',
+    databaseError: 'डेटाबेस/API त्रुटि। PostgreSQL चालू करें, फिर पुनः चलाएँ: cd backend/api && npm run start:dev',
     secureAccess: 'सुरक्षित पहुँच',
     demoCredentials: 'डेमो क्रेडेंशियल',
     consumerPortal: 'उपभोक्ता पोर्टल',

@@ -8,6 +8,7 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import WarningIcon from '@mui/icons-material/Warning';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { dashboardApi } from '../services/api';
+import { formatApiError } from '../utils/apiError';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
 import { useAuth } from '../context/AuthContext';
 import { divisionScopeSubtitle } from '../utils/divisionAccess';
@@ -50,8 +51,11 @@ export default function DashboardPage() {
         }
         setData(payload as DashboardData);
       })
-      .catch(() => {
-        setLoadError('Could not load dashboard data. Restart the API: cd backend/api && npm run dev:mock');
+      .catch((err) => {
+        setLoadError(formatApiError(
+          err,
+          'Could not load dashboard data. Stop dev:mock if running and use PostgreSQL: scripts/start-dev.ps1 (or cd backend/api && npm run start:dev)',
+        ));
       });
   }, [divisionScopeKey]);
 

@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { WorkflowTask } from '../workflows/entities/workflow-task.entity';
 import { normalizeBoqUnit, parseBoqExcelBuffer } from './utils/boq-excel.parser';
@@ -822,13 +823,13 @@ export class ConstructionService {
     }
   }
 
-  async submitDpr(tenantId: string, projectId: string, userId: string, id: string) {
+  async submitDpr(tenantId: string, projectId: string, user: JwtPayload, id: string) {
     const dpr = await this.dprRepo.findOne({ where: { id, tenantId, projectId } });
     if (!dpr) throw new NotFoundException('DPR not found');
     if (dpr.status !== 'draft' && dpr.status !== 'rejected') {
       throw new BadRequestException('DPR already submitted');
     }
-    const wf = await this.workflowsService.submit(tenantId, userId, {
+    const wf = await this.workflowsService.submit(tenantId, user, {
       definitionCode: 'dpr_submit',
       resourceId: id,
       title: `DPR ${dpr.dprNumber} — ${dpr.schemeType} (${dpr.reportDate})`,
@@ -836,7 +837,7 @@ export class ConstructionService {
     });
     dpr.status = 'je_review';
     dpr.workflowInstanceId = wf.id;
-    dpr.submittedBy = userId;
+    dpr.submittedBy = user.sub;
     dpr.submittedAt = new Date();
     await this.dprRepo.save(dpr);
     return this.getDpr(tenantId, projectId, id);
@@ -909,14 +910,14 @@ export class ConstructionService {
     return this.getMb(tenantId, projectId, mb.id);
   }
 
-  async submitMb(tenantId: string, projectId: string, userId: string, id: string, roles: string[]) {
+  async submitMb(tenantId: string, projectId: string, user: JwtPayload, id: string) {
     const mb = await this.mbRepo.findOne({ where: { id, tenantId, projectId }, relations: ['entries'] });
     if (!mb) throw new NotFoundException('Measurement book not found');
     if (!mb.entries?.length) throw new BadRequestException('Add measurement entries before submit');
     if (mb.status !== 'draft' && mb.status !== 'rejected') {
       throw new BadRequestException('MB already submitted');
     }
-    const wf = await this.workflowsService.submit(tenantId, userId, {
+    const wf = await this.workflowsService.submit(tenantId, user, {
       definitionCode: 'mb_submit',
       resourceId: id,
       title: `MB ${mb.mbNumber} — ${mb.schemeType} (${mb.measurementDate})`,
@@ -924,7 +925,7 @@ export class ConstructionService {
     });
     mb.status = 'ae_checked';
     mb.workflowInstanceId = wf.id;
-    mb.jeMeasuredBy = userId;
+    mb.jeMeasuredBy = user.sub;
     mb.jeMeasuredAt = new Date();
     await this.mbRepo.save(mb);
     return this.getMb(tenantId, projectId, id);
@@ -1035,13 +1036,13 @@ export class ConstructionService {
     });
   }
 
-  async submitInvoice(tenantId: string, projectId: string, userId: string, id: string) {
+  async submitInvoice(tenantId: string, projectId: string, user: JwtPayload, id: string) {
     const invoice = await this.invoiceRepo.findOne({ where: { id, tenantId, projectId } });
     if (!invoice) throw new NotFoundException('Invoice not found');
     if (invoice.status !== 'draft' && invoice.status !== 'rejected') {
       throw new BadRequestException('Invoice already submitted');
     }
-    const wf = await this.workflowsService.submit(tenantId, userId, {
+    const wf = await this.workflowsService.submit(tenantId, user, {
       definitionCode: 'invoice_submit',
       resourceId: id,
       title: `Invoice ${invoice.invoiceNumber} — ₹${invoice.netAmount}`,
@@ -1049,7 +1050,7 @@ export class ConstructionService {
     });
     invoice.status = 'accounts_verification';
     invoice.workflowInstanceId = wf.id;
-    invoice.submittedBy = userId;
+    invoice.submittedBy = user.sub;
     invoice.submittedAt = new Date();
     await this.invoiceRepo.save(invoice);
     return this.getInvoice(tenantId, projectId, id);
@@ -1304,13 +1305,13 @@ export class ConstructionService {
     return this.getRaBill(tenantId, projectId, bill.id);
   }
 
-  async submitRaBill(tenantId: string, projectId: string, userId: string, id: string) {
+  async submitRaBill(tenantId: string, projectId: string, user: JwtPayload, id: string) {
     const bill = await this.raBillRepo.findOne({ where: { id, tenantId, projectId } });
     if (!bill) throw new NotFoundException('RA Bill not found');
     if (bill.status !== 'draft' && bill.status !== 'rejected') {
       throw new BadRequestException('RA Bill already submitted');
     }
-    const wf = await this.workflowsService.submit(tenantId, userId, {
+    const wf = await this.workflowsService.submit(tenantId, user, {
       definitionCode: 'ra_bill_submit',
       resourceId: id,
       title: `RA Bill ${bill.raNumber} — ₹${bill.netPayable}`,
@@ -1318,7 +1319,7 @@ export class ConstructionService {
     });
     bill.status = 'je_review';
     bill.workflowInstanceId = wf.id;
-    bill.submittedBy = userId;
+    bill.submittedBy = user.sub;
     bill.submittedAt = new Date();
     await this.raBillRepo.save(bill);
     return this.getRaBill(tenantId, projectId, id);
@@ -1946,8 +1947,7 @@ export class ConstructionService {
 
   async actOnResourceWorkflow(
     tenantId: string,
-    userId: string,
-    roles: string[],
+    user: JwtPayload,
     resourceType: 'dpr' | 'measurement_book' | 'invoice' | 'ra_bill',
     resourceId: string,
     dto: WorkflowActionDto,
@@ -1979,15 +1979,15 @@ export class ConstructionService {
     });
     if (!task) throw new BadRequestException('No pending approval task');
 
-    const result = await this.workflowsService.actOnTask(tenantId, userId, roles, task.id, dto);
+    const result = await this.workflowsService.actOnTask(tenantId, user, task.id, dto);
     await this.syncResourceStatus(
       tenantId,
       resourceType,
       resourceId,
       { status: result.instanceStatus, currentStep: result.currentStep },
       dto.action,
-      userId,
-      roles,
+      user.sub,
+      user.roles ?? [],
     );
     return result;
   }

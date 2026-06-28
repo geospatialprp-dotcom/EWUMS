@@ -43,7 +43,7 @@ export class WorkflowsController {
   @Post('submit')
   @ApiOperation({ summary: 'Submit a new workflow instance' })
   submit(@CurrentUser() user: JwtPayload, @Body() dto: SubmitWorkflowDto) {
-    return this.workflowsService.submit(user.tenantId, user.sub, dto);
+    return this.workflowsService.submit(user.tenantId, user, dto);
   }
 
   @Post('tasks/:taskId/act')
@@ -53,12 +53,6 @@ export class WorkflowsController {
     @Param('taskId') taskId: string,
     @Body() dto: ActOnTaskDto,
   ) {
-    return this.workflowsService.actOnTask(
-      user.tenantId,
-      user.sub,
-      user.roles,
-      taskId,
-      dto,
-    );
+    return this.workflowsService.actOnTask(user.tenantId, user, taskId, dto);
   }
 }

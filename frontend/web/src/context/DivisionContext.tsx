@@ -56,7 +56,17 @@ export function DivisionProvider({ children }: { children: ReactNode }) {
     divisionsApi.list()
       .then((res) => {
         const list = (res.data ?? []).map((d: DivisionOption) => d);
-        setDivisions(list.filter((d) => !d.isHeadquarters));
+        const fieldDivisions = list.filter((d) => !d.isHeadquarters);
+        setDivisions(fieldDivisions);
+        setActiveDivisionIdState((current) => {
+          if (!current || fieldDivisions.some((d) => d.id === current)) return current;
+          try {
+            sessionStorage.removeItem(STORAGE_KEY);
+          } catch {
+            /* ignore */
+          }
+          return null;
+        });
       })
       .catch(() => setDivisions([]))
       .finally(() => setLoading(false));

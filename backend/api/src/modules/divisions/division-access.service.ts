@@ -134,8 +134,10 @@ export class DivisionAccessService {
     if (await this.canViewAllDivisions(user)) {
       const active = user.activeDivisionId?.trim();
       if (active) {
-        await this.assertDivisionInTenant(active, tenantId);
-        return [active];
+        const division = await this.divisionRepo.findOne({
+          where: { id: active, tenantId, status: 'active' },
+        });
+        if (division) return [active];
       }
       return null;
     }

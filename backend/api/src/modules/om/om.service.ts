@@ -342,7 +342,7 @@ export class OmService {
     const refreshed = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!refreshed) throw new NotFoundException('Handover record not found');
 
-    const wf = await this.workflowsService.submit(tenantId, userId, {
+    const wf = await this.workflowsService.submit(tenantId, user, {
       definitionCode: 'om_handover',
       resourceId: refreshed.id,
       title: `O&M Handover — ${refreshed.schemeName}`,
@@ -377,7 +377,7 @@ export class OmService {
     });
     if (!task) throw new BadRequestException('No pending approval task');
 
-    const result = await this.workflowsService.actOnTask(tenantId, userId, roles, task.id, dto);
+    const result = await this.workflowsService.actOnTask(tenantId, user, task.id, dto);
 
     if (dto.action === 'reject') {
       record.status = 'rejected';

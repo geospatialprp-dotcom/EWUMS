@@ -3,8 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { DivisionAccessService } from '../divisions/division-access.service';
-import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
-import { DivisionAccessService } from '../divisions/division-access.service';
 import { Asset } from '../assets/entities/asset.entity';
 import { Project } from '../projects/entities/project.entity';
 

@@ -12,6 +12,7 @@ import { workflowsApi, WorkflowInboxItem } from '../services/api';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
 import { useAuth } from '../context/AuthContext';
 import { divisionScopeSubtitle } from '../utils/divisionAccess';
+import { isSuperAdmin, SUPER_ADMIN_VIEW_ONLY_MESSAGE } from '../utils/operationalAccess';
 import BilingualRemarkField from '../components/forms/BilingualRemarkField';
 import { useBilingualRemark } from '../hooks/useBilingualRemark';
 import PageShell from '../components/layout/PageShell';
@@ -35,6 +36,7 @@ export default function WorkflowInboxPage() {
   const { activeDivision } = useDivisionScope();
   const divisionScopeKey = useDivisionScopeKey();
   const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const superAdminViewOnly = isSuperAdmin(user?.roles);
   const scopeSubtitle = divisionScopeSubtitle(canViewAllDivisions, activeDivision);
   const [tab, setTab] = useState(0);
   const [inbox, setInbox] = useState<WorkflowInboxItem[]>([]);
@@ -127,7 +129,7 @@ export default function WorkflowInboxPage() {
         title="Workflow Center"
         subtitle={scopeSubtitle}
         accent="violet"
-        actions={(
+        actions={superAdminViewOnly ? undefined : (
           <Button
             variant="contained"
             startIcon={<SendIcon />}
@@ -139,6 +141,10 @@ export default function WorkflowInboxPage() {
           </Button>
         )}
       />
+
+      {superAdminViewOnly && (
+        <Alert severity="info" sx={{ mb: 2 }}>{SUPER_ADMIN_VIEW_ONLY_MESSAGE}</Alert>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
@@ -191,10 +197,14 @@ export default function WorkflowInboxPage() {
                   <TableCell>{item.stepName}</TableCell>
                   <TableCell>{new Date(item.instance.submittedAt).toLocaleDateString()}</TableCell>
                   <TableCell align="right">
-                    <Button size="small" color="success" startIcon={<CheckCircleIcon />}
-                      onClick={() => { setActionError(''); setActionDialog({ taskId: item.taskId, title: item.instance.title }); }}>
-                      Review
-                    </Button>
+                    {superAdminViewOnly ? (
+                      <Typography variant="caption" color="text.secondary">View only</Typography>
+                    ) : (
+                      <Button size="small" color="success" startIcon={<CheckCircleIcon />}
+                        onClick={() => { setActionError(''); setActionDialog({ taskId: item.taskId, title: item.instance.title }); }}>
+                        Review
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
