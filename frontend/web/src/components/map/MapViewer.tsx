@@ -602,7 +602,7 @@ export default function MapViewer({
 
     const initialBasemapLayers = tileBasemapConfigs
       .map((config) => createBasemapLayer(config))
-      .filter((layer): layer is TileLayer => layer !== null);
+      .filter((layer): layer is BaseLayer => layer !== null);
 
     basemapLayers.current = initialBasemapLayers;
     const defaultBasemapId = activeBasemapId || basemaps[0]?.id || tileBasemapConfigs[0]?.id || 'osm-default';

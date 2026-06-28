@@ -97,11 +97,15 @@ INSERT INTO gis_layer_groups (id, tenant_id, name, sort_order) VALUES
 
 -- GIS layers
 INSERT INTO gis_layers (tenant_id, layer_group_id, name, source_type, source_config, default_style, is_published, sort_order) VALUES
+('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'Satellite (Google Earth style)', 'xyz',
+ '{"url":"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}","attribution":"Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community","maxZoom":19}', '{}', TRUE, 0),
+('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'Satellite + Labels', 'xyz',
+ '{"url":"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}","overlayUrl":"https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places_Alternate/MapServer/tile/{z}/{y}/{x}","attribution":"Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community","maxZoom":19}', '{}', TRUE, 1),
 ('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'OpenStreetMap', 'xyz',
- '{"url":"https://tile.openstreetmap.org/{z}/{x}/{y}.png","attribution":"© OpenStreetMap contributors"}', '{}', TRUE, 0),
+ '{"url":"https://tile.openstreetmap.org/{z}/{x}/{y}.png","attribution":"© OpenStreetMap contributors"}', '{}', TRUE, 2),
 ('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'Google Imagery', 'google',
- '{"mapType":"satellite","attribution":"Imagery © Google","maxZoom":22}', '{}', TRUE, 1),
-('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'None', 'none', '{}', '{}', TRUE, 2),
+ '{"mapType":"satellite","attribution":"Imagery © Google","maxZoom":22}', '{}', TRUE, 3),
+('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'None', 'none', '{}', '{}', TRUE, 4),
 ('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'Reservoirs', 'geojson',
  '{"table":"assets","filter":{"asset_type":"reservoir"}}', '{"fill":"#1565C0"}', TRUE, 1),
 ('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'Pipelines', 'geojson',

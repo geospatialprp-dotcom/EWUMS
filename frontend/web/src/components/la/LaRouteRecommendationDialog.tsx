@@ -11,7 +11,7 @@ import type { FeatureCollection, LineString, Point } from 'geojson';
 import axios from 'axios';
 import MapViewer from '../map/MapViewer';
 import { landAcquisitionApi } from '../../services/api';
-import { UTTARAKHAND_STATE_MAP_VIEW, type BasemapConfig } from '../../utils/basemapLayers';
+import { UTTARAKHAND_STATE_MAP_VIEW, LA_MAP_BASEMAPS } from '../../utils/basemapLayers';
 import LaLinkProjectPanel from './LaLinkProjectPanel';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import {
@@ -22,19 +22,6 @@ import {
   summarizePipelineNetwork,
   toFeatureCollection,
 } from '../../utils/pipelineNetworkImport';
-
-const LA_BASEMAPS: BasemapConfig[] = [
-  {
-    id: 'osm',
-    name: 'OpenStreetMap',
-    sourceType: 'xyz',
-    sourceConfig: {
-      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    },
-  },
-];
 
 const ROUTE_COLORS: Record<string, string> = {
   imported: '#ea580c',
@@ -671,8 +658,8 @@ export default function LaRouteRecommendationDialog({
 
         <Box sx={{ height: 360, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider', mb: 2 }}>
           <MapViewer
-            basemaps={LA_BASEMAPS}
-            activeBasemapId="osm"
+            basemaps={LA_MAP_BASEMAPS}
+            activeBasemapId="satellite-esri"
             overlayLayers={overlayLayers}
             center={UTTARAKHAND_STATE_MAP_VIEW.center}
             zoom={UTTARAKHAND_STATE_MAP_VIEW.zoom}

@@ -1,10 +1,18 @@
 import TileLayer from 'ol/layer/Tile';
+import LayerGroup from 'ol/layer/Group';
 import WebGLTile from 'ol/layer/WebGLTile';
 import type BaseLayer from 'ol/layer/Base';
 import Google from 'ol/source/Google';
 import GeoTIFF from 'ol/source/GeoTIFF';
 import XYZ from 'ol/source/XYZ';
 import { fetchAuthenticatedArrayBuffer } from './orthomosaicBasemap';
+
+const ESRI_WORLD_IMAGERY_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const ESRI_REFERENCE_LABELS_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places_Alternate/MapServer/tile/{z}/{y}/{x}';
+const ESRI_ATTRIBUTION =
+  'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community';
 
 export interface BasemapConfig {
   id: string;
@@ -17,8 +25,96 @@ export interface BasemapConfig {
     mapType?: string;
     apiKey?: string;
     fileName?: string;
+    overlayUrl?: string;
+    overlayAttribution?: string;
   };
 }
+
+export const ESRI_SATELLITE_BASEMAP: BasemapConfig = {
+  id: 'satellite-esri',
+  name: 'Satellite (Google Earth style)',
+  sourceType: 'xyz',
+  sourceConfig: {
+    url: ESRI_WORLD_IMAGERY_URL,
+    attribution: ESRI_ATTRIBUTION,
+    maxZoom: 19,
+  },
+};
+
+export const ESRI_HYBRID_BASEMAP: BasemapConfig = {
+  id: 'hybrid-esri',
+  name: 'Satellite + Labels',
+  sourceType: 'xyz',
+  sourceConfig: {
+    url: ESRI_WORLD_IMAGERY_URL,
+    overlayUrl: ESRI_REFERENCE_LABELS_URL,
+    attribution: ESRI_ATTRIBUTION,
+    maxZoom: 19,
+  },
+};
+
+export const GOOGLE_SATELLITE_BASEMAP: BasemapConfig = {
+  id: 'google-satellite',
+  name: 'Google Satellite',
+  sourceType: 'google',
+  sourceConfig: {
+    mapType: 'satellite',
+    attribution: 'Imagery © Google',
+    maxZoom: 22,
+  },
+};
+
+export const GOOGLE_HYBRID_BASEMAP: BasemapConfig = {
+  id: 'google-hybrid',
+  name: 'Google Hybrid',
+  sourceType: 'google',
+  sourceConfig: {
+    mapType: 'hybrid',
+    attribution: 'Imagery © Google',
+    maxZoom: 22,
+  },
+};
+
+export const OPENSTREETMAP_BASEMAP: BasemapConfig = {
+  id: 'osm-default',
+  name: 'OpenStreetMap',
+  sourceType: 'xyz',
+  sourceConfig: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  },
+};
+
+export const BLANK_BASEMAP: BasemapConfig = {
+  id: 'basemap-none',
+  name: 'None',
+  sourceType: 'none',
+  sourceConfig: {},
+};
+
+export function hasGoogleMapsApiKey(): boolean {
+  const fromEnv = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  return typeof fromEnv === 'string' && fromEnv.trim().length > 0;
+}
+
+export function buildOptionalGoogleBasemaps(): BasemapConfig[] {
+  if (!hasGoogleMapsApiKey()) return [];
+  return [GOOGLE_SATELLITE_BASEMAP, GOOGLE_HYBRID_BASEMAP];
+}
+
+/** Satellite-first basemaps for Map Explorer fallback and LA map panels. */
+export function buildSatelliteFirstBasemaps(osmId = 'osm-default'): BasemapConfig[] {
+  return [
+    ESRI_SATELLITE_BASEMAP,
+    ESRI_HYBRID_BASEMAP,
+    ...buildOptionalGoogleBasemaps(),
+    { ...OPENSTREETMAP_BASEMAP, id: osmId },
+    BLANK_BASEMAP,
+  ];
+}
+
+export const LA_MAP_BASEMAPS: BasemapConfig[] = buildSatelliteFirstBasemaps('osm');
 
 /** Default Map Explorer view — worldwide, WGS 84 geographic (EPSG:4326). */
 export const WORLD_VIEW_WGS84 = {
@@ -35,23 +131,7 @@ export const UTTARAKHAND_STATE_MAP_VIEW = {
 };
 
 /** Shown when API layer catalog is empty or unavailable. */
-export const DEFAULT_FALLBACK_BASEMAPS: BasemapConfig[] = [
-  {
-    id: 'osm-default',
-    name: 'OpenStreetMap',
-    sourceType: 'xyz',
-    sourceConfig: {
-      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  {
-    id: 'basemap-none',
-    name: 'None',
-    sourceType: 'none',
-    sourceConfig: {},
-  },
-];
+export const DEFAULT_FALLBACK_BASEMAPS: BasemapConfig[] = buildSatelliteFirstBasemaps();
 
 export const DEFAULT_MAP_LAYER_CATALOG = [
   {
@@ -92,7 +172,23 @@ function resolveGoogleApiKey(config: BasemapConfig): string | undefined {
   return undefined;
 }
 
-export function createBasemapLayer(config: BasemapConfig): TileLayer | null {
+function createXyzTileLayer(
+  url: string,
+  config: BasemapConfig,
+  attribution?: string,
+): TileLayer {
+  return new TileLayer({
+    source: new XYZ({
+      url,
+      attributions: attribution ?? config.sourceConfig.attribution,
+      maxZoom: config.sourceConfig.maxZoom ?? 19,
+      crossOrigin: 'anonymous',
+    }),
+    zIndex: 0,
+  });
+}
+
+export function createBasemapLayer(config: BasemapConfig): BaseLayer | null {
   if (isBlankBasemap(config) || isGeoTiffBasemap(config)) return null;
 
   if (isGoogleBasemap(config)) {
@@ -120,6 +216,22 @@ export function createBasemapLayer(config: BasemapConfig): TileLayer | null {
     throw new Error(`Basemap "${config.name}" is missing a tile URL.`);
   }
 
+  const overlayUrl = config.sourceConfig.overlayUrl?.trim();
+  if (overlayUrl) {
+    return new LayerGroup({
+      layers: [
+        createXyzTileLayer(url, config),
+        createXyzTileLayer(
+          overlayUrl,
+          config,
+          config.sourceConfig.overlayAttribution ?? config.sourceConfig.attribution,
+        ),
+      ],
+      properties: { basemapId: config.id, basemapName: config.name },
+      zIndex: 0,
+    });
+  }
+
   return new TileLayer({
     source: new XYZ({
       url,
@@ -130,6 +242,37 @@ export function createBasemapLayer(config: BasemapConfig): TileLayer | null {
     properties: { basemapId: config.id, basemapName: config.name },
     zIndex: 0,
   });
+}
+
+/** Prefer Esri or Google satellite basemaps from a layer catalog group. */
+export function findSatelliteImageryBasemap(
+  layers: Array<{ id: string; name: string; sourceType: string; sourceConfig?: BasemapConfig['sourceConfig'] }>,
+): { id: string; name: string; sourceType: string; sourceConfig?: BasemapConfig['sourceConfig'] } | undefined {
+  const byId = layers.find((layer) => layer.id === ESRI_SATELLITE_BASEMAP.id);
+  if (byId) return byId;
+
+  const esriByName = layers.find(
+    (layer) =>
+      layer.name === ESRI_SATELLITE_BASEMAP.name
+      || layer.name === 'Satellite Imagery',
+  );
+  if (esriByName) return esriByName;
+
+  const esriByUrl = layers.find(
+    (layer) =>
+      layer.sourceType === 'xyz'
+      && typeof layer.sourceConfig?.url === 'string'
+      && layer.sourceConfig.url.includes('World_Imagery'),
+  );
+  if (esriByUrl) return esriByUrl;
+
+  if (!hasGoogleMapsApiKey()) return undefined;
+
+  return layers.find(
+    (layer) =>
+      layer.name === 'Google Imagery'
+      || (layer.sourceType === 'google' && layer.sourceConfig?.mapType === 'satellite'),
+  );
 }
 
 export async function createGeoTiffBasemapLayer(config: BasemapConfig): Promise<WebGLTile | null> {

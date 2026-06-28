@@ -22,7 +22,11 @@ import { useAuth } from '../context/AuthContext';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
 import { coordinateValueForField, findCoordinateFields } from '../utils/coordinateFields';
 import type { BasemapConfig } from '../utils/basemapLayers';
-import { UTTARAKHAND_STATE_MAP_VIEW, DEFAULT_MAP_LAYER_CATALOG } from '../utils/basemapLayers';
+import {
+  UTTARAKHAND_STATE_MAP_VIEW,
+  DEFAULT_MAP_LAYER_CATALOG,
+  findSatelliteImageryBasemap,
+} from '../utils/basemapLayers';
 import { buildOrthoBasemap, hasOrthomosaicBasemap, projectOrthoBasemapId } from '../utils/orthomosaicBasemap';
 import type { GeocodeResult } from '../utils/geocoding';
 import { normalizeMapFeature, toGeoFeatureCollection } from '../utils/mapGeoJson';
@@ -528,15 +532,17 @@ export default function MapPage() {
       const vis: Record<string, boolean> = {};
       const basemapGroup = catalog.find((group) => group.name === BASEMAP_GROUP_NAME);
       const defaultBasemap = basemapGroup?.layers[0];
+      const satelliteBasemap = findSatelliteImageryBasemap(basemapGroup?.layers ?? []);
       const googleBasemap = basemapGroup?.layers.find(
         (layer) => layer.name === 'Google Imagery' || layer.sourceType === 'google',
       );
       const legacySatelliteBasemap = basemapGroup?.layers.find((layer) => layer.name === 'Satellite Imagery');
-      const imageryBasemap = googleBasemap ?? legacySatelliteBasemap;
+      const imageryBasemap = satelliteBasemap ?? googleBasemap ?? legacySatelliteBasemap;
       const preferredBasemap = (basemapParam === 'google' || basemapParam === 'satellite') && imageryBasemap
         ? imageryBasemap
         : undefined;
       const initialBasemap = preferredBasemap
+        ?? satelliteBasemap
         ?? defaultBasemap
         ?? basemapGroup?.layers.find((layer) => layer.sourceType === 'xyz')
         ?? basemapGroup?.layers.find((layer) => layer.sourceType !== 'none');

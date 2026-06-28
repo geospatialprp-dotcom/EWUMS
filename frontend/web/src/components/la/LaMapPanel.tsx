@@ -7,8 +7,7 @@ import PublishOutlinedIcon from '@mui/icons-material/PublishOutlined';
 import type { Feature, FeatureCollection } from 'geojson';
 import buffer from '@turf/buffer';
 import MapViewer from '../map/MapViewer';
-import type { BasemapConfig } from '../../utils/basemapLayers';
-import { UTTARAKHAND_STATE_MAP_VIEW } from '../../utils/basemapLayers';
+import { UTTARAKHAND_STATE_MAP_VIEW, LA_MAP_BASEMAPS } from '../../utils/basemapLayers';
 import { LA_GIS_VIZ_COLORS, LA_MAP_MARKER_COLORS, LA_MAP_MARKER_LABELS, isClearancePendingApproval } from '../../constants/laGisVisualization';
 import LaGisVisualizationLegend from './LaGisVisualizationLegend';
 import {
@@ -27,19 +26,6 @@ import {
 } from '../../utils/laAcquisitionMapPublish';
 import { openLaDocumentHtml } from '../../utils/laDocumentPdf';
 import type { MapSnapshotResult } from '../../utils/mapSnapshot';
-
-const LA_BASEMAPS: BasemapConfig[] = [
-  {
-    id: 'osm',
-    name: 'OpenStreetMap',
-    sourceType: 'xyz',
-    sourceConfig: {
-      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    },
-  },
-];
 
 const PIPELINE_COVER_COLOR = LA_GIS_VIZ_COLORS.road_corridor;
 const PIPELINE_CENTERLINE_COLOR = '#1e40af';
@@ -1021,8 +1007,8 @@ export default function LaMapPanel({
         <Grid item xs={12} lg={8}>
           <Box sx={{ height: 420, position: 'relative' }}>
             <MapViewer
-              basemaps={LA_BASEMAPS}
-              activeBasemapId="osm"
+              basemaps={LA_MAP_BASEMAPS}
+              activeBasemapId="satellite-esri"
               overlayLayers={overlayLayers}
               center={UTTARAKHAND_STATE_MAP_VIEW.center}
               zoom={UTTARAKHAND_STATE_MAP_VIEW.zoom}
