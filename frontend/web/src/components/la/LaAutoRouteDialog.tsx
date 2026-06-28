@@ -70,6 +70,11 @@ type Props = {
   onApplied: () => void;
   onProjectLinked?: () => void;
   criteria?: CriteriaRow[];
+  /** Shared across Auto Route and AI Route Compare for this case session */
+  importedPipelineNetwork?: FeatureCollection | null;
+  onImportedPipelineNetworkChange?: (network: FeatureCollection | null) => void;
+  importedPipelineFileName?: string | null;
+  onImportedPipelineFileNameChange?: (name: string | null) => void;
 };
 
 function getApiError(err: unknown, fallback: string): string {
@@ -122,6 +127,10 @@ function pointCoords(geom: Point): [number, number] | null {
 
 export default function LaAutoRouteDialog({
   caseId, projectId, open, onClose, onApplied, onProjectLinked, criteria = [],
+  importedPipelineNetwork: sharedImportedNetwork,
+  onImportedPipelineNetworkChange,
+  importedPipelineFileName: sharedImportFileName,
+  onImportedPipelineFileNameChange,
 }: Props) {
   const fileInputId = useId();
   const [pickMode, setPickMode] = useState<'start' | 'end'>('start');
@@ -132,8 +141,22 @@ export default function LaAutoRouteDialog({
   const [routeResults, setRouteResults] = useState<Record<string, unknown> | null>(null);
   const [selectedRouteKey, setSelectedRouteKey] = useState('imported');
   const [resultsTab, setResultsTab] = useState(0);
-  const [importedNetwork, setImportedNetwork] = useState<FeatureCollection | null>(null);
-  const [importFileName, setImportFileName] = useState('');
+  const [localImportedNetwork, setLocalImportedNetwork] = useState<FeatureCollection | null>(null);
+  const importedNetwork = onImportedPipelineNetworkChange
+    ? (sharedImportedNetwork ?? null)
+    : localImportedNetwork;
+  const setImportedNetwork = useCallback((network: FeatureCollection | null) => {
+    if (onImportedPipelineNetworkChange) onImportedPipelineNetworkChange(network);
+    else setLocalImportedNetwork(network);
+  }, [onImportedPipelineNetworkChange]);
+  const [localImportFileName, setLocalImportFileName] = useState('');
+  const importFileName = onImportedPipelineFileNameChange
+    ? (sharedImportFileName ?? '')
+    : localImportFileName;
+  const setImportFileName = useCallback((name: string) => {
+    if (onImportedPipelineFileNameChange) onImportedPipelineFileNameChange(name || null);
+    else setLocalImportFileName(name);
+  }, [onImportedPipelineFileNameChange]);
   const [importParsing, setImportParsing] = useState(false);
   const [useNetworkEndpoints, setUseNetworkEndpoints] = useState(true);
   const [useImportedAsCorridor, setUseImportedAsCorridor] = useState(true);
@@ -338,6 +361,16 @@ export default function LaAutoRouteDialog({
     }
   }, [pickMode, invalidatePendingRequests]);
 
+  const applyImportedEndpoints = useCallback((collection: FeatureCollection) => {
+    const lineFc = toFeatureCollection(groupFeaturesByGeometryType(collection).lines);
+    const endpoints = extractNetworkEndpoints(lineFc);
+    if (!endpoints) return false;
+    setStart(endpoints.start);
+    setEnd(endpoints.end);
+    setPickMode('end');
+    return true;
+  }, []);
+
   const handleImportFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     setImportParsing(true);
@@ -350,11 +383,7 @@ export default function LaAutoRouteDialog({
       setRouteResults(null);
 
       if (useNetworkEndpoints) {
-        const endpoints = extractNetworkEndpoints(collection);
-        if (endpoints) {
-          setStart(endpoints.start);
-          setEnd(endpoints.end);
-        }
+        applyImportedEndpoints(collection);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to parse pipeline network file');
@@ -367,13 +396,10 @@ export default function LaAutoRouteDialog({
 
   const applyNetworkEndpoints = () => {
     if (!importedNetwork) return;
-    const endpoints = extractNetworkEndpoints(importedNetwork);
-    if (!endpoints) {
+    if (!applyImportedEndpoints(importedNetwork)) {
       setError('Imported network has no LineString features for endpoint detection');
       return;
     }
-    setStart(endpoints.start);
-    setEnd(endpoints.end);
     setPreview(null);
     setRouteResults(null);
     setError('');
@@ -475,10 +501,19 @@ export default function LaAutoRouteDialog({
       });
   };
 
+  const canApplyImportedCorridor = Boolean(
+    importedNetwork?.features.length && useImportedAsCorridor,
+  );
+
   const applySelectedRoute = () => {
     const route = routes.find((r) => r.key === selectedRouteKey);
     if (route?.geometry) {
       applyRoute(route.geometry);
+      return;
+    }
+    const previewGeom = preview?.geometry as LineString | undefined;
+    if (previewGeom?.coordinates?.length) {
+      applyRoute(previewGeom);
       return;
     }
     applyRoute();
@@ -802,7 +837,7 @@ export default function LaAutoRouteDialog({
         <Button
           variant="contained"
           startIcon={<SaveOutlinedIcon />}
-          disabled={(!preview && !hasResults) || busy || !projectId}
+          disabled={(!preview && !hasResults && !canApplyImportedCorridor) || busy || !projectId}
           onClick={() => applySelectedRoute()}
         >
           {hasResults ? `Apply ${selectedRoute?.label ?? 'Route'}` : 'Apply & Trace'}

@@ -19,6 +19,9 @@ import {
 
 type UtmPoint = { x: number; y: number };
 type GridCell = { idx: number; i: number; j: number; x: number; y: number };
+export type RouteGeometry =
+  | { type: 'LineString'; coordinates: [number, number][] }
+  | { type: 'MultiLineString'; coordinates: [number, number][][] };
 type CostRow = {
   idx: number;
   cost: number;
@@ -51,7 +54,7 @@ export type AutoRouteInput = {
 };
 
 export type AutoRouteResult = {
-  geometry: { type: 'LineString'; coordinates: [number, number][] };
+  geometry: RouteGeometry;
   lengthM: number;
   gridCellSizeM: number;
   cellCount: number;
@@ -74,7 +77,7 @@ export type RouteAlternativeResult = {
   key: string;
   label: string;
   description: string;
-  geometry: { type: 'LineString'; coordinates: [number, number][] };
+  geometry: RouteGeometry;
   lengthM: number;
   scores: AutoRouteResult['scores'];
   metrics: RouteComparisonMetrics;
@@ -185,9 +188,17 @@ export class LaAutoRouteService {
     let start = input.start;
     let end = input.end;
     if (input.snapToImportedNetwork !== false && mergedImported?.coordinates?.length) {
-      const snapped = await this.snapEndpointsToLine(start, end, mergedImported);
-      start = snapped.start;
-      end = snapped.end;
+      if (input.useImportedAsCorridor !== false) {
+        const extent = await this.extractNetworkExtentEndpoints(mergedImported);
+        if (extent) {
+          start = extent.start;
+          end = extent.end;
+        }
+      } else {
+        const snapped = await this.snapEndpointsToLine(start, end, mergedImported);
+        start = snapped.start;
+        end = snapped.end;
+      }
     }
 
     const networkCorridors = input.useImportedAsCorridor !== false && networkLines.length
@@ -226,7 +237,7 @@ export class LaAutoRouteService {
         recommendations,
         isExisting: true,
       });
-      avoidCorridors.push(importedRoute.geometry);
+      avoidCorridors.push(...this.flattenRouteGeometry(importedRoute.geometry));
     }
 
     for (const profile of LA_ROUTE_VARIANT_PROFILES) {
@@ -263,7 +274,7 @@ export class LaAutoRouteService {
         });
       }
 
-      avoidCorridors.push(route.geometry);
+      avoidCorridors.push(...this.flattenRouteGeometry(route.geometry));
 
       const affectedOwners = await this.estimateAffectedOwners(
         input.tenantId,
@@ -321,7 +332,7 @@ export class LaAutoRouteService {
   async estimateAffectedOwners(
     tenantId: string,
     projectId: string,
-    geometry: { type: 'LineString'; coordinates: [number, number][] },
+    geometry: RouteGeometry,
     rowWidthM: number,
   ): Promise<number> {
     const rows = await this.dataSource.query(
@@ -398,7 +409,7 @@ export class LaAutoRouteService {
   async buildRouteFromExistingGeometry(
     tenantId: string,
     projectId: string,
-    geometry: { type: 'LineString'; coordinates: [number, number][] },
+    geometry: RouteGeometry,
     gridCellSizeM?: number,
     weights?: Partial<Record<string, number>>,
   ): Promise<AutoRouteResult> {
@@ -411,15 +422,46 @@ export class LaAutoRouteService {
     );
   }
 
+  isValidRouteGeometry(geometry: RouteGeometry | undefined | null): boolean {
+    if (!geometry?.coordinates) return false;
+
+    if (geometry.type === 'LineString') {
+      const coords = geometry.coordinates;
+      return coords.length >= 2 && this.hasDistinctVertices(coords);
+    }
+
+    if (geometry.type === 'MultiLineString') {
+      const parts = geometry.coordinates;
+      if (!parts.length) return false;
+      for (const part of parts) {
+        if (part.length >= 2 && this.hasDistinctVertices(part)) return true;
+      }
+      const flat = parts.flat();
+      return flat.length >= 2 && this.hasDistinctVertices(flat);
+    }
+
+    return false;
+  }
+
+  private hasDistinctVertices(coords: [number, number][]): boolean {
+    if (coords.length < 2) return false;
+    const [firstLon, firstLat] = coords[0];
+    for (let i = 1; i < coords.length; i += 1) {
+      const [lon, lat] = coords[i];
+      if (lon !== firstLon || lat !== firstLat) return true;
+    }
+    return false;
+  }
+
   private async buildRouteFromGeometry(
     tenantId: string,
     projectId: string,
-    geometry: { type: 'LineString'; coordinates: [number, number][] },
+    geometry: RouteGeometry,
     cellSize: number,
     weights: Partial<Record<string, number>>,
   ): Promise<AutoRouteResult> {
     const normalized = normalizeRoutingWeights(weights);
-    const lengthM = await this.lineLengthM(geometry.coordinates);
+    const lengthM = await this.lineLengthMGeometry(geometry);
     const bbox = await this.geometryBboxUtm(geometry);
     const grid = this.buildGrid(
       { x: bbox.minX, y: bbox.minY },
@@ -443,7 +485,7 @@ export class LaAutoRouteService {
     };
   }
 
-  private async geometryBboxUtm(geometry: { type: 'LineString'; coordinates: [number, number][] }) {
+  private async geometryBboxUtm(geometry: RouteGeometry) {
     const rows = await this.dataSource.query(
       `SELECT
          ST_XMin(g) AS min_x, ST_XMax(g) AS max_x,
@@ -463,7 +505,7 @@ export class LaAutoRouteService {
   }
 
   private async sampleLineToGridCells(
-    geometry: { type: 'LineString'; coordinates: [number, number][] },
+    geometry: RouteGeometry,
     grid: GridCell[],
   ): Promise<GridCell[]> {
     const rows = await this.dataSource.query(
@@ -559,6 +601,13 @@ export class LaAutoRouteService {
     }
   }
 
+  private flattenRouteGeometry(
+    geometry: RouteGeometry,
+  ): Array<{ type: 'LineString'; coordinates: [number, number][] }> {
+    if (geometry.type === 'LineString') return [geometry];
+    return geometry.coordinates.map((coordinates) => ({ type: 'LineString', coordinates }));
+  }
+
   async extractLineStringsFromNetwork(network: {
     type: 'FeatureCollection';
     features?: Array<{ geometry?: { type: string; coordinates: unknown } } | null>;
@@ -606,7 +655,14 @@ export class LaAutoRouteService {
 
   async mergeLineStrings(
     lines: Array<{ type: 'LineString'; coordinates: [number, number][] }>,
-  ): Promise<{ type: 'LineString'; coordinates: [number, number][] } | null> {
+  ): Promise<RouteGeometry | null> {
+    return this.mergeNetworkGeometry(lines);
+  }
+
+  /** Merge imported segments; returns MultiLineString when lines remain disconnected. */
+  async mergeNetworkGeometry(
+    lines: Array<{ type: 'LineString'; coordinates: [number, number][] }>,
+  ): Promise<RouteGeometry | null> {
     if (!lines.length) return null;
     const rows = await this.dataSource.query(
       `SELECT ST_AsGeoJSON(ST_LineMerge(ST_Union(geom)))::json AS geom
@@ -615,33 +671,97 @@ export class LaAutoRouteService {
          FROM jsonb_array_elements($1::jsonb) elem
        ) t`,
       [JSON.stringify(lines)],
-    ) as Array<{ geom: { type: string; coordinates: [number, number][] } | null }>;
+    ) as Array<{ geom: { type: string; coordinates: unknown } | null }>;
     const geom = rows[0]?.geom;
-    if (!geom || geom.type !== 'LineString' || !geom.coordinates?.length) return lines[0] ?? null;
-    return { type: 'LineString', coordinates: geom.coordinates };
+    if (!geom?.coordinates) return lines[0] ?? null;
+    if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
+      return geom as RouteGeometry;
+    }
+    return lines[0] ?? null;
   }
 
   async snapEndpointsToLine(
     start: [number, number],
     end: [number, number],
-    line: { type: 'LineString'; coordinates: [number, number][] },
+    line: RouteGeometry,
   ): Promise<{ start: [number, number]; end: [number, number] }> {
+    const startSameAsEnd = start[0] === end[0] && start[1] === end[1];
     const rows = await this.dataSource.query(
-      `WITH line AS (
-         SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
-       )
-       SELECT
-         ST_X(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($2, $3), 4326))) AS start_lon,
-         ST_Y(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($2, $3), 4326))) AS start_lat,
-         ST_X(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($4, $5), 4326))) AS end_lon,
-         ST_Y(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($4, $5), 4326))) AS end_lat
-       FROM line`,
-      [JSON.stringify(line), start[0], start[1], end[0], end[1]],
+      startSameAsEnd
+        ? `WITH merged AS (
+             SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
+           ),
+           longest AS (
+             SELECT d.geom
+             FROM merged, LATERAL ST_Dump(merged.geom) AS d
+             ORDER BY ST_Length(d.geom::geography) DESC
+             LIMIT 1
+           )
+           SELECT
+             ST_X(ST_StartPoint(longest.geom)) AS start_lon,
+             ST_Y(ST_StartPoint(longest.geom)) AS start_lat,
+             ST_X(ST_EndPoint(longest.geom)) AS end_lon,
+             ST_Y(ST_EndPoint(longest.geom)) AS end_lat
+           FROM longest`
+        : `WITH line AS (
+             SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS geom
+           )
+           SELECT
+             ST_X(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($2, $3), 4326))) AS start_lon,
+             ST_Y(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($2, $3), 4326))) AS start_lat,
+             ST_X(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($4, $5), 4326))) AS end_lon,
+             ST_Y(ST_ClosestPoint(line.geom, ST_SetSRID(ST_MakePoint($4, $5), 4326))) AS end_lat
+           FROM line`,
+      startSameAsEnd
+        ? [JSON.stringify(line)]
+        : [JSON.stringify(line), start[0], start[1], end[0], end[1]],
     ) as Array<{ start_lon: number; start_lat: number; end_lon: number; end_lat: number }>;
     const r = rows[0];
     if (!r) {
       return { start, end };
     }
+    const snappedStart: [number, number] = [Number(r.start_lon), Number(r.start_lat)];
+    const snappedEnd: [number, number] = [Number(r.end_lon), Number(r.end_lat)];
+    if (snappedStart[0] === snappedEnd[0] && snappedStart[1] === snappedEnd[1]) {
+      const extent = await this.extractNetworkExtentEndpoints(line);
+      if (extent) return extent;
+    }
+    return { start: snappedStart, end: snappedEnd };
+  }
+
+  async extractNetworkExtentEndpoints(
+    geometry: RouteGeometry,
+  ): Promise<{ start: [number, number]; end: [number, number] } | null> {
+    const rows = await this.dataSource.query(
+      `WITH dumped AS (
+         SELECT (ST_Dump(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))).geom AS geom
+       ),
+       endpoints AS (
+         SELECT ST_StartPoint(geom) AS pt FROM dumped
+         UNION ALL
+         SELECT ST_EndPoint(geom) AS pt FROM dumped
+       ),
+       pairs AS (
+         SELECT
+           a.pt AS start_pt,
+           b.pt AS end_pt,
+           ST_Distance(a.pt::geography, b.pt::geography) AS dist
+         FROM endpoints a
+         CROSS JOIN endpoints b
+         WHERE a.pt <> b.pt
+       )
+       SELECT
+         ST_X(start_pt) AS start_lon,
+         ST_Y(start_pt) AS start_lat,
+         ST_X(end_pt) AS end_lon,
+         ST_Y(end_pt) AS end_lat
+       FROM pairs
+       ORDER BY dist DESC
+       LIMIT 1`,
+      [JSON.stringify(geometry)],
+    ) as Array<{ start_lon: number; start_lat: number; end_lon: number; end_lat: number }>;
+    const r = rows[0];
+    if (!r) return null;
     return {
       start: [Number(r.start_lon), Number(r.start_lat)],
       end: [Number(r.end_lon), Number(r.end_lat)],
@@ -680,7 +800,7 @@ export class LaAutoRouteService {
     projectId: string,
     featureClassId: string,
     userId: string,
-    geometry: { type: 'LineString'; coordinates: [number, number][] },
+    geometry: RouteGeometry,
     replaceAutoGenerated = true,
   ): Promise<string> {
     if (replaceAutoGenerated) {
@@ -994,12 +1114,16 @@ export class LaAutoRouteService {
     return rows[0]?.coords ?? coords;
   }
 
-  private async lineLengthM(coords: [number, number][]): Promise<number> {
+  private async lineLengthMGeometry(geometry: RouteGeometry): Promise<number> {
     const rows = await this.dataSource.query(
       `SELECT ST_Length(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)::geography) AS len`,
-      [JSON.stringify({ type: 'LineString', coordinates: coords })],
+      [JSON.stringify(geometry)],
     ) as Array<{ len: string }>;
     return Number(rows[0]?.len ?? 0);
+  }
+
+  private async lineLengthM(coords: [number, number][]): Promise<number> {
+    return this.lineLengthMGeometry({ type: 'LineString', coordinates: coords });
   }
 
   private scorePath(path: GridCell[], costMap: Map<number, CostRow>, cellSize: number) {

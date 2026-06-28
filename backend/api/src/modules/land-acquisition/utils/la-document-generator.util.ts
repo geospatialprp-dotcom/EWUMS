@@ -365,7 +365,7 @@ const GENERATORS: Record<string, (ctx: LaDocumentContext) => string> = {
   acquisition_map: (ctx) => {
     const body = `${caseMeta(ctx)}
       <h3>Acquisition Map — Alignment & ROW</h3>
-      <p class="para">Pipeline alignment length: ${ctx.alignmentLengthM ? `${ctx.alignmentLengthM.toFixed(0)} m` : 'See GIS alignment layer'}. Corridor buffer and intersection parcels are digitised in EGIP.</p>
+      <p class="para">Pipeline alignment length: ${ctx.alignmentLengthM ? `${ctx.alignmentLengthM.toFixed(0)} m` : 'See GIS alignment layer'}. Corridor buffer (pipeline cover), centerline, and start/end circle markers are shown on the EGIP Acquisition Map tab. Use <strong>Publish Acquisition Map</strong> for a printable map with legend and detected clearances.</p>
       <h3>Parcels intersecting acquisition corridor</h3>
       ${table(['Khasra', 'Village', 'Area m²', 'Mode'], ctx.parcels.map((p) => [esc(p.khasraNo), esc(p.village), String(p.affectedAreaSqm ?? 0), esc(p.acquisitionMode)]))}`;
     return renderLaDocumentShell('Acquisition Map', ctx.caseNo, body, ctx.generatedAt);

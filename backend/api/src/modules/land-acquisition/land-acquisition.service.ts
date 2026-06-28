@@ -65,7 +65,7 @@ import {
   generateLaDocumentHtml,
   type LaDocumentContext,
 } from './utils/la-document-generator.util';
-import { LaAutoRouteService } from './la-auto-route.service';
+import { LaAutoRouteService, type RouteGeometry } from './la-auto-route.service';
 import { classifyParcelOwnership } from './utils/la-ownership-classification.util';
 import {
   classifyAcquisition,
@@ -1126,23 +1126,43 @@ export class LandAcquisitionService {
     if (dto.snapToImportedNetwork !== false && networkLines.length) {
       const merged = await this.autoRouteService.mergeLineStrings(networkLines);
       if (merged) {
-        const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, merged);
-        start = snapped.start;
-        end = snapped.end;
+        if (dto.useImportedAsCorridor !== false) {
+          const extent = await this.autoRouteService.extractNetworkExtentEndpoints(merged);
+          if (extent) {
+            start = extent.start;
+            end = extent.end;
+          }
+        } else {
+          const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, merged);
+          start = snapped.start;
+          end = snapped.end;
+        }
       }
     }
 
-    const route = await this.autoRouteService.generateRoute({
-      tenantId,
-      projectId: laCase.projectId,
-      start,
-      end,
-      gridCellSizeM: dto.gridCellSizeM,
-      weights: dto.weights,
-      networkCorridors,
-      networkCorridorBufferM: 60,
-      networkCorridorMultiplier: 0.45,
-    });
+    const mergedImported = networkLines.length
+      ? await this.autoRouteService.mergeLineStrings(networkLines)
+      : null;
+
+    const route = mergedImported && dto.useImportedAsCorridor !== false
+      ? await this.autoRouteService.buildRouteFromExistingGeometry(
+        tenantId,
+        laCase.projectId,
+        mergedImported,
+        dto.gridCellSizeM,
+        dto.weights,
+      )
+      : await this.autoRouteService.generateRoute({
+        tenantId,
+        projectId: laCase.projectId,
+        start,
+        end,
+        gridCellSizeM: dto.gridCellSizeM,
+        weights: dto.weights,
+        networkCorridors,
+        networkCorridorBufferM: 60,
+        networkCorridorMultiplier: 0.45,
+      });
 
     return {
       ...route,
@@ -1171,33 +1191,58 @@ export class LandAcquisitionService {
     if (dto.snapToImportedNetwork !== false && networkLines.length) {
       const merged = await this.autoRouteService.mergeLineStrings(networkLines);
       if (merged) {
-        const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, merged);
-        start = snapped.start;
-        end = snapped.end;
+        if (dto.useImportedAsCorridor !== false) {
+          const extent = await this.autoRouteService.extractNetworkExtentEndpoints(merged);
+          if (extent) {
+            start = extent.start;
+            end = extent.end;
+          }
+        } else {
+          const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, merged);
+          start = snapped.start;
+          end = snapped.end;
+        }
       }
     }
+
+    const mergedImported = networkLines.length
+      ? await this.autoRouteService.mergeLineStrings(networkLines)
+      : null;
 
     const route = dto.geometry
       ? await this.autoRouteService.buildRouteFromExistingGeometry(
         tenantId,
         laCase.projectId,
-        dto.geometry,
+        dto.geometry as RouteGeometry,
         dto.gridCellSizeM,
         dto.weights,
       )
-      : await this.autoRouteService.generateRoute({
-        tenantId,
-        projectId: laCase.projectId,
-        start,
-        end,
-        gridCellSizeM: dto.gridCellSizeM,
-        weights: dto.weights,
-        networkCorridors,
-        networkCorridorBufferM: 60,
-        networkCorridorMultiplier: 0.45,
-      });
+      : mergedImported && dto.useImportedAsCorridor !== false
+        ? await this.autoRouteService.buildRouteFromExistingGeometry(
+          tenantId,
+          laCase.projectId,
+          mergedImported,
+          dto.gridCellSizeM,
+          dto.weights,
+        )
+        : await this.autoRouteService.generateRoute({
+          tenantId,
+          projectId: laCase.projectId,
+          start,
+          end,
+          gridCellSizeM: dto.gridCellSizeM,
+          weights: dto.weights,
+          networkCorridors,
+          networkCorridorBufferM: 60,
+          networkCorridorMultiplier: 0.45,
+        });
 
     if (dto.saveAndTrace !== false) {
+      if (!this.autoRouteService.isValidRouteGeometry(route.geometry)) {
+        throw new BadRequestException(
+          'Route geometry must be a LineString with at least two distinct vertices. Re-import the pipeline network or pick start/end points farther apart.',
+        );
+      }
       const alignmentClass = await this.autoRouteService.ensureAlignmentFeatureClass(
         tenantId,
         laCase.projectId,
@@ -1609,7 +1654,7 @@ export class LandAcquisitionService {
     await this.assertCaseAccess(user, laCase, tenantId);
 
     const alignments = await this.dataSource.query(
-      `SELECT id, component, asset_type, status,
+      `SELECT id, component, asset_type, status, row_width_m,
               ST_AsGeoJSON(geometry)::json AS geometry,
               ST_AsGeoJSON(corridor_geometry)::json AS corridor_geometry
        FROM la_alignment_segments WHERE tenant_id = $1 AND la_case_id = $2 AND geometry IS NOT NULL`,
@@ -1636,6 +1681,7 @@ export class LandAcquisitionService {
             layer: 'alignment',
             component: a.component,
             status: a.status,
+            rowWidthM: a.row_width_m,
             vizCategory: 'road_corridor',
             markerColor: roadCorridorColor,
           },
@@ -1647,6 +1693,7 @@ export class LandAcquisitionService {
           properties: {
             layer: 'corridor',
             component: a.component,
+            rowWidthM: a.row_width_m,
             vizCategory: 'road_corridor',
             markerColor: roadCorridorColor,
           },

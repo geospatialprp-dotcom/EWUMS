@@ -28,6 +28,7 @@ import LaClearanceProposalPanel from '../components/la/LaClearanceProposalPanel'
 import LaCompensationTable from '../components/la/LaCompensationTable';
 import LaAiAlertsPanel, { type LaAiAlertsBundle } from '../components/la/LaAiAlertsPanel';
 import LaWorkflowPipeline from '../components/la/LaWorkflowPipeline';
+import LaPipelineWorkflowGuide from '../components/la/LaPipelineWorkflowGuide';
 import LaGisDashboardPanel, { type LaGisDashboardData } from '../components/la/LaGisDashboardPanel';
 import LaDocumentsPanel from '../components/la/LaDocumentsPanel';
 import { laStatusColor, laStatusLabel } from '../constants/laAcquisition';
@@ -61,6 +62,9 @@ export default function LaCaseWorkspacePage() {
   const [mapLoading, setMapLoading] = useState(false);
   const [autoRouteOpen, setAutoRouteOpen] = useState(false);
   const [recommendOpen, setRecommendOpen] = useState(false);
+  /** Shared pipeline import — available in Auto Route and AI Route Compare for this case session */
+  const [importedPipelineNetwork, setImportedPipelineNetwork] = useState<FeatureCollection | null>(null);
+  const [importedPipelineFileName, setImportedPipelineFileName] = useState<string | null>(null);
   const [caseGis, setCaseGis] = useState<LaGisDashboardData | null>(null);
   const [routingCriteria, setRoutingCriteria] = useState<Array<{ code: string; label: string; defaultWeight: number }>>([]);
 
@@ -129,6 +133,45 @@ export default function LaCaseWorkspacePage() {
   const nextAction = detail?.nextAction as { label?: string } | null;
   const parcelCount = parcels.length || Number(detail?.totalParcels ?? 0);
   const alignmentCount = ((detail?.alignments as unknown[]) ?? []).length;
+  const alignments = (detail?.alignments as Array<{ lengthM?: number }>) ?? [];
+  const alignmentLengthM = alignments.reduce((sum, a) => sum + Number(a.lengthM ?? 0), 0);
+  const alignmentAppliedAt = (() => {
+    const events = (detail?.events as Array<Record<string, unknown>>) ?? [];
+    const traceEvent = events.find((e) => /trace|route|align/i.test(String(e.action ?? e.remarks ?? '')));
+    if (traceEvent?.createdAt) return String(traceEvent.createdAt);
+    return detail?.updatedAt ? String(detail.updatedAt) : undefined;
+  })();
+
+  const parcelById = new Map(parcels.map((p) => [String(p.id), p]));
+
+  const pipelineWorkflowState = {
+    hasProject: Boolean(detail?.projectId),
+    hasImportedOrAppliedRoute: Boolean(importedPipelineNetwork?.features.length || alignmentCount),
+    alignmentCount,
+    parcelCount,
+    clearanceCount: clearances.length,
+  };
+
+  const mapPublishMeta = detail ? {
+    caseNo: String(detail.caseNo),
+    title: String(detail.title),
+    schemeType: String(detail.schemeType),
+    parcelCount,
+    alignmentLengthM: alignmentLengthM || undefined,
+    clearances: clearances.map((c) => ({
+      label: String(c.label ?? c.clearanceType),
+      authority: c.authority ? String(c.authority) : undefined,
+      status: String(c.status),
+      overlayLayer: c.overlayLayerLabel ? String(c.overlayLayerLabel) : undefined,
+    })),
+    affectedAuthorities: [...new Set(clearances.map((c) => String(c.authority ?? '')).filter(Boolean))],
+  } : undefined;
+
+  const mapPipelineInfo = {
+    importFileName: importedPipelineFileName,
+    appliedAt: alignmentCount > 0 ? alignmentAppliedAt : undefined,
+    alignmentLengthM: alignmentLengthM || undefined,
+  };
 
   return (
     <PageShell>
@@ -224,6 +267,10 @@ export default function LaCaseWorkspacePage() {
             </Alert>
           ) : null}
 
+          <Box sx={{ mb: 2 }}>
+            <LaPipelineWorkflowGuide state={pipelineWorkflowState} />
+          </Box>
+
           {!detail.projectId && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="subtitle2" fontWeight={700} mb={1}>
@@ -296,7 +343,28 @@ export default function LaCaseWorkspacePage() {
 
           {tab === 0 && (
             <SurfaceCard title="Acquisition Map">
-              <LaMapPanel geoJson={mapGeoJson} loading={mapLoading} />
+              <LaMapPanel
+                geoJson={mapGeoJson}
+                loading={mapLoading}
+                importedPipelineNetwork={importedPipelineNetwork}
+                importFileName={importedPipelineFileName}
+                pipelineInfo={mapPipelineInfo}
+                publishMeta={mapPublishMeta}
+                onOpenAutoRoute={canUpdate ? () => setAutoRouteOpen(true) : undefined}
+                clearances={clearances.map((c) => {
+                  const parcel = c.laParcelId != null ? parcelById.get(String(c.laParcelId)) : undefined;
+                  return {
+                    id: String(c.id),
+                    status: String(c.status),
+                    laParcelId: c.laParcelId != null ? String(c.laParcelId) : null,
+                    label: String(c.label ?? c.clearanceType),
+                    authority: c.authority != null ? String(c.authority) : null,
+                    clearanceType: c.clearanceType != null ? String(c.clearanceType) : undefined,
+                    overlayLayerLabel: c.overlayLayerLabel != null ? String(c.overlayLayerLabel) : null,
+                    khasraNo: parcel?.khasraNo != null ? String(parcel.khasraNo) : null,
+                  };
+                })}
+              />
             </SurfaceCard>
           )}
 
@@ -402,6 +470,10 @@ export default function LaCaseWorkspacePage() {
             onApplied={() => { load(); loadMap(); setSuccess('Auto route applied and alignment traced'); }}
             onProjectLinked={load}
             criteria={routingCriteria}
+            importedPipelineNetwork={importedPipelineNetwork}
+            onImportedPipelineNetworkChange={setImportedPipelineNetwork}
+            importedPipelineFileName={importedPipelineFileName}
+            onImportedPipelineFileNameChange={setImportedPipelineFileName}
           />
           <LaRouteRecommendationDialog
             caseId={caseId}
@@ -410,6 +482,10 @@ export default function LaCaseWorkspacePage() {
             onClose={() => setRecommendOpen(false)}
             onApplied={() => { load(); loadMap(); setSuccess('Recommended route applied and alignment traced'); }}
             onProjectLinked={load}
+            importedPipelineNetwork={importedPipelineNetwork}
+            onImportedPipelineNetworkChange={setImportedPipelineNetwork}
+            importedPipelineFileName={importedPipelineFileName}
+            onImportedPipelineFileNameChange={setImportedPipelineFileName}
           />
         </>
       )}

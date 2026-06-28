@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  LinearProgress, Stack, Tab, Tabs, Table, TableBody, TableCell, TableContainer,
+  FormControlLabel, LinearProgress, Stack, Switch, Tab, Tabs, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Typography,
 } from '@mui/material';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import type { FeatureCollection, LineString, Point } from 'geojson';
 import axios from 'axios';
 import MapViewer from '../map/MapViewer';
@@ -14,8 +15,11 @@ import { UTTARAKHAND_STATE_MAP_VIEW, type BasemapConfig } from '../../utils/base
 import LaLinkProjectPanel from './LaLinkProjectPanel';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import {
+  PIPELINE_NETWORK_ACCEPT,
   extractNetworkEndpoints,
   groupFeaturesByGeometryType,
+  parsePipelineNetworkFiles,
+  summarizePipelineNetwork,
   toFeatureCollection,
 } from '../../utils/pipelineNetworkImport';
 
@@ -33,6 +37,7 @@ const LA_BASEMAPS: BasemapConfig[] = [
 ];
 
 const ROUTE_COLORS: Record<string, string> = {
+  imported: '#ea580c',
   current: '#64748b',
   alt1: '#2563eb',
   alt2: '#16a34a',
@@ -56,6 +61,11 @@ type Props = {
   onClose: () => void;
   onApplied: () => void;
   onProjectLinked?: () => void;
+  /** Shared across Auto Route and AI Route Compare for this case session */
+  importedPipelineNetwork?: FeatureCollection | null;
+  onImportedPipelineNetworkChange?: (network: FeatureCollection | null) => void;
+  importedPipelineFileName?: string | null;
+  onImportedPipelineFileNameChange?: (name: string | null) => void;
 };
 
 function getApiError(err: unknown, fallback: string): string {
@@ -125,11 +135,36 @@ function alignmentFeaturesFromMap(fc: FeatureCollection): FeatureCollection {
 
 export default function LaRouteRecommendationDialog({
   caseId, projectId, open, onClose, onApplied, onProjectLinked,
+  importedPipelineNetwork: sharedImportedNetwork,
+  onImportedPipelineNetworkChange,
+  importedPipelineFileName: sharedImportFileName,
+  onImportedPipelineFileNameChange,
 }: Props) {
+  const fileInputId = useId();
   const requestGenRef = useRef(0);
   const [pickMode, setPickMode] = useState<'start' | 'end'>('start');
   const [start, setStart] = useState<[number, number] | null>(null);
   const [end, setEnd] = useState<[number, number] | null>(null);
+  const [localImportedNetwork, setLocalImportedNetwork] = useState<FeatureCollection | null>(null);
+  const importedNetwork = onImportedPipelineNetworkChange
+    ? (sharedImportedNetwork ?? null)
+    : localImportedNetwork;
+  const setImportedNetwork = useCallback((network: FeatureCollection | null) => {
+    if (onImportedPipelineNetworkChange) onImportedPipelineNetworkChange(network);
+    else setLocalImportedNetwork(network);
+  }, [onImportedPipelineNetworkChange]);
+  const [localImportFileName, setLocalImportFileName] = useState('');
+  const importFileName = onImportedPipelineFileNameChange
+    ? (sharedImportFileName ?? '')
+    : localImportFileName;
+  const setImportFileName = useCallback((name: string) => {
+    if (onImportedPipelineFileNameChange) onImportedPipelineFileNameChange(name || null);
+    else setLocalImportFileName(name);
+  }, [onImportedPipelineFileNameChange]);
+  const [importParsing, setImportParsing] = useState(false);
+  const [useNetworkEndpoints, setUseNetworkEndpoints] = useState(true);
+  const [useImportedAsCorridor, setUseImportedAsCorridor] = useState(true);
+  const [snapToImportedNetwork, setSnapToImportedNetwork] = useState(true);
   const [existingNetwork, setExistingNetwork] = useState<FeatureCollection | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [selectedKey, setSelectedKey] = useState('current');
@@ -147,6 +182,21 @@ export default function LaRouteRecommendationDialog({
     setFitRevision((r) => r + 1);
   }, []);
 
+  const networkSummary = useMemo(
+    () => (importedNetwork ? summarizePipelineNetwork(importedNetwork) : null),
+    [importedNetwork],
+  );
+
+  const applyImportedEndpoints = useCallback((collection: FeatureCollection) => {
+    const lineFc = toFeatureCollection(groupFeaturesByGeometryType(collection).lines);
+    const endpoints = extractNetworkEndpoints(lineFc);
+    if (!endpoints) return false;
+    setStart(endpoints.start);
+    setEnd(endpoints.end);
+    setPickMode('end');
+    return true;
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     invalidatePendingRequests();
@@ -160,29 +210,35 @@ export default function LaRouteRecommendationDialog({
     setError('');
     setMapInitRevision((r) => r + 1);
 
+    if (importedNetwork && useNetworkEndpoints && applyImportedEndpoints(importedNetwork)) {
+      bumpFit();
+    }
+
     landAcquisitionApi.getMapGeoJson(caseId)
       .then((res) => {
         const fc = res.data as FeatureCollection;
         const alignmentFc = alignmentFeaturesFromMap(fc);
-        if (!alignmentFc.features.length) {
-          bumpFit();
-          return;
+        if (alignmentFc.features.length) {
+          setExistingNetwork(alignmentFc);
         }
 
-        setExistingNetwork(alignmentFc);
-        const lineFc = toFeatureCollection(
-          groupFeaturesByGeometryType(alignmentFc).lines,
-        );
-        const endpoints = extractNetworkEndpoints(lineFc);
-        if (endpoints) {
-          setStart(endpoints.start);
-          setEnd(endpoints.end);
-          setPickMode('end');
+        if (importedNetwork && useNetworkEndpoints) {
+          applyImportedEndpoints(importedNetwork);
+        } else if (alignmentFc.features.length) {
+          const lineFc = toFeatureCollection(
+            groupFeaturesByGeometryType(alignmentFc).lines,
+          );
+          const endpoints = extractNetworkEndpoints(lineFc);
+          if (endpoints) {
+            setStart(endpoints.start);
+            setEnd(endpoints.end);
+            setPickMode('end');
+          }
         }
         bumpFit();
       })
       .catch(() => bumpFit());
-  }, [open, caseId, invalidatePendingRequests, bumpFit]);
+  }, [open, caseId, invalidatePendingRequests, bumpFit, importedNetwork, useNetworkEndpoints, applyImportedEndpoints]);
 
   const routes = (result?.routes as RouteRow[]) ?? [];
   const recommendedKey = String(result?.recommendedRouteKey ?? 'current');
@@ -198,6 +254,40 @@ export default function LaRouteRecommendationDialog({
       features: FeatureCollection;
       style: Record<string, unknown>;
     }> = [];
+
+    if (importedNetwork?.features.length) {
+      const grouped = groupFeaturesByGeometryType(importedNetwork);
+      if (grouped.lines.length) {
+        layers.push({
+          id: 'imported-lines',
+          name: 'Imported pipeline',
+          visible: true,
+          geometryType: 'LineString',
+          features: toFeatureCollection(grouped.lines),
+          style: { stroke: '#ea580c', strokeWidth: 4, strokeOpacity: 0.9 },
+        });
+      }
+      if (grouped.points.length) {
+        layers.push({
+          id: 'imported-points',
+          name: 'Imported points',
+          visible: true,
+          geometryType: 'Point',
+          features: toFeatureCollection(grouped.points),
+          style: { fill: '#ea580c', radius: 6, stroke: '#fff', strokeWidth: 1 },
+        });
+      }
+      if (grouped.polygons.length) {
+        layers.push({
+          id: 'imported-polygons',
+          name: 'Imported polygons',
+          visible: true,
+          geometryType: 'Polygon',
+          features: toFeatureCollection(grouped.polygons),
+          style: { fill: 'rgba(234, 88, 12, 0.15)', stroke: '#ea580c', strokeWidth: 2 },
+        });
+      }
+    }
 
     if (existingNetwork?.features.length) {
       const grouped = groupFeaturesByGeometryType(existingNetwork);
@@ -296,10 +386,11 @@ export default function LaRouteRecommendationDialog({
     }
 
     return layers;
-  }, [start, end, existingNetwork, routes, selectedKey, recommendedKey]);
+  }, [start, end, importedNetwork, existingNetwork, routes, selectedKey, recommendedKey]);
 
   const fitToLayerId = useMemo(() => {
     if (routes.length) return `route-${selectedKey}`;
+    if (importedNetwork?.features.length) return 'imported-lines';
     if (existingNetwork?.features.length) {
       const grouped = groupFeaturesByGeometryType(existingNetwork);
       if (grouped.lines.length) return 'existing-alignment';
@@ -308,12 +399,52 @@ export default function LaRouteRecommendationDialog({
     if (start && end) return 'route-endpoints';
     if (start) return 'start-pt';
     return undefined;
-  }, [routes.length, selectedKey, existingNetwork, start, end]);
+  }, [routes.length, selectedKey, importedNetwork, existingNetwork, start, end]);
 
   useEffect(() => {
     if (!open) return;
     bumpFit();
-  }, [open, start, end, routes.length, selectedKey, bumpFit]);
+  }, [open, start, end, routes.length, selectedKey, importedNetwork, bumpFit]);
+
+  const handleImportFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setImportParsing(true);
+    setError('');
+    try {
+      const collection = await parsePipelineNetworkFiles(Array.from(files));
+      setImportedNetwork(collection);
+      setImportFileName(files[0]?.name ?? 'imported-network');
+      setResult(null);
+
+      if (useNetworkEndpoints) {
+        applyImportedEndpoints(collection);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse pipeline network file');
+      setImportedNetwork(null);
+      setImportFileName('');
+    } finally {
+      setImportParsing(false);
+    }
+  };
+
+  const applyNetworkEndpoints = () => {
+    if (!importedNetwork) return;
+    if (!applyImportedEndpoints(importedNetwork)) {
+      setError('Imported network has no LineString features for endpoint detection');
+      return;
+    }
+    setResult(null);
+    setError('');
+  };
+
+  const buildNetworkPayload = () => (
+    importedNetwork ? {
+      importedNetwork,
+      snapToImportedNetwork,
+      useImportedAsCorridor,
+    } : {}
+  );
 
   const handleDigitize = useCallback((geometry: Point | LineString | unknown) => {
     try {
@@ -341,6 +472,7 @@ export default function LaRouteRecommendationDialog({
       end: { lon: end[0], lat: end[1] },
       rowWidthM: 6,
       saveAndTrace: false,
+      ...buildNetworkPayload(),
     };
   };
 
@@ -361,7 +493,7 @@ export default function LaRouteRecommendationDialog({
         setSelectedKey(String(data.recommendedRouteKey ?? 'current'));
         const snappedStart = data.start as { lon: number; lat: number } | undefined;
         const snappedEnd = data.end as { lon: number; lat: number } | undefined;
-        if (snappedStart && snappedEnd) {
+        if (snapToImportedNetwork && snappedStart && snappedEnd) {
           setStart([snappedStart.lon, snappedStart.lat]);
           setEnd([snappedEnd.lon, snappedEnd.lat]);
         }
@@ -411,12 +543,13 @@ export default function LaRouteRecommendationDialog({
       </DialogTitle>
       <DialogContent dividers>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {busy && <LinearProgress sx={{ mb: 2 }} />}
+        {(busy || importParsing) && <LinearProgress sx={{ mb: 2 }} />}
 
         <Typography variant="body2" color="text.secondary" mb={2}>
-          Pick a <strong>start</strong> and <strong>end</strong> point on the map (or use endpoints from an
-          existing alignment). The AI engine compares your current alignment with optimized alternatives on
-          cost, acquisition, environmental impact, and construction feasibility.
+          Pick a <strong>start</strong> and <strong>end</strong> point, or import a pipeline network
+          (SHP / GeoJSON) to compare against optimized alternatives. If you already imported a network in
+          Auto Trace Engine, it is shared here for this case session. Saved case alignments appear in gray;
+          imported pipelines appear in orange.
         </Typography>
 
         {!projectId && (
@@ -427,6 +560,99 @@ export default function LaRouteRecommendationDialog({
             <LaLinkProjectPanel caseId={caseId} compact onLinked={() => onProjectLinked?.()} />
           </Alert>
         )}
+
+        <Box
+          sx={{
+            mb: 2, p: 2, borderRadius: 2, border: '1px dashed',
+            borderColor: 'divider', bgcolor: 'action.hover',
+          }}
+        >
+          <Typography variant="subtitle2" fontWeight={700} mb={1}>
+            Import pipeline network
+          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" mb={1}>
+            <Button
+              component="label"
+              htmlFor={fileInputId}
+              size="small"
+              variant="outlined"
+              startIcon={<UploadFileOutlinedIcon />}
+              disabled={importParsing || busy}
+            >
+              Import pipeline (SHP / GeoJSON)
+            </Button>
+            <input
+              id={fileInputId}
+              type="file"
+              hidden
+              accept={PIPELINE_NETWORK_ACCEPT}
+              multiple
+              onChange={(e) => {
+                handleImportFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            {importedNetwork && (
+              <Chip
+                size="small"
+                color="warning"
+                label={`${networkSummary?.featureCount ?? 0} features · ${networkSummary?.geometryLabel ?? 'Mixed'}`}
+                onDelete={() => {
+                  setImportedNetwork(null);
+                  setImportFileName('');
+                  setResult(null);
+                }}
+              />
+            )}
+            {importFileName && (
+              <Typography variant="caption" color="text.secondary">{importFileName}</Typography>
+            )}
+          </Stack>
+          {networkSummary && (
+            <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+              {networkSummary.pointCount > 0 && `${networkSummary.pointCount} point(s) · `}
+              {networkSummary.lineCount > 0 && `${networkSummary.lineCount} line(s) · `}
+              {networkSummary.polygonCount > 0 && `${networkSummary.polygonCount} polygon(s)`}
+            </Typography>
+          )}
+          {importedNetwork && (
+            <Stack direction="row" spacing={2} flexWrap="wrap">
+              <FormControlLabel
+                control={(
+                  <Switch
+                    size="small"
+                    checked={useNetworkEndpoints}
+                    onChange={(e) => setUseNetworkEndpoints(e.target.checked)}
+                  />
+                )}
+                label={<Typography variant="caption">Use network endpoints as start/end</Typography>}
+              />
+              <FormControlLabel
+                control={(
+                  <Switch
+                    size="small"
+                    checked={useImportedAsCorridor}
+                    onChange={(e) => setUseImportedAsCorridor(e.target.checked)}
+                  />
+                )}
+                label={<Typography variant="caption">Use imported geometry as routing corridor</Typography>}
+              />
+              <FormControlLabel
+                control={(
+                  <Switch
+                    size="small"
+                    checked={snapToImportedNetwork}
+                    onChange={(e) => setSnapToImportedNetwork(e.target.checked)}
+                  />
+                )}
+                label={<Typography variant="caption">Snap start/end to network</Typography>}
+              />
+              {useNetworkEndpoints && networkSummary?.lineCount ? (
+                <Button size="small" onClick={applyNetworkEndpoints}>Apply network endpoints</Button>
+              ) : null}
+            </Stack>
+          )}
+        </Box>
 
         <Stack direction="row" spacing={1} mb={1} flexWrap="wrap">
           <Chip

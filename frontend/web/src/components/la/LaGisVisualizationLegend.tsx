@@ -1,7 +1,59 @@
 import { Box, Typography } from '@mui/material';
 import { LA_GIS_VIZ_LEGEND } from '../../constants/laGisVisualization';
 
-export default function LaGisVisualizationLegend({ compact = false }: { compact?: boolean }) {
+type ExtraLegendItem = {
+  label: string;
+  color: string;
+  variant?: 'square' | 'circle' | 'line' | 'ring';
+};
+
+function LegendSwatch({ color, variant }: { color: string; variant: ExtraLegendItem['variant'] }) {
+  if (variant === 'line') {
+    return (
+      <Box
+        sx={{
+          width: 14,
+          height: 3,
+          borderRadius: 1,
+          bgcolor: color,
+        }}
+      />
+    );
+  }
+
+  if (variant === 'ring') {
+    return (
+      <Box
+        sx={{
+          width: 12,
+          height: 12,
+          borderRadius: '50%',
+          bgcolor: 'rgba(255,255,255,0.92)',
+          border: `2.5px solid ${color}`,
+        }}
+      />
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        width: 12,
+        height: 12,
+        borderRadius: variant === 'square' ? 0.5 : '50%',
+        bgcolor: color,
+      }}
+    />
+  );
+}
+
+export default function LaGisVisualizationLegend({
+  compact = false,
+  extraItems = [],
+}: {
+  compact?: boolean;
+  extraItems?: ExtraLegendItem[];
+}) {
   return (
     <Box
       px={1.5}
@@ -27,6 +79,12 @@ export default function LaGisVisualizationLegend({ compact = false }: { compact?
               boxShadow: code === 'rejected' ? 'inset 0 0 0 1px #d1d5db' : 'none',
             }}
           />
+          <Typography variant="caption">{label}</Typography>
+        </Box>
+      ))}
+      {extraItems.map(({ label, color, variant = 'square' }) => (
+        <Box key={label} display="flex" alignItems="center" gap={0.5}>
+          <LegendSwatch color={color} variant={variant} />
           <Typography variant="caption">{label}</Typography>
         </Box>
       ))}

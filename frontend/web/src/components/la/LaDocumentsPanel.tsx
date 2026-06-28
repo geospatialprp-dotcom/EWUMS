@@ -115,6 +115,8 @@ export default function LaDocumentsPanel({
       <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} mb={2}>
         <Typography variant="body2" color="text.secondary">
           Auto-generate statutory LA documents from parcels, clearances, and compensation data.
+          For a printable map with pipeline cover, centerline, and network circle markers, use
+          <strong> Publish Acquisition Map</strong> on the Map tab.
         </Typography>
         {canGenerate && (
           <Button

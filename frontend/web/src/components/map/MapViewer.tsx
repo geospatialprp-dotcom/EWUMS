@@ -55,6 +55,7 @@ interface OverlayLayerConfig {
   geometryType?: string;
   features: GeoFeatureCollection;
   style?: Record<string, unknown>;
+  zIndex?: number;
 }
 
 interface MapFlyTarget {
@@ -85,6 +86,8 @@ interface MapViewerProps {
   activeBasemapId?: string;
   overlayLayers?: OverlayLayerConfig[];
   fitToLayerId?: string;
+  /** When set, fit the map to the union extent of these overlay layers (preferred over fitToLayerId). */
+  fitToLayerIds?: string[];
   fitRevision?: number;
   flyToTarget?: MapFlyTarget | null;
   onFeatureSelect?: (feature: GeoFeature) => void;
@@ -107,6 +110,8 @@ interface MapViewerProps {
   identifyFeatureId?: string | null;
   identifyLayerId?: string;
   snapshotRequest?: number;
+  /** Fit to the union extent of these layers immediately before snapshot capture. */
+  snapshotFitLayerIds?: string[];
   layoutRevision?: number;
   onSnapshot?: (result: MapSnapshotResult) => void;
   /** Authorized WGS 84 bounds — map locks pan/zoom inside this area. */
@@ -323,19 +328,62 @@ function allowedGeometryTypes(geometryType?: string) {
   return undefined;
 }
 
-function fitMapToLayer(map: OlMap, layerId: string, refs: globalThis.Map<string, VectorLayer<VectorSource>>) {
-  const layer = refs.get(layerId);
-  const source = layer?.getSource();
-  if (!source?.getFeatures().length) return false;
+function computeLayersExtent(
+  layerIds: string[],
+  refs: globalThis.Map<string, VectorLayer<VectorSource>>,
+): number[] | null {
+  let extent: number[] | null = null;
+  for (const layerId of layerIds) {
+    const layer = refs.get(layerId);
+    const source = layer?.getSource();
+    if (!source?.getFeatures().length) continue;
+    const layerExtent = source.getExtent();
+    if (!layerExtent || !layerExtent.every((value) => Number.isFinite(value))) continue;
+    extent = extent
+      ? [
+          Math.min(extent[0], layerExtent[0]),
+          Math.min(extent[1], layerExtent[1]),
+          Math.max(extent[2], layerExtent[2]),
+          Math.max(extent[3], layerExtent[3]),
+        ]
+      : layerExtent;
+  }
+  return extent;
+}
 
-  const targetExtent = source.getExtent();
-  if (!targetExtent.every((value) => Number.isFinite(value))) return false;
+type FitLayersOptions = {
+  padding?: [number, number, number, number];
+  maxZoom?: number;
+  duration?: number;
+};
+
+function fitMapToLayer(map: OlMap, layerId: string, refs: globalThis.Map<string, VectorLayer<VectorSource>>) {
+  const extent = computeLayersExtent([layerId], refs);
+  if (!extent) return false;
 
   map.updateSize();
-  map.getView().fit(targetExtent, {
+  map.getView().fit(extent as [number, number, number, number], {
     padding: [60, 60, 60, 60],
     maxZoom: 20,
     duration: 600,
+  });
+  return true;
+}
+
+function fitMapToLayers(
+  map: OlMap,
+  layerIds: string[],
+  refs: globalThis.Map<string, VectorLayer<VectorSource>>,
+  options?: FitLayersOptions,
+) {
+  const extent = computeLayersExtent(layerIds, refs);
+  if (!extent) return false;
+
+  map.updateSize();
+  map.getView().fit(extent as [number, number, number, number], {
+    padding: options?.padding ?? [60, 60, 60, 60],
+    maxZoom: options?.maxZoom ?? 17,
+    duration: options?.duration ?? 600,
   });
   return true;
 }
@@ -345,8 +393,11 @@ function applyOverlayStyles(
   overlayLayers: OverlayLayerConfig[],
   refs: globalThis.Map<string, VectorLayer<VectorSource>>,
   identify?: { layerId: string; featureId: string } | null,
+  disableViewCulling = false,
 ) {
-  const viewExtent = map.getView().calculateExtent(map.getSize());
+  const viewExtent = disableViewCulling
+    ? undefined
+    : map.getView().calculateExtent(map.getSize());
   overlayLayers.forEach((config) => {
     const olLayer = refs.get(config.id);
     if (!olLayer?.getVisible()) return;
@@ -448,13 +499,13 @@ function applyJurisdictionView(
 }
 
 export default function MapViewer({
-  assets, basemaps = [], activeBasemapId, overlayLayers = [], fitToLayerId, fitRevision = 0,
+  assets, basemaps = [], activeBasemapId, overlayLayers = [], fitToLayerId, fitToLayerIds, fitRevision = 0,
   flyToTarget, onFeatureSelect, center = WORLD_VIEW_WGS84.center, zoom = WORLD_VIEW_WGS84.zoom,
   activeTool = 'info', onMeasureResult, digitizeGeometryType, onDigitizeComplete,
   editLayerId, selectedFeatureId, focusFeature, onFeaturePick, onGeometryModified,
   onFeatureIdentify, onIdentifyClear, identifyFeatureId, identifyLayerId,
   analyzeDrawType, onAnalyzeDrawComplete, clearQueryRevision = 0,
-  snapshotRequest = 0, onSnapshot,
+  snapshotRequest = 0, snapshotFitLayerIds, onSnapshot,
   layoutRevision = 0,
   jurisdictionBbox = null,
   jurisdictionRevision = 0,
@@ -487,6 +538,7 @@ export default function MapViewer({
   const onFeatureIdentifyRef = useRef(onFeatureIdentify);
   const onIdentifyClearRef = useRef(onIdentifyClear);
   const onSnapshotRef = useRef(onSnapshot);
+  const snapshotFitLayerIdsRef = useRef(snapshotFitLayerIds);
   const onAnalyzeDrawCompleteRef = useRef(onAnalyzeDrawComplete);
   const identifyFeatureIdRef = useRef(identifyFeatureId);
   const identifyLayerIdRef = useRef(identifyLayerId);
@@ -504,6 +556,7 @@ export default function MapViewer({
   onFeatureIdentifyRef.current = onFeatureIdentify;
   onIdentifyClearRef.current = onIdentifyClear;
   onSnapshotRef.current = onSnapshot;
+  snapshotFitLayerIdsRef.current = snapshotFitLayerIds;
   onAnalyzeDrawCompleteRef.current = onAnalyzeDrawComplete;
   identifyFeatureIdRef.current = identifyFeatureId;
   identifyLayerIdRef.current = identifyLayerId;
@@ -854,7 +907,7 @@ export default function MapViewer({
       if (!olLayer) {
         olLayer = new VectorLayer({
           source: new VectorSource(),
-          zIndex: 25,
+          zIndex: config.zIndex ?? 25,
           renderBuffer: 512,
           updateWhileAnimating: true,
           updateWhileInteracting: true,
@@ -864,6 +917,7 @@ export default function MapViewer({
       }
 
       olLayer.setVisible(config.visible);
+      olLayer.setZIndex(config.zIndex ?? 25);
       const source = olLayer.getSource();
       if (!source) return;
 
@@ -912,16 +966,26 @@ export default function MapViewer({
   }, [activeTool, identifyFeatureId, identifyLayerId, overlayLayers]);
 
   useEffect(() => {
-    if (!mapInstance.current || !fitToLayerId) return;
-
-    const fitKey = `${fitToLayerId}:${fitRevision}`;
+    if (!mapInstance.current) return;
+    const fitIds = fitToLayerIds?.filter(Boolean);
+    const fitKey = fitIds?.length
+      ? `${fitIds.join('+')}:${fitRevision}`
+      : fitToLayerId
+        ? `${fitToLayerId}:${fitRevision}`
+        : null;
+    if (!fitKey) return;
     if (fitKey === lastFitKey.current) return;
 
     const map = mapInstance.current;
     let attempts = 0;
 
     const tryFit = () => {
-      if (fitMapToLayer(map, fitToLayerId, overlayLayerRefs.current)) {
+      const fitted = fitIds?.length
+        ? fitMapToLayers(map, fitIds, overlayLayerRefs.current)
+        : fitToLayerId
+          ? fitMapToLayer(map, fitToLayerId, overlayLayerRefs.current)
+          : false;
+      if (fitted) {
         lastFitKey.current = fitKey;
         return;
       }
@@ -930,7 +994,7 @@ export default function MapViewer({
     };
 
     requestAnimationFrame(tryFit);
-  }, [fitToLayerId, fitRevision, overlayLayers]);
+  }, [fitToLayerId, fitToLayerIds, fitRevision, overlayLayers]);
 
   useEffect(() => {
     if (!mapInstance.current || !jurisdictionBbox) return;
@@ -1237,9 +1301,40 @@ export default function MapViewer({
     if (!mapInstance.current || !snapshotRequest) return;
 
     const map = mapInstance.current;
-    const capture = () => {
-      onSnapshotRef.current?.(captureMapSnapshot(map));
+    const fitIds = snapshotFitLayerIdsRef.current?.filter(Boolean);
+
+    const restoreStyles = () => {
+      const identify = activeToolRef.current === 'info'
+        && identifyFeatureIdRef.current
+        && identifyLayerIdRef.current
+        ? { layerId: identifyLayerIdRef.current, featureId: identifyFeatureIdRef.current }
+        : null;
+      applyOverlayStyles(map, overlayLayersRef.current, overlayLayerRefs.current, identify);
     };
+
+    const finishCapture = () => {
+      onSnapshotRef.current?.(captureMapSnapshot(map));
+      restoreStyles();
+    };
+
+    const capture = () => {
+      finishCapture();
+    };
+
+    if (fitIds?.length) {
+      fitMapToLayers(map, fitIds, overlayLayerRefs.current, {
+        padding: [48, 48, 48, 48],
+        maxZoom: 16,
+        duration: 0,
+      });
+    }
+
+    const identify = activeToolRef.current === 'info'
+      && identifyFeatureIdRef.current
+      && identifyLayerIdRef.current
+      ? { layerId: identifyLayerIdRef.current, featureId: identifyFeatureIdRef.current }
+      : null;
+    applyOverlayStyles(map, overlayLayersRef.current, overlayLayerRefs.current, identify, true);
 
     map.once('rendercomplete', capture);
     map.renderSync();
@@ -1280,6 +1375,11 @@ export default function MapViewer({
     if (!map) return;
 
     searchMarkerSource.current.clear();
+
+    const fitIds = fitToLayerIds?.filter(Boolean);
+    if (fitIds?.length && fitMapToLayers(map, fitIds, overlayLayerRefs.current)) {
+      return;
+    }
 
     const fitTarget = fitToLayerId && overlayLayerRefs.current.get(fitToLayerId)?.getVisible()
       ? fitToLayerId

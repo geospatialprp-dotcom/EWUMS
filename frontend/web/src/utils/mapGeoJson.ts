@@ -3,7 +3,7 @@ import type { Feature as GeoFeature, FeatureCollection as GeoFeatureCollection }
 import type FeatureLike from 'ol/Feature';
 import type { StyleLike } from 'ol/style/Style';
 import VectorSource from 'ol/source/Vector';
-import { Fill, Stroke, Style, Circle as CircleStyle } from 'ol/style';
+import { Fill, Stroke, Style, Text, Circle as CircleStyle } from 'ol/style';
 
 const geoJsonFormat = new GeoJSONFormat();
 
@@ -144,24 +144,43 @@ function featureNearExtent(geometry: import('ol/geom/Geometry').default, extent:
   return Math.hypot(dx, dy) <= maxDistance;
 }
 
+function resolvePolygonFillColor(
+  markerColor: string | undefined,
+  styleConfig: Record<string, unknown> | undefined,
+  fillOpacity: number,
+): string {
+  if (markerColor) return withAlpha(markerColor, fillOpacity);
+  const fill = styleConfig?.fill;
+  if (typeof fill === 'string' && fill.length) {
+    if (fill.startsWith('rgba(') || fill.startsWith('rgb(')) return fill;
+    if (fill.startsWith('#')) return withAlpha(fill, fillOpacity);
+    return fill;
+  }
+  return withAlpha(strokeColorFromStyle(styleConfig), fillOpacity);
+}
+
+function strokeColorFromStyle(styleConfig?: Record<string, unknown>): string {
+  return (styleConfig?.stroke as string) ?? '#E53935';
+}
+
 function polygonFeatureStyle(
   strokeColor: string,
   width: number,
   markerColor: string | undefined,
   fillOpacity: number,
+  styleConfig?: Record<string, unknown>,
 ): Style {
-  if (markerColor) {
-    return new Style({
-      fill: new Fill({ color: withAlpha(markerColor, fillOpacity) }),
-      stroke: new Stroke({
-        color: markerColor,
-        width: Math.max(width, 2),
-        lineJoin: 'round',
-        lineCap: 'round',
-      }),
-    });
-  }
-  return polygonStyles(strokeColor, width);
+  const stroke = markerColor ?? strokeColor;
+  const fillColor = resolvePolygonFillColor(markerColor, styleConfig, fillOpacity);
+  return new Style({
+    fill: new Fill({ color: fillColor }),
+    stroke: new Stroke({
+      color: stroke,
+      width: Math.max(width, 2),
+      lineJoin: 'round',
+      lineCap: 'round',
+    }),
+  });
 }
 
 export function createOverlayStyle(
@@ -184,7 +203,7 @@ export function createOverlayStyle(
       const markerColor = typeof feature.get === 'function'
         ? feature.get('markerColor') as string | undefined
         : undefined;
-      return polygonFeatureStyle(strokeColor, width, markerColor, polygonFillOpacity);
+      return polygonFeatureStyle(strokeColor, width, markerColor, polygonFillOpacity, styleConfig);
     };
     if (!viewExtent) return styleForFeature;
     return styleForFeature;
@@ -199,15 +218,41 @@ export function createOverlayStyle(
 
     if (geomType === 'Point' || geomType === 'MultiPoint') {
       const markerColor = typeof feature.get === 'function' ? feature.get('markerColor') as string | undefined : undefined;
-      const pointFill = markerColor ?? (styleConfig?.fill as string) ?? '#7B1FA2';
-      const pointRadius = Number(styleConfig?.pointRadius ?? styleConfig?.radius ?? 9);
-      return new Style({
+      const pointRing = typeof feature.get === 'function' ? feature.get('pointRing') === true : false;
+      const pointFillOverride = typeof feature.get === 'function'
+        ? feature.get('pointFill') as string | undefined
+        : undefined;
+      const pointFill = pointFillOverride
+        ?? (pointRing ? 'rgba(255,255,255,0.92)' : (markerColor ?? (styleConfig?.fill as string) ?? '#7B1FA2'));
+      const featureRadius = typeof feature.get === 'function' ? feature.get('pointRadius') : undefined;
+      const pointRadius = Number(featureRadius ?? styleConfig?.pointRadius ?? styleConfig?.radius ?? 7);
+      const strokeColor = pointRing ? (markerColor ?? '#e11d48') : '#FFFFFF';
+      const strokeWidth = pointRing ? 2 : 2;
+      const circleStyle = new Style({
         image: new CircleStyle({
           radius: pointRadius,
           fill: new Fill({ color: pointFill }),
-          stroke: new Stroke({ color: '#FFFFFF', width: 2 }),
+          stroke: new Stroke({ color: strokeColor, width: strokeWidth }),
         }),
       });
+      const mapLabel = typeof feature.get === 'function'
+        ? feature.get('mapLabel') as string | undefined
+        : undefined;
+      if (mapLabel?.trim()) {
+        return [
+          circleStyle,
+          new Style({
+            text: new Text({
+              text: mapLabel.trim(),
+              offsetY: -(pointRadius + 10),
+              font: 'bold 10px "Segoe UI", Arial, sans-serif',
+              fill: new Fill({ color: '#1e293b' }),
+              stroke: new Stroke({ color: '#ffffff', width: 3 }),
+            }),
+          }),
+        ];
+      }
+      return circleStyle;
     }
     if (geomType === 'LineString' || geomType === 'MultiLineString') {
       return new Style({ stroke: new Stroke({ color: strokeColor, width: Math.max(width, 4) }) });

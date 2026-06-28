@@ -176,7 +176,10 @@ export class AutoRouteDto {
 
   @ApiPropertyOptional({ description: 'Pre-computed route geometry to save instead of generating' })
   @IsOptional()
-  geometry?: { type: 'LineString'; coordinates: [number, number][] };
+  geometry?: {
+    type: 'LineString' | 'MultiLineString';
+    coordinates: [number, number][] | [number, number][][];
+  };
 
   @ApiPropertyOptional({ description: 'Imported pipeline network (GeoJSON FeatureCollection)' })
   @IsOptional()
