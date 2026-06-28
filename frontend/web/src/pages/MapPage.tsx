@@ -1714,7 +1714,7 @@ export default function MapPage() {
 
   useEffect(() => {
     setMapLayoutRevision((value) => value + 1);
-  }, [attributeDockVisible]);
+  }, [attributeDockVisible, activeTool]);
 
   return (
     <Box sx={arcMapShellSx()}>
@@ -1818,6 +1818,8 @@ export default function MapPage() {
         />
 
         <Box flex={1} display="flex" flexDirection="column" minWidth={0} minHeight={0} bgcolor={MAP_CHROME.pageBg}>
+          <Box flex={1} display="flex" minHeight={0} minWidth={0}>
+            <Box flex={1} display="flex" flexDirection="column" minWidth={0} minHeight={0}>
           <Box flex={1} position="relative" minHeight={0} sx={mapMapFrameSx(attributeDockVisible)}>
           {mapError && (
             <Alert
@@ -1853,29 +1855,6 @@ export default function MapPage() {
             </Box>
           ) : (
             <>
-              <MapSpatialAnalysisPanel
-                open={activeTool === 'analyze'}
-                layers={featureClassLayers.map((layer) => ({
-                  id: layer.id,
-                  name: layer.name,
-                  geometryType: layer.sourceConfig.geometryType,
-                }))}
-                targetLayerId={analysisTargetLayerId}
-                operation={spatialOperation}
-                bufferMeters={bufferMeters}
-                loading={analysisLoading}
-                meta={analysisMeta}
-                hasQueryGeometry={Boolean(queryGeometry)}
-                onTargetLayerChange={setAnalysisTargetLayerId}
-                onOperationChange={(operation) => {
-                  setSpatialOperation(operation);
-                  clearAnalysis();
-                }}
-                onBufferMetersChange={setBufferMeters}
-                onRun={() => { void runSpatialAnalysis(); }}
-                onClear={clearAnalysis}
-                onClose={() => setActiveTool('info')}
-              />
               <MapViewer
                 basemaps={basemaps}
                 activeBasemapId={activeBasemapId}
@@ -1928,6 +1907,33 @@ export default function MapPage() {
               />
             </>
           )}
+          </Box>
+            </Box>
+
+            <MapSpatialAnalysisPanel
+              open={activeTool === 'analyze'}
+              active
+              layers={featureClassLayers.map((layer) => ({
+                id: layer.id,
+                name: layer.name,
+                geometryType: layer.sourceConfig.geometryType,
+              }))}
+              targetLayerId={analysisTargetLayerId}
+              operation={spatialOperation}
+              bufferMeters={bufferMeters}
+              loading={analysisLoading}
+              meta={analysisMeta}
+              hasQueryGeometry={Boolean(queryGeometry)}
+              onTargetLayerChange={setAnalysisTargetLayerId}
+              onOperationChange={(operation) => {
+                setSpatialOperation(operation);
+                clearAnalysis();
+              }}
+              onBufferMetersChange={setBufferMeters}
+              onRun={() => { void runSpatialAnalysis(); }}
+              onClear={clearAnalysis}
+              onClose={() => setActiveTool('info')}
+            />
           </Box>
 
           {visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze' && (

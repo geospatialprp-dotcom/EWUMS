@@ -429,17 +429,23 @@ export function mapCompassCardSx() {
   };
 }
 
-export function mapAnalysisPanelSx() {
-  return mapFloatingPanelSx({
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 20,
-    width: 320,
-    maxHeight: 'calc(100% - 56px)',
-    display: 'flex',
+/** Right-side spatial analysis panel — mirrors TOC panel chrome on the opposite edge. */
+export function mapSpatialAnalysisPanelSx(active = false) {
+  return {
+    width: { xs: 260, md: 288 },
+    flexShrink: 0,
+    display: { xs: 'none', md: 'flex' },
     flexDirection: 'column',
-  });
+    borderLeft: active
+      ? `2px solid ${ARCMAP.selectionBorder}`
+      : `1px solid ${ARCMAP.toolbarBorder}`,
+    bgcolor: active ? ARCMAP.selectionBg : ARCMAP.tocBg,
+    height: '100%',
+    fontFamily: '"Segoe UI", Tahoma, sans-serif',
+    fontSize: '0.8125rem',
+    boxShadow: active ? 'inset 3px 0 0 rgba(49,106,197,0.18)' : 'none',
+    transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
+  };
 }
 
 export function mapAttributeBookSx() {

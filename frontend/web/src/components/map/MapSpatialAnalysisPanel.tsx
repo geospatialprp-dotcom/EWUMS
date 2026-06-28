@@ -1,13 +1,13 @@
 import {
-  Box, Button, Divider, FormControl, IconButton, InputLabel, MenuItem, Paper,
-  Select, TextField, Typography, CircularProgress,
+  Box, Button, Divider, FormControl, IconButton, InputLabel, MenuItem,
+  Select, TextField, Typography, CircularProgress, Tooltip,
 } from '@mui/material';
 import AnalyticsOutlinedIcon from '@mui/icons-material/AnalyticsOutlined';
-import CloseIcon from '@mui/icons-material/Close';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { SPATIAL_OPERATIONS, type SpatialOperation, type SpatialQueryMeta } from '../../utils/spatialAnalysis';
-import { mapAnalysisPanelSx, mapDarkHeaderSx, MAP_CHROME } from '../../utils/mapChromeStyles';
+import { mapDarkHeaderSx, mapSpatialAnalysisPanelSx, MAP_CHROME } from '../../utils/mapChromeStyles';
 
 type AnalysisLayer = {
   id: string;
@@ -17,6 +17,7 @@ type AnalysisLayer = {
 
 interface MapSpatialAnalysisPanelProps {
   open: boolean;
+  active?: boolean;
   layers: AnalysisLayer[];
   targetLayerId: string;
   operation: SpatialOperation;
@@ -34,6 +35,7 @@ interface MapSpatialAnalysisPanelProps {
 
 export default function MapSpatialAnalysisPanel({
   open,
+  active = true,
   layers,
   targetLayerId,
   operation,
@@ -58,10 +60,18 @@ export default function MapSpatialAnalysisPanel({
       : 'Draw a polygon on the map — double-click to finish';
 
   return (
-    <Paper elevation={0} sx={mapAnalysisPanelSx()}>
-      <Box sx={mapDarkHeaderSx()} display="flex" alignItems="center" gap={1}>
+    <Box sx={mapSpatialAnalysisPanelSx(active)} role="complementary" aria-label="Spatial analysis">
+      <Box
+        sx={{
+          ...mapDarkHeaderSx(),
+          ...(active ? { bgcolor: '#d4e8ff', borderBottomColor: MAP_CHROME.accent } : {}),
+        }}
+        display="flex"
+        alignItems="center"
+        gap={1}
+      >
         <AnalyticsOutlinedIcon sx={{ color: MAP_CHROME.accent, fontSize: 18 }} />
-        <Box flex={1}>
+        <Box flex={1} minWidth={0}>
           <Typography variant="subtitle2" fontWeight={700} sx={{ color: MAP_CHROME.text, fontSize: '0.8125rem' }}>
             Spatial Analysis
           </Typography>
@@ -69,10 +79,13 @@ export default function MapSpatialAnalysisPanel({
             Query features by location
           </Typography>
         </Box>
-        <IconButton size="small" onClick={onClose} aria-label="Close">
-          <CloseIcon sx={{ fontSize: 16 }} />
-        </IconButton>
+        <Tooltip title="Close spatial analysis">
+          <IconButton size="small" onClick={onClose} aria-label="Close spatial analysis" sx={{ p: 0.25 }}>
+            <ChevronRightIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
       </Box>
+
       <Box px={2} py={1.5} sx={{ overflow: 'auto', flex: 1 }}>
         <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
           <InputLabel>Operation</InputLabel>
@@ -162,6 +175,6 @@ export default function MapSpatialAnalysisPanel({
           </>
         )}
       </Box>
-    </Paper>
+    </Box>
   );
 }
