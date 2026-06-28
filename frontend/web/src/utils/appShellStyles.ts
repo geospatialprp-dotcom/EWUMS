@@ -127,7 +127,6 @@ export function appBarBrandRowSx() {
     display: 'flex',
     alignItems: 'center',
     gap: { xs: 0.75, sm: 1.5, md: 2 },
-    flex: 1,
     minWidth: 0,
     overflow: 'hidden',
   };
@@ -141,7 +140,6 @@ export function appBarTitleSx() {
     fontSize: { xs: '0.72rem', sm: '0.95rem', md: '1.125rem' },
     lineHeight: { xs: 1.2, sm: 1.25 },
     minWidth: 0,
-    flex: 1,
   };
 }
 

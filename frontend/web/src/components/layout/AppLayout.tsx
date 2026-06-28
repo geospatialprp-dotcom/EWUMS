@@ -91,10 +91,10 @@ function isNavSelected(pathname: string, path: string) {
 export default function AppLayout({ children }: { children: ReactNode }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const isDesktop = useMediaQuery(theme.breakpoints.up('lg'));
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
 
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const { user, hasPermission } = useAuth();
   const { t } = useTranslation();
@@ -106,8 +106,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isDesktop) setSidebarCollapsed(false);
-    else if (!isMobile) setSidebarCollapsed(true);
-  }, [isDesktop, isMobile]);
+  }, [isDesktop]);
 
   const drawerCollapsed = !isMobile && !isDesktop && sidebarCollapsed;
   const drawerWidth = drawerCollapsed ? DRAWER_WIDTH_MINI : DRAWER_WIDTH;
@@ -225,18 +224,39 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <Box display="flex" height="100vh" sx={{ bgcolor: '#f1f5f9', overflow: 'hidden' }}>
-      <AppBar position="fixed" sx={{ ...appBarSx(), zIndex: (t) => t.zIndex.drawer + 1 }}>
+      <AppBar
+        position="fixed"
+        sx={{
+          ...appBarSx(),
+          zIndex: (t) => t.zIndex.drawer + 1,
+          width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` },
+          ml: { xs: 0, md: `${drawerWidth}px` },
+          transition: 'width 0.2s ease, margin 0.2s ease',
+        }}
+      >
         <Toolbar sx={{ minHeight: { xs: 64, sm: 68 }, gap: { xs: 0.5, sm: 1 }, px: { xs: 1, sm: 2 }, py: { sm: 0.5 } }}>
           <IconButton
             edge="start"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Open navigation menu"
-            sx={{ mr: { xs: 0.25, sm: 1 }, display: { md: 'none' }, color: '#334155', flexShrink: 0, ...appTouchIconButtonSx() }}
+            sx={{
+              mr: { xs: 0.25, sm: 1 },
+              display: { md: 'none' },
+              color: '#334155',
+              flexShrink: 0,
+              ...(isMobile ? appTouchIconButtonSx() : {}),
+            }}
           >
             <MenuIcon />
           </IconButton>
 
-          <Box sx={appBarBrandRowSx()}>
+          <Box
+            sx={{
+              ...appBarBrandRowSx(),
+              flex: { xs: 1, md: '0 1 auto' },
+              maxWidth: { md: '45%', lg: '52%' },
+            }}
+          >
             <Box
               component="a"
               href={APP_BRAND.companyUrl}
@@ -248,26 +268,32 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Box>
             <Typography
               variant="h6"
+              noWrap={!isMobile}
               sx={{
                 ...appBarTitleSx(),
-                display: { xs: '-webkit-box', lg: 'block' },
-                WebkitLineClamp: { xs: 2, lg: 'unset' },
-                WebkitBoxOrient: { xs: 'vertical', lg: 'unset' },
-                overflow: 'hidden',
-                textOverflow: { xs: 'unset', lg: 'ellipsis' },
-                whiteSpace: { xs: 'normal', lg: 'nowrap' },
+                ...(isMobile
+                  ? {
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      whiteSpace: 'normal',
+                    }
+                  : {}),
               }}
             >
-              <Box component="span" sx={{ display: { xs: 'none', lg: 'inline' } }}>
+              <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>
                 {APP_BRAND.headerTitle}
               </Box>
-              <Box component="span" sx={{ display: { xs: 'inline', lg: 'none' } }}>
+              <Box component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>
                 {APP_BRAND.headerTitleShort}
               </Box>
             </Typography>
           </Box>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, gap: { xs: 0.25, sm: 0.5 } }}>
+          <Box sx={{ flex: 1, minWidth: 16, display: { xs: 'none', md: 'block' } }} />
+
+          <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, gap: { xs: 0.25, sm: 0.75, md: 1 } }}>
             <DivisionSwitcher />
             <LanguageSwitcher />
             <HelpPanel />

@@ -20,7 +20,7 @@ source .env
 set +a
 
 echo "==> Pulling latest code"
-git -C ../.. pull --ff-only origin "${BRANCH:-main}" || true
+sudo -u egip git -C ../.. pull --ff-only origin "${BRANCH:-main}"
 
 echo "==> Building images"
 ${COMPOSE} build
