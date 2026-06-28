@@ -1,0 +1,126 @@
+# Production stack for Hostinger KVM VPS
+# Run from: deploy/hostinger-kvm/
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+
+name: egip-prod
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: egip-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-egip}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_DATABASE:-egip}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-egip} -d ${DB_DATABASE:-egip}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - egip
+
+  redis:
+    image: redis:7-alpine
+    container_name: egip-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - egip
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/hostinger-kvm/docker/Dockerfile.api
+    container_name: egip-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - api_uploads:/repo/backend/api/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - egip
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/hostinger-kvm/docker/Dockerfile.web
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+    container_name: egip-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8081:80"
+    networks:
+      - egip
+
+  # One-shot migration runner (not started with `up -d`)
+  migrate:
+    profiles: ["tools"]
+    build:
+      context: ../..
+      dockerfile: deploy/hostinger-kvm/docker/Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    command: ["node", "scripts/apply-sql-migrations.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - egip
+
+  geoserver:
+    profiles: ["gis"]
+    image: kartoza/geoserver:2.24.2
+    container_name: egip-geoserver
+    restart: unless-stopped
+    environment:
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:?Set GEOSERVER_ADMIN_PASSWORD when using gis profile}
+      INITIAL_MEMORY: 2G
+      MAXIMUM_MEMORY: 4G
+    volumes:
+      - geoserver_data:/opt/geoserver/data_dir
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - egip
+
+networks:
+  egip:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  api_uploads:
+  geoserver_data:

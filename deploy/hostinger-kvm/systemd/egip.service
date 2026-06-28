@@ -1,0 +1,20 @@
+[Unit]
+Description=EGIP production stack (Docker Compose)
+Documentation=file:///opt/egip/deploy/hostinger-kvm/README.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=egip
+Group=egip
+WorkingDirectory=/opt/egip/deploy/hostinger-kvm
+EnvironmentFile=-/opt/egip/deploy/hostinger-kvm/.env
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml --env-file .env up -d postgres redis api web
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml --env-file .env down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

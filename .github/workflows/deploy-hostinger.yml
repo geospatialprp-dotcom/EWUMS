@@ -1,0 +1,28 @@
+name: Deploy to Hostinger KVM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: hostinger-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository == 'geospatialprp-dotcom/EWUMS'
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd /opt/egip/deploy/hostinger-kvm
+            git -C /opt/egip pull --ff-only origin main
+            bash deploy.sh
