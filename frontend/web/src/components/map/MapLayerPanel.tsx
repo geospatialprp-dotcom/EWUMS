@@ -40,6 +40,20 @@ export type MapLayerGroup = {
 
 const BASEMAP_GROUP = 'Basemaps';
 
+function getGroupVisibilityState(
+  layers: MapCatalogLayer[],
+  layerVisibility: Record<string, boolean>,
+) {
+  if (layers.length === 0) {
+    return { allChecked: false, indeterminate: false };
+  }
+  const checkedCount = layers.filter((layer) => layerVisibility[layer.id] ?? false).length;
+  return {
+    allChecked: checkedCount === layers.length,
+    indeterminate: checkedCount > 0 && checkedCount < layers.length,
+  };
+}
+
 function GeometryIcon({ type }: { type?: GeometryType }) {
   const sx = { fontSize: 16, color: ARCMAP.textMuted };
   if (type === 'LineString') return <TimelineOutlinedIcon sx={sx} />;
@@ -57,6 +71,8 @@ interface MapLayerPanelProps {
   visibleLayerCount?: number;
   jurisdictionLabel?: string;
   onToggleLayer: (groupName: string, layerId: string, enabled: boolean) => void;
+  onToggleGroupLayers?: (groupId: string, enabled: boolean) => void;
+  onToggleAllLayers?: (enabled: boolean) => void;
   onSelectEditLayer: (layerId: string) => void;
   onHide?: () => void;
   onConfigureOrthomosaic?: () => void;
@@ -72,18 +88,38 @@ export default function MapLayerPanel({
   visibleLayerCount,
   jurisdictionLabel,
   onToggleLayer,
+  onToggleGroupLayers,
+  onToggleAllLayers,
   onSelectEditLayer,
   onHide,
   onConfigureOrthomosaic,
 }: MapLayerPanelProps) {
   const visibleCount = visibleLayerCount ?? Object.values(layerVisibility).filter(Boolean).length;
+  const allFeatureLayers = groups
+    .filter((group) => group.name !== BASEMAP_GROUP)
+    .flatMap((group) => group.layers);
+  const rootVisibility = getGroupVisibilityState(allFeatureLayers, layerVisibility);
 
   return (
     <Box sx={mapLayerPanelSx()}>
       <Box sx={mapDarkHeaderSx()} display="flex" alignItems="center" justifyContent="space-between">
-        <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem', color: ARCMAP.text }}>
-          List By Drawing Order
-        </Typography>
+        <Box display="flex" alignItems="center" gap={0.5} flex={1} minWidth={0}>
+          {onToggleAllLayers && allFeatureLayers.length > 0 ? (
+            <Tooltip title={rootVisibility.allChecked ? 'Uncheck all layers' : 'Check all layers'}>
+              <Checkbox
+                size="small"
+                checked={rootVisibility.allChecked}
+                indeterminate={rootVisibility.indeterminate}
+                onChange={(e) => onToggleAllLayers(e.target.checked)}
+                inputProps={{ 'aria-label': 'Toggle all layers' }}
+                sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 16 } }}
+              />
+            </Tooltip>
+          ) : null}
+          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem', color: ARCMAP.text }}>
+            List By Drawing Order
+          </Typography>
+        </Box>
         {onHide && (
           <Tooltip title="Collapse Table of Contents">
             <IconButton size="small" onClick={onHide} aria-label="Hide TOC" sx={{ p: 0.25 }}>
@@ -102,9 +138,10 @@ export default function MapLayerPanel({
       <Box sx={{ flex: 1, overflow: 'auto' }}>
         {groups.map((group) => {
           const isBasemap = group.name === BASEMAP_GROUP;
+          const groupVisibility = getGroupVisibilityState(group.layers, layerVisibility);
           return (
             <Box key={group.id}>
-              <Typography sx={{
+              <Box sx={{
                 fontSize: '0.7rem',
                 fontWeight: 700,
                 color: ARCMAP.textMuted,
@@ -117,9 +154,23 @@ export default function MapLayerPanel({
                 gap: 0.5,
               }}
               >
+                {!isBasemap && onToggleGroupLayers && group.layers.length > 0 ? (
+                  <Tooltip title={groupVisibility.allChecked ? 'Uncheck all in group' : 'Check all in group'}>
+                    <Checkbox
+                      size="small"
+                      checked={groupVisibility.allChecked}
+                      indeterminate={groupVisibility.indeterminate}
+                      onChange={(e) => onToggleGroupLayers(group.id, e.target.checked)}
+                      inputProps={{ 'aria-label': `Toggle all layers in ${group.name}` }}
+                      sx={{ p: 0, '& .MuiSvgIcon-root': { fontSize: 16 } }}
+                    />
+                  </Tooltip>
+                ) : null}
                 {isBasemap ? <LayersOutlinedIcon sx={{ fontSize: 14 }} /> : null}
-                {group.name} ({group.layers.length})
-              </Typography>
+                <Typography component="span" sx={{ fontSize: '0.7rem', fontWeight: 700, color: ARCMAP.textMuted }}>
+                  {group.name} ({group.layers.length})
+                </Typography>
+              </Box>
 
               <List dense disablePadding>
                 {group.layers.length === 0 ? (

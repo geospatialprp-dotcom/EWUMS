@@ -1096,6 +1096,50 @@ export default function MapPage() {
     }
   };
 
+  const toggleGroupLayers = useCallback((groupId: string, enabled: boolean) => {
+    const group = explorerLayers.find((entry) => entry.id === groupId);
+    if (!group || group.name === BASEMAP_GROUP_NAME) return;
+
+    setLayerVisibility((prev) => {
+      const next = { ...prev };
+      group.layers.forEach((layer) => {
+        next[layer.id] = enabled;
+      });
+
+      if (!enabled && group.layers.some((layer) => layer.id === activeEditLayerId)) {
+        const nextVisible = featureClassLayers.find((layer) => next[layer.id]);
+        setActiveEditLayerId(nextVisible?.id ?? '');
+      } else if (enabled && !group.layers.some((layer) => layer.id === activeEditLayerId)) {
+        const firstLayer = group.layers[0];
+        if (firstLayer) {
+          requestLayerFit(firstLayer.id);
+          setActiveEditLayerId(firstLayer.id);
+        }
+      }
+      return next;
+    });
+  }, [explorerLayers, featureClassLayers, activeEditLayerId, requestLayerFit]);
+
+  const toggleAllLayers = useCallback((enabled: boolean) => {
+    setLayerVisibility((prev) => {
+      const next = { ...prev };
+      featureClassLayers.forEach((layer) => {
+        next[layer.id] = enabled;
+      });
+
+      if (!enabled) {
+        setActiveEditLayerId('');
+      } else if (!next[activeEditLayerId]) {
+        const firstVisible = featureClassLayers.find((layer) => next[layer.id]);
+        if (firstVisible) {
+          requestLayerFit(firstVisible.id);
+          setActiveEditLayerId(firstVisible.id);
+        }
+      }
+      return next;
+    });
+  }, [featureClassLayers, activeEditLayerId, requestLayerFit]);
+
   const selectEditLayer = (layerId: string) => {
     if (!layerVisibility[layerId]) {
       setLayerVisibility((prev) => ({ ...prev, [layerId]: true }));
@@ -1755,6 +1799,8 @@ export default function MapPage() {
             visibleLayerCount={visibleLayerCount}
             jurisdictionLabel={mapAccess?.jurisdictionLabel}
             onToggleLayer={toggleLayer}
+            onToggleGroupLayers={toggleGroupLayers}
+            onToggleAllLayers={toggleAllLayers}
             onSelectEditLayer={selectEditLayer}
             onHide={() => handleToggleExplorer(false)}
             onConfigureOrthomosaic={() => setOrthoDialogOpen(true)}
