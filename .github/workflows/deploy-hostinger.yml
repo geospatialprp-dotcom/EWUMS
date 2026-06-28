@@ -14,10 +14,23 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'geospatialprp-dotcom/EWUMS'
     steps:
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.HOSTINGER_SSH_KEY }}
+      - name: Setup SSH key
+        env:
+          SSH_KEY_B64: ${{ secrets.HOSTINGER_SSH_KEY }}
+        run: |
+          if [ -z "$SSH_KEY_B64" ]; then
+            echo "ERROR: HOSTINGER_SSH_KEY secret is empty"
+            exit 1
+          fi
+          echo "$SSH_KEY_B64" | base64 -d > deploy_key.pem
+          chmod 600 deploy_key.pem
+          if ! ssh-keygen -y -f deploy_key.pem >/dev/null 2>&1; then
+            echo "ERROR: Invalid key — set HOSTINGER_SSH_KEY to base64 of PEM private key"
+            exit 1
+          fi
+          eval "$(ssh-agent -s)"
+          ssh-add deploy_key.pem
+          echo "SSH key loaded OK"
 
       - name: Trust host key
         run: |
