@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <circle cx="60" cy="60" r="58" fill="#16a34a" stroke="#15803d" stroke-width="4"/>
+  <text x="60" y="52" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="14" font-weight="700">UID</text>
+  <text x="60" y="72" text-anchor="middle" fill="#dcfce7" font-family="Arial,sans-serif" font-size="9">Irrigation</text>
+</svg>

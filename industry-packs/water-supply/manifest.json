@@ -1,0 +1,16 @@
+{
+  "id": "water-supply",
+  "name": "Water Supply Module",
+  "version": "1.0.0",
+  "description": "Water utility asset management, NRW monitoring, and hydraulic network",
+  "assetTypes": [
+    { "code": "reservoir", "name": "Reservoir", "geometryType": "Polygon", "icon": "reservoir" },
+    { "code": "pipeline", "name": "Pipeline", "geometryType": "LineString", "icon": "pipeline" },
+    { "code": "pump_house", "name": "Pump House", "geometryType": "Point", "icon": "pump" },
+    { "code": "valve", "name": "Valve", "geometryType": "Point", "icon": "valve" },
+    { "code": "consumer", "name": "Consumer Connection", "geometryType": "Point", "icon": "consumer" }
+  ],
+  "dashboards": ["nrw-monitoring", "pressure-zones", "asset-health"],
+  "iotProfiles": ["water_level", "flow", "pressure", "quality"],
+  "reports": ["asset-inventory", "nrw-analysis", "inspection-summary"]
+}

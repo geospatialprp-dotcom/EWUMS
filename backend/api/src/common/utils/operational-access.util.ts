@@ -1,0 +1,32 @@
+import { ForbiddenException } from '@nestjs/common';
+import type { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
+
+export function isSuperAdmin(roles?: string[] | null): boolean {
+  return roles?.includes('super_admin') ?? false;
+}
+
+export function assertNotSuperAdminForOperations(user: JwtPayload, action: string): void {
+  if (isSuperAdmin(user.roles)) {
+    throw new ForbiddenException(
+      `Super Admin cannot perform ${action}. Use an HQ or division account.`,
+    );
+  }
+}
+
+export function assertNotSuperAdminRolesForOperations(roles: string[] | null | undefined, action: string): void {
+  if (isSuperAdmin(roles)) {
+    throw new ForbiddenException(
+      `Super Admin cannot perform ${action}. Use an HQ or division account.`,
+    );
+  }
+}
+
+const ADMIN_PERMISSION_PREFIXES = ['user:', 'role:', 'audit:', 'tenant:'] as const;
+
+export function isAdminPermission(permission: string): boolean {
+  return ADMIN_PERMISSION_PREFIXES.some((prefix) => permission.startsWith(prefix));
+}
+
+export function isReadPermission(permission: string): boolean {
+  return permission.endsWith(':read');
+}

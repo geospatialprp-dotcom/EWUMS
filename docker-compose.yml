@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: egip-postgres
+    environment:
+      POSTGRES_USER: egip
+      POSTGRES_PASSWORD: egip_secret
+      POSTGRES_DB: egip
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U egip -d egip"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: egip-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  geoserver:
+    image: kartoza/geoserver:2.24.2
+    container_name: egip-geoserver
+    environment:
+      GEOSERVER_ADMIN_USER: admin
+      GEOSERVER_ADMIN_PASSWORD: geoserver
+      INITIAL_MEMORY: 2G
+      MAXIMUM_MEMORY: 4G
+    ports:
+      - "8080:8080"
+    volumes:
+      - geoserver_data:/opt/geoserver/data_dir
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  geoserver_data:

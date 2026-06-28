@@ -1,0 +1,3 @@
+-- Just tag extension postgis_raster version as "ANY"
+-- Installed by postgis_raster 3.6.4
+-- Built on 2026-06-08 21:54:09
