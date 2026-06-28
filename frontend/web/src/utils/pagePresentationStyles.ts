@@ -19,9 +19,9 @@ const ACCENTS: Record<PageAccent, { bar: string; label: string; title: string }>
 
 export function pageShellSx(fullHeight = false) {
   return {
-    p: 3,
+    p: { xs: 1.5, sm: 2, md: 3 },
     bgcolor: '#f1f5f9',
-    minHeight: fullHeight ? 'calc(100vh - 64px)' : undefined,
+    minHeight: fullHeight ? { xs: 'calc(100vh - 56px)', sm: 'calc(100vh - 68px)' } : undefined,
     overflow: fullHeight ? 'auto' : undefined,
   };
 }
@@ -32,9 +32,9 @@ export function pageHeaderSx(accent: PageAccent = 'blue') {
     borderLeft: `4px solid ${theme.bar}`,
     background: 'linear-gradient(90deg, #f8fafc 0%, #ffffff 72%)',
     borderRadius: 2,
-    px: 2.5,
-    py: 1.75,
-    mb: 3,
+    px: { xs: 1.5, sm: 2, md: 2.5 },
+    py: { xs: 1.25, sm: 1.75 },
+    mb: { xs: 2, md: 3 },
     boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)',
   };
 }
@@ -54,6 +54,7 @@ export function pageTitleSx(accent: PageAccent = 'blue') {
     color: ACCENTS[accent].title,
     fontWeight: 800,
     letterSpacing: '-0.02em',
+    fontSize: { xs: '1.25rem', sm: '1.375rem', md: '1.5rem' },
   };
 }
 
@@ -85,8 +86,9 @@ export function dataTableSx() {
   return {
     border: '1px solid #e2e8f0',
     borderRadius: 2,
-    overflow: 'hidden',
+    overflow: 'auto',
     bgcolor: '#ffffff',
+    WebkitOverflowScrolling: 'touch',
     '& .MuiTableHead-root .MuiTableCell-root': {
       background: 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)',
       color: '#334155',
@@ -148,7 +150,7 @@ export function kpiLabelSx(tone: KpiTone = 'blue') {
 
 export function kpiValueSx(tone: KpiTone = 'blue') {
   return {
-    fontSize: '2rem',
+    fontSize: { xs: '1.5rem', sm: '1.75rem', md: '2rem' },
     fontWeight: 800,
     lineHeight: 1.1,
     letterSpacing: '-0.02em',
@@ -170,11 +172,15 @@ export function styledTabsSx() {
   return {
     mb: 2,
     minHeight: 42,
+    overflowX: 'auto',
+    '& .MuiTabs-scroller': { overflowX: 'auto !important' },
     '& .MuiTab-root': {
       fontWeight: 600,
-      fontSize: '0.8125rem',
+      fontSize: { xs: '0.75rem', sm: '0.8125rem' },
       textTransform: 'none',
-      minHeight: 42,
+      minHeight: 44,
+      minWidth: 'auto',
+      px: { xs: 1.25, sm: 2 },
     },
     '& .Mui-selected': { color: '#1e40af !important' },
     '& .MuiTabs-indicator': {

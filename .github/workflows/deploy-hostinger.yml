@@ -1,3 +1,4 @@
+<<<<<<< HEAD
         run: |
           if [ -z "$SSH_KEY" ]; then
             echo "ERROR: HOSTINGER_SSH_KEY secret is empty"
@@ -18,3 +19,118 @@
           echo "SSH key loaded OK"
                   env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+=======
+name: Deploy to Hostinger KVM
+
+
+
+on:
+
+  push:
+
+    branches: [main]
+
+  workflow_dispatch:
+
+
+
+concurrency:
+
+  group: hostinger-deploy
+
+  cancel-in-progress: true
+
+
+
+jobs:
+
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    if: github.repository == 'geospatialprp-dotcom/EWUMS'
+
+    steps:
+
+      - name: Setup SSH key
+
+        env:
+
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+
+        run: |
+
+          if [ -z "$SSH_KEY" ]; then
+
+            echo "ERROR: HOSTINGER_SSH_KEY secret is empty"
+
+            exit 1
+
+          fi
+
+          if echo "$SSH_KEY" | grep -q "BEGIN"; then
+
+            printf '%s\n' "$SSH_KEY" > deploy_key.pem
+
+          else
+
+            echo "$SSH_KEY" | tr -d ' \t\r\n' | base64 -d > deploy_key.pem
+
+          fi
+
+          chmod 600 deploy_key.pem
+
+          if ! ssh-keygen -y -f deploy_key.pem >/dev/null 2>&1; then
+
+            echo "ERROR: Invalid SSH key in HOSTINGER_SSH_KEY secret"
+
+            exit 1
+
+          fi
+
+          eval "$(ssh-agent -s)"
+
+          ssh-add deploy_key.pem
+
+          echo "SSH key loaded OK"
+
+
+
+      - name: Trust host key
+
+        run: |
+
+          mkdir -p ~/.ssh
+
+          ssh-keyscan -p "${{ secrets.HOSTINGER_SSH_PORT || 22 }}" -H "${{ secrets.HOSTINGER_HOST }}" >> ~/.ssh/known_hosts
+
+
+
+      - name: Deploy over SSH
+
+        env:
+
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+
+          USER: ${{ secrets.HOSTINGER_USER }}
+
+          PORT: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
+
+        run: |
+
+          set -euo pipefail
+
+          ssh -p "$PORT" "${USER}@${HOST}" bash -s <<'REMOTE'
+
+          set -euo pipefail
+
+          cd /opt/egip/deploy/hostinger-kvm
+
+          git -C /opt/egip pull --ff-only origin main
+
+          bash deploy.sh
+
+          REMOTE
+
+
+>>>>>>> 782b399 (Short description of what you changed)

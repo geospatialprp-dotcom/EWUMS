@@ -8,6 +8,8 @@ import {
   Menu,
   MenuItem,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -26,6 +28,8 @@ import {
 import DepartmentLogo from './DepartmentLogo';
 
 export default function DepartmentLogoMenu() {
+  const theme = useTheme();
+  const isCompact = useMediaQuery(theme.breakpoints.down('sm'));
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { department, setDepartmentId } = useDepartment();
   const { user, logout } = useAuth();
@@ -43,7 +47,7 @@ export default function DepartmentLogoMenu() {
         aria-expanded={open ? 'true' : undefined}
         sx={appDepartmentSwitcherSx(open)}
       >
-        <DepartmentLogo department={department} size={50} badge />
+        <DepartmentLogo department={department} size={isCompact ? 40 : 50} badge />
 
         <Box
           sx={{

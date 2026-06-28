@@ -14,6 +14,7 @@ import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import { useTranslation } from '../../context/LanguageContext';
 import type { AppLocale } from '../../i18n';
+import { appTouchIconButtonSx } from '../../utils/appShellStyles';
 
 const OPTIONS: Array<{ id: AppLocale; labelKey: string }> = [
   { id: 'en', labelKey: 'language.english' },
@@ -61,10 +62,9 @@ export default function LanguageSwitcher({ variant = 'icon' }: LanguageSwitcherP
   ) : (
     <Tooltip title={t('language.title')}>
       <IconButton
-        size="small"
         onClick={(e) => setAnchor(e.currentTarget)}
         aria-label={t('language.title')}
-        sx={{ color: '#475569' }}
+        sx={{ color: '#475569', ...appTouchIconButtonSx() }}
       >
         <LanguageIcon fontSize="small" />
       </IconButton>

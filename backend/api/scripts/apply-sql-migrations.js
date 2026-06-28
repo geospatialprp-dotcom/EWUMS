@@ -7,12 +7,20 @@ const path = require('path');
 const { Client } = require('pg');
 
 function loadEnv() {
+  const fileEnv = {};
   const envPath = path.join(__dirname, '..', '.env');
-  if (!fs.existsSync(envPath)) return {};
-  const out = {};
-  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-    const m = line.match(/^([^#=]+)=(.*)$/);
-    if (m) out[m[1].trim()] = m[2].trim();
+  if (fs.existsSync(envPath)) {
+    for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+      const m = line.match(/^([^#=]+)=(.*)$/);
+      if (m) fileEnv[m[1].trim()] = m[2].trim();
+    }
+  }
+  // Docker Compose injects DB_* via env_file/environment; prefer process.env.
+  const out = { ...fileEnv };
+  for (const key of ['DB_HOST', 'DB_PORT', 'DB_USERNAME', 'DB_PASSWORD', 'DB_DATABASE']) {
+    if (process.env[key] !== undefined && process.env[key] !== '') {
+      out[key] = process.env[key];
+    }
   }
   return out;
 }
@@ -64,6 +72,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Migration failed:', err.message);
+  console.error('Migration failed:', err.message || String(err));
+  if (err.detail) console.error('Detail:', err.detail);
+  if (err.stack) console.error(err.stack);
   process.exit(1);
 });

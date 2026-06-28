@@ -3,13 +3,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY frontend/web/package.json frontend/web/package-lock.json* ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps 2>/dev/null || npm install --legacy-peer-deps
 
 COPY frontend/web/ ./
 
 ARG VITE_GOOGLE_MAPS_API_KEY=
 ENV VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
 
+# Vite bundles without tsc; run `npm run typecheck` locally/CI to gate TS errors
 RUN npm run build
 
 FROM nginx:1.27-alpine

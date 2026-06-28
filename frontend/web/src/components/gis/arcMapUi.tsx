@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Box, Button, Divider, IconButton, Tooltip, Typography } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material';
+import { appMainHeightSx } from '../../utils/appShellStyles';
 
 /** ArcGIS Desktop–inspired chrome for the Feature Class Catalog. */
 export const ARCMAP = {
@@ -28,10 +29,10 @@ export function arcMapShellSx(): SxProps<Theme> {
   return {
     display: 'flex',
     flexDirection: 'column',
-    height: 'calc(100vh - 64px)',
+    ...appMainHeightSx(),
     bgcolor: ARCMAP.workspaceBg,
     fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
-    fontSize: '0.8125rem',
+    fontSize: { xs: '0.75rem', sm: '0.8125rem' },
   };
 }
 

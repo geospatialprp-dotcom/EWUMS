@@ -9,6 +9,8 @@ export const APP_BRAND = {
   companyUrl: 'https://www.prpgeospatial.com',
   /** Top app bar */
   headerTitle: 'Enterprises Water Utility Management System',
+  /** Shorter title for narrow mobile headers */
+  headerTitleShort: 'EWUMS · Water Utility System',
   /** Login subtitle */
   tagline: 'Integrated water supply planning, O&M, billing, GIS, and analytics on one platform',
   /** Browser tab title */

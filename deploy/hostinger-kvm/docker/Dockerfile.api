@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /repo/backend/api
 COPY backend/api/package.json backend/api/package-lock.json* ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps 2>/dev/null || npm install --legacy-peer-deps
 
 COPY backend/api/ ./
 RUN npm run build
@@ -14,7 +14,7 @@ WORKDIR /repo/backend/api
 ENV NODE_ENV=production
 
 COPY backend/api/package.json backend/api/package-lock.json* ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --legacy-peer-deps 2>/dev/null || npm install --omit=dev --legacy-peer-deps
 
 COPY --from=builder /repo/backend/api/dist ./dist
 COPY backend/api/scripts ./scripts
