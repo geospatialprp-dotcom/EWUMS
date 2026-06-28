@@ -16,3 +16,5 @@
           eval "$(ssh-agent -s)"
           ssh-add deploy_key.pem
           echo "SSH key loaded OK"
+                  env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
