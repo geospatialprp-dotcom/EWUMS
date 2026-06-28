@@ -7,7 +7,7 @@ import PublishOutlinedIcon from '@mui/icons-material/PublishOutlined';
 import type { Feature, FeatureCollection } from 'geojson';
 import buffer from '@turf/buffer';
 import MapViewer from '../map/MapViewer';
-import { UTTARAKHAND_STATE_MAP_VIEW, LA_MAP_BASEMAPS } from '../../utils/basemapLayers';
+import { UTTARAKHAND_STATE_MAP_VIEW, LA_MAP_BASEMAPS, getDefaultSatelliteBasemapId } from '../../utils/basemapLayers';
 import { LA_GIS_VIZ_COLORS, LA_MAP_MARKER_COLORS, LA_MAP_MARKER_LABELS, isClearancePendingApproval } from '../../constants/laGisVisualization';
 import LaGisVisualizationLegend from './LaGisVisualizationLegend';
 import {
@@ -1008,7 +1008,7 @@ export default function LaMapPanel({
           <Box sx={{ height: 420, position: 'relative' }}>
             <MapViewer
               basemaps={LA_MAP_BASEMAPS}
-              activeBasemapId="satellite-esri"
+              activeBasemapId={getDefaultSatelliteBasemapId()}
               overlayLayers={overlayLayers}
               center={UTTARAKHAND_STATE_MAP_VIEW.center}
               zoom={UTTARAKHAND_STATE_MAP_VIEW.zoom}

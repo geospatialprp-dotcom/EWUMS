@@ -34,7 +34,7 @@ import type BaseLayer from 'ol/layer/Base';
 import {
   BasemapConfig, createBasemapLayer, createGeoTiffBasemapLayer,
   DEFAULT_FALLBACK_BASEMAPS,
-  isBlankBasemap, isGeoTiffBasemap, WORLD_VIEW_WGS84,
+  isBlankBasemap, isGeoTiffBasemap, resolveDefaultBasemapId, WORLD_VIEW_WGS84,
 } from '../../utils/basemapLayers';
 import { zoomForPlaceType } from '../../utils/geocoding';
 import {
@@ -605,7 +605,7 @@ export default function MapViewer({
       .filter((layer): layer is BaseLayer => layer !== null);
 
     basemapLayers.current = initialBasemapLayers;
-    const defaultBasemapId = activeBasemapId || basemaps[0]?.id || tileBasemapConfigs[0]?.id || 'osm-default';
+    const defaultBasemapId = resolveDefaultBasemapId(tileBasemapConfigs, activeBasemapId);
     const showTiles = !basemaps.some((config) => config.id === defaultBasemapId && isBlankBasemap(config));
     initialBasemapLayers.forEach((layer) => {
       const layerId = layer.get('basemapId') as string;
@@ -820,7 +820,7 @@ export default function MapViewer({
         return;
       }
 
-      let activeId = activeBasemapId || tileConfigs[0]?.id;
+      let activeId = resolveDefaultBasemapId(tileConfigs, activeBasemapId);
       if (!activeId) return;
 
       const hasActiveLayer = basemapLayers.current.some(

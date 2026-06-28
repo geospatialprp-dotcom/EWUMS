@@ -66,6 +66,7 @@ App: http://localhost:5173
 
 ### Web GIS Map Explorer
 - OpenLayers interactive map with asset visualization
+- Satellite basemaps: **Google Satellite / Hybrid** when `VITE_GOOGLE_MAPS_API_KEY` is set (see `frontend/web/.env.example`); otherwise Esri World Imagery
 - Layer catalog with toggle controls
 - Map tools: identify, measure distance, draw point/area
 - Feature popup with asset health and status

@@ -1,3 +1,13 @@
+/**
+ * Basemap catalog for Map Explorer and LA map panels.
+ *
+ * Google satellite/hybrid use OpenLayers `ol/source/Google` (Map Tiles API), not XYZ URLs.
+ * Enable in Google Cloud Console (https://console.cloud.google.com/google/maps-apis):
+ *   - Map Tiles API (required for Google Satellite / Hybrid)
+ *   - Maps JavaScript API (optional; not used by this tile source)
+ *
+ * Set `VITE_GOOGLE_MAPS_API_KEY` in frontend/web/.env — never commit real keys.
+ */
 import TileLayer from 'ol/layer/Tile';
 import LayerGroup from 'ol/layer/Group';
 import WebGLTile from 'ol/layer/WebGLTile';
@@ -103,15 +113,37 @@ export function buildOptionalGoogleBasemaps(): BasemapConfig[] {
   return [GOOGLE_SATELLITE_BASEMAP, GOOGLE_HYBRID_BASEMAP];
 }
 
+const ESRI_BASEMAPS: BasemapConfig[] = [ESRI_SATELLITE_BASEMAP, ESRI_HYBRID_BASEMAP];
+
 /** Satellite-first basemaps for Map Explorer fallback and LA map panels. */
 export function buildSatelliteFirstBasemaps(osmId = 'osm-default'): BasemapConfig[] {
+  const googleBasemaps = buildOptionalGoogleBasemaps();
+  const satelliteBasemaps = googleBasemaps.length
+    ? [...googleBasemaps, ...ESRI_BASEMAPS]
+    : ESRI_BASEMAPS;
+
   return [
-    ESRI_SATELLITE_BASEMAP,
-    ESRI_HYBRID_BASEMAP,
-    ...buildOptionalGoogleBasemaps(),
+    ...satelliteBasemaps,
     { ...OPENSTREETMAP_BASEMAP, id: osmId },
     BLANK_BASEMAP,
   ];
+}
+
+/** Default satellite basemap id — Google when API key is set, otherwise Esri. */
+export function getDefaultSatelliteBasemapId(): string {
+  return hasGoogleMapsApiKey() ? GOOGLE_SATELLITE_BASEMAP.id : ESRI_SATELLITE_BASEMAP.id;
+}
+
+export function resolveDefaultBasemapId(
+  basemaps: BasemapConfig[],
+  activeBasemapId?: string,
+): string {
+  if (activeBasemapId) return activeBasemapId;
+
+  const firstTileBasemap = basemaps.find((config) => !isBlankBasemap(config));
+  if (firstTileBasemap) return firstTileBasemap.id;
+
+  return getDefaultSatelliteBasemapId();
 }
 
 export const LA_MAP_BASEMAPS: BasemapConfig[] = buildSatelliteFirstBasemaps('osm');
@@ -244,10 +276,24 @@ export function createBasemapLayer(config: BasemapConfig): BaseLayer | null {
   });
 }
 
-/** Prefer Esri or Google satellite basemaps from a layer catalog group. */
-export function findSatelliteImageryBasemap(
-  layers: Array<{ id: string; name: string; sourceType: string; sourceConfig?: BasemapConfig['sourceConfig'] }>,
-): { id: string; name: string; sourceType: string; sourceConfig?: BasemapConfig['sourceConfig'] } | undefined {
+type SatelliteBasemapLayer = {
+  id: string;
+  name: string;
+  sourceType: string;
+  sourceConfig?: BasemapConfig['sourceConfig'];
+};
+
+function findGoogleSatelliteBasemap(layers: SatelliteBasemapLayer[]) {
+  return layers.find(
+    (layer) =>
+      layer.id === GOOGLE_SATELLITE_BASEMAP.id
+      || layer.name === 'Google Imagery'
+      || layer.name === GOOGLE_SATELLITE_BASEMAP.name
+      || (layer.sourceType === 'google' && layer.sourceConfig?.mapType === 'satellite'),
+  );
+}
+
+function findEsriSatelliteBasemap(layers: SatelliteBasemapLayer[]) {
   const byId = layers.find((layer) => layer.id === ESRI_SATELLITE_BASEMAP.id);
   if (byId) return byId;
 
@@ -258,21 +304,24 @@ export function findSatelliteImageryBasemap(
   );
   if (esriByName) return esriByName;
 
-  const esriByUrl = layers.find(
+  return layers.find(
     (layer) =>
       layer.sourceType === 'xyz'
       && typeof layer.sourceConfig?.url === 'string'
       && layer.sourceConfig.url.includes('World_Imagery'),
   );
-  if (esriByUrl) return esriByUrl;
+}
 
-  if (!hasGoogleMapsApiKey()) return undefined;
+/** Prefer Google satellite when API key is set, otherwise Esri satellite from a catalog group. */
+export function findSatelliteImageryBasemap(
+  layers: SatelliteBasemapLayer[],
+): SatelliteBasemapLayer | undefined {
+  if (hasGoogleMapsApiKey()) {
+    const googleSatellite = findGoogleSatelliteBasemap(layers);
+    if (googleSatellite) return googleSatellite;
+  }
 
-  return layers.find(
-    (layer) =>
-      layer.name === 'Google Imagery'
-      || (layer.sourceType === 'google' && layer.sourceConfig?.mapType === 'satellite'),
-  );
+  return findEsriSatelliteBasemap(layers) ?? findGoogleSatelliteBasemap(layers);
 }
 
 export async function createGeoTiffBasemapLayer(config: BasemapConfig): Promise<WebGLTile | null> {

@@ -533,11 +533,8 @@ export default function MapPage() {
       const basemapGroup = catalog.find((group) => group.name === BASEMAP_GROUP_NAME);
       const defaultBasemap = basemapGroup?.layers[0];
       const satelliteBasemap = findSatelliteImageryBasemap(basemapGroup?.layers ?? []);
-      const googleBasemap = basemapGroup?.layers.find(
-        (layer) => layer.name === 'Google Imagery' || layer.sourceType === 'google',
-      );
       const legacySatelliteBasemap = basemapGroup?.layers.find((layer) => layer.name === 'Satellite Imagery');
-      const imageryBasemap = satelliteBasemap ?? googleBasemap ?? legacySatelliteBasemap;
+      const imageryBasemap = satelliteBasemap ?? legacySatelliteBasemap;
       const preferredBasemap = (basemapParam === 'google' || basemapParam === 'satellite') && imageryBasemap
         ? imageryBasemap
         : undefined;
