@@ -24,13 +24,13 @@ export class WorkflowsController {
   @Get('inbox')
   @ApiOperation({ summary: 'Get pending workflow tasks for current user roles' })
   inbox(@CurrentUser() user: JwtPayload) {
-    return this.workflowsService.getInbox(user.tenantId, user.roles);
+    return this.workflowsService.getInbox(user.tenantId, user);
   }
 
   @Get('submissions')
   @ApiOperation({ summary: 'Get workflows submitted by current user' })
   submissions(@CurrentUser() user: JwtPayload) {
-    return this.workflowsService.getMySubmissions(user.tenantId, user.sub);
+    return this.workflowsService.getMySubmissions(user.tenantId, user.sub, user);
   }
 
   @Get('instances')

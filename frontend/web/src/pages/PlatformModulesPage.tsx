@@ -12,6 +12,8 @@ import PageShell from '../components/layout/PageShell';
 import PageHeader from '../components/layout/PageHeader';
 import KpiStatCard from '../components/layout/KpiStatCard';
 import { useAuth } from '../context/AuthContext';
+import { useDivisionScope } from '../context/DivisionContext';
+import { buildMapExplorerUrl, divisionScopeSubtitle } from '../utils/divisionAccess';
 import {
   PLATFORM_MODULE_GROUPS,
   PLATFORM_MODULES,
@@ -31,7 +33,10 @@ import {
 
 export default function PlatformModulesPage() {
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
+  const { activeDivisionId, activeDivision } = useDivisionScope();
+  const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const scopeSubtitle = divisionScopeSubtitle(canViewAllDivisions, activeDivision);
   const [activeGroup, setActiveGroup] = useState<string>(PLATFORM_MODULE_GROUPS[0].key);
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -53,6 +58,10 @@ export default function PlatformModulesPage() {
       navigate('/projects', { state: { constructionTab: mod.hash ?? 'dashboard' } });
       return;
     }
+    if (mod.route === '/map' && activeDivisionId) {
+      navigate(buildMapExplorerUrl(activeDivisionId));
+      return;
+    }
     navigate(buildPlatformModulePath(mod));
   };
 
@@ -68,7 +77,7 @@ export default function PlatformModulesPage() {
       <PageHeader
         eyebrow="S2T2R Integrated Platform"
         title="Platform Modules"
-        subtitle="Twenty end-to-end modules — DPR & construction · GIS · O&M · billing & ERP · analytics · mobile field services"
+        subtitle={scopeSubtitle ?? 'Twenty end-to-end modules — DPR & construction · GIS · O&M · billing & ERP · analytics · mobile field services'}
         accent="indigo"
         leading={<AppsOutlinedIcon sx={{ fontSize: 36, color: '#4f46e5', mt: 0.5 }} />}
       />
@@ -116,7 +125,7 @@ export default function PlatformModulesPage() {
           <PlatformChipRow>
             <Chip component={RouterLink} to="/dpr-planning" clickable icon={<FactCheckOutlinedIcon />} label="DPR & Planning" color="primary" variant="outlined" />
             <Chip component={RouterLink} to="/projects" clickable icon={<EngineeringOutlinedIcon />} label="Projects" color="primary" variant="outlined" />
-            <Chip component={RouterLink} to="/map" clickable icon={<MapOutlinedIcon />} label="GIS Map" color="primary" variant="outlined" />
+            <Chip component={RouterLink} to={buildMapExplorerUrl(activeDivisionId ?? '')} clickable icon={<MapOutlinedIcon />} label="GIS Map" color="primary" variant="outlined" />
             <Chip component={RouterLink} to="/om" clickable icon={<BuildCircleOutlinedIcon />} label="O&M" color="primary" variant="outlined" />
           </PlatformChipRow>
         </PlatformQuickAccessCard>

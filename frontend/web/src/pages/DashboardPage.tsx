@@ -8,6 +8,9 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import WarningIcon from '@mui/icons-material/Warning';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { dashboardApi } from '../services/api';
+import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
+import { useAuth } from '../context/AuthContext';
+import { divisionScopeSubtitle } from '../utils/divisionAccess';
 import PageShell from '../components/layout/PageShell';
 import PageHeader from '../components/layout/PageHeader';
 import KpiStatCard from '../components/layout/KpiStatCard';
@@ -28,10 +31,17 @@ const PIE_COLORS = ['#2563eb', '#0d9488', '#d97706', '#e11d48', '#64748b'];
 const KPI_TONES = ['blue', 'teal', 'violet', 'amber', 'slate'] as const;
 
 export default function DashboardPage() {
+  const { user } = useAuth();
+  const { activeDivision } = useDivisionScope();
+  const divisionScopeKey = useDivisionScopeKey();
+  const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const scopeSubtitle = divisionScopeSubtitle(canViewAllDivisions, activeDivision);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
+    setData(null);
+    setLoadError('');
     dashboardApi.executive()
       .then((res) => {
         const payload = res.data;
@@ -43,7 +53,7 @@ export default function DashboardPage() {
       .catch(() => {
         setLoadError('Could not load dashboard data. Restart the API: cd backend/api && npm run dev:mock');
       });
-  }, []);
+  }, [divisionScopeKey]);
 
   return (
     <PageShell fullHeight loading={!data && !loadError} loadingLabel="Loading executive dashboard…">
@@ -55,6 +65,7 @@ export default function DashboardPage() {
           <PageHeader
             eyebrow="Executive Overview"
             title="Command Center"
+            subtitle={scopeSubtitle}
             accent="indigo"
           />
 

@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { DivisionAccessService } from '../divisions/division-access.service';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { DivisionAccessService } from '../divisions/division-access.service';
 import { Asset } from '../assets/entities/asset.entity';
 import { Project } from '../projects/entities/project.entity';
 
@@ -22,6 +24,15 @@ export class DashboardService {
         ? 'AND 1 = 0'
         : 'AND a.project_id = ANY($2::uuid[])';
     const assetParams: unknown[] = projectIds === null || !projectIds.length
+      ? [tenantId]
+      : [tenantId, projectIds];
+
+    const iotAlertFilter = projectIds === null
+      ? ''
+      : projectIds.length === 0
+        ? 'AND 1 = 0'
+        : 'AND a.project_id = ANY($2::uuid[])';
+    const iotAlertParams: unknown[] = projectIds === null || !projectIds.length
       ? [tenantId]
       : [tenantId, projectIds];
 
@@ -76,9 +87,11 @@ export class DashboardService {
                 id.name AS device_name
          FROM iot_alerts ia
          JOIN iot_devices id ON id.id = ia.device_id
+         LEFT JOIN assets a ON a.id = id.asset_id AND a.tenant_id = $1
          WHERE ia.tenant_id = $1 AND ia.acknowledged = false
+           ${iotAlertFilter}
          ORDER BY ia.created_at DESC LIMIT 10`,
-        [tenantId],
+        iotAlertParams,
       ),
     ]);
 

@@ -12,6 +12,8 @@ import { ActOnTaskDto, SubmitWorkflowDto } from './dto/workflow.dto';
 import { WorkflowDefinition } from './entities/workflow-definition.entity';
 import { WorkflowInstance } from './entities/workflow-instance.entity';
 import { WorkflowTask } from './entities/workflow-task.entity';
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { DivisionAccessService } from '../divisions/division-access.service';
 
 @Injectable()
 export class WorkflowsService {
@@ -20,6 +22,7 @@ export class WorkflowsService {
     @InjectRepository(WorkflowInstance) private instancesRepo: Repository<WorkflowInstance>,
     @InjectRepository(WorkflowTask) private tasksRepo: Repository<WorkflowTask>,
     private auditService: AuditService,
+    private divisionAccess: DivisionAccessService,
   ) {}
 
   async getDefinitions(tenantId: string) {
@@ -29,7 +32,7 @@ export class WorkflowsService {
     });
   }
 
-  async getInbox(tenantId: string, roles: string[]) {
+  async getInbox(tenantId: string, user: JwtPayload) {
     const qb = this.tasksRepo
       .createQueryBuilder('t')
       .innerJoinAndSelect('t.instance', 'i')
@@ -37,11 +40,12 @@ export class WorkflowsService {
       .andWhere('i.status = :status', { status: 'pending' })
       .andWhere('t.status = :taskStatus', { taskStatus: 'pending' });
 
-    qb.andWhere('t.assigned_role IN (:...roles)', { roles });
+    qb.andWhere('t.assigned_role IN (:...roles)', { roles: user.roles });
 
     const tasks = await qb.orderBy('t.created_at', 'DESC').getMany();
+    const scopedTasks = await this.filterTasksByDivisionScope(tasks, user, tenantId);
 
-    return tasks.map((t) => ({
+    return scopedTasks.map((t) => ({
       taskId: t.id,
       stepOrder: t.stepOrder,
       stepName: t.stepName,
@@ -60,14 +64,16 @@ export class WorkflowsService {
     }));
   }
 
-  async getMySubmissions(tenantId: string, userId: string) {
+  async getMySubmissions(tenantId: string, userId: string, user: JwtPayload) {
     const instances = await this.instancesRepo.find({
       where: { tenantId, submittedBy: userId },
       relations: ['tasks'],
       order: { submittedAt: 'DESC' },
     });
 
-    return instances.map((i) => ({
+    const scopedInstances = await this.filterInstancesByDivisionScope(instances, user, tenantId);
+
+    return scopedInstances.map((i) => ({
       id: i.id,
       title: i.title,
       resourceType: i.resourceType,
@@ -217,5 +223,73 @@ export class WorkflowsService {
       instanceStatus: instance.status,
       currentStep: instance.currentStep,
     };
+  }
+
+  private readPayloadDivisionId(payload: Record<string, unknown> | null | undefined): string | null {
+    const raw = payload?.divisionId ?? payload?.division_id;
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  }
+
+  private async resolveInstanceDivisionId(
+    tenantId: string,
+    instance: Pick<WorkflowInstance, 'resourceType' | 'resourceId' | 'payload'>,
+  ): Promise<string | null> {
+    const payloadDivision = this.readPayloadDivisionId(instance.payload);
+    if (payloadDivision) return payloadDivision;
+
+    if (!instance.resourceId) return null;
+
+    if (instance.resourceType === 'project') {
+      return this.divisionAccess.getProjectDivisionId(instance.resourceId);
+    }
+
+    if (instance.resourceType === 'asset') {
+      const rows = await this.instancesRepo.query(
+        `SELECT project_id FROM assets WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [instance.resourceId, tenantId],
+      ) as Array<{ project_id: string | null }>;
+      const projectId = rows[0]?.project_id ?? null;
+      if (projectId) return this.divisionAccess.getProjectDivisionId(projectId);
+    }
+
+    return null;
+  }
+
+  private async filterInstancesByDivisionScope(
+    instances: WorkflowInstance[],
+    user: JwtPayload,
+    tenantId: string,
+  ): Promise<WorkflowInstance[]> {
+    const divisionIds = await this.divisionAccess.getAccessibleDivisionIds(user, tenantId);
+    if (divisionIds === null) return instances;
+    if (divisionIds.length === 0) return [];
+
+    const filtered: WorkflowInstance[] = [];
+    for (const instance of instances) {
+      const divisionId = await this.resolveInstanceDivisionId(tenantId, instance);
+      if (divisionId && divisionIds.includes(divisionId)) {
+        filtered.push(instance);
+      }
+    }
+    return filtered;
+  }
+
+  private async filterTasksByDivisionScope(
+    tasks: WorkflowTask[],
+    user: JwtPayload,
+    tenantId: string,
+  ): Promise<WorkflowTask[]> {
+    const divisionIds = await this.divisionAccess.getAccessibleDivisionIds(user, tenantId);
+    if (divisionIds === null) return tasks;
+    if (divisionIds.length === 0) return [];
+
+    const filtered: WorkflowTask[] = [];
+    for (const task of tasks) {
+      const divisionId = await this.resolveInstanceDivisionId(tenantId, task.instance);
+      if (divisionId && divisionIds.includes(divisionId)) {
+        filtered.push(task);
+      }
+    }
+    return filtered;
   }
 }

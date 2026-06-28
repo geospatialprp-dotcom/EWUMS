@@ -9,6 +9,9 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import SendIcon from '@mui/icons-material/Send';
 import axios from 'axios';
 import { workflowsApi, WorkflowInboxItem } from '../services/api';
+import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
+import { useAuth } from '../context/AuthContext';
+import { divisionScopeSubtitle } from '../utils/divisionAccess';
 import BilingualRemarkField from '../components/forms/BilingualRemarkField';
 import { useBilingualRemark } from '../hooks/useBilingualRemark';
 import PageShell from '../components/layout/PageShell';
@@ -28,6 +31,11 @@ function getErrorMessage(err: unknown): string {
 }
 
 export default function WorkflowInboxPage() {
+  const { user } = useAuth();
+  const { activeDivision } = useDivisionScope();
+  const divisionScopeKey = useDivisionScopeKey();
+  const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const scopeSubtitle = divisionScopeSubtitle(canViewAllDivisions, activeDivision);
   const [tab, setTab] = useState(0);
   const [inbox, setInbox] = useState<WorkflowInboxItem[]>([]);
   const [submissions, setSubmissions] = useState<Array<{
@@ -62,7 +70,7 @@ export default function WorkflowInboxPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [divisionScopeKey]);
 
   const handleAct = async (action: 'approve' | 'reject') => {
     if (!actionDialog) return;
@@ -117,6 +125,7 @@ export default function WorkflowInboxPage() {
       <PageHeader
         eyebrow="Approvals"
         title="Workflow Center"
+        subtitle={scopeSubtitle}
         accent="violet"
         actions={(
           <Button
