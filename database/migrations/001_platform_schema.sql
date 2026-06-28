@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- PLATFORM TABLES
 -- ============================================================
 
-CREATE TABLE tenants (
+CREATE TABLE IF NOT EXISTS tenants (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug            VARCHAR(63) UNIQUE NOT NULL,
     name            VARCHAR(255) NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE tenants (
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE permissions (
+CREATE TABLE IF NOT EXISTS permissions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     resource        VARCHAR(100) NOT NULL,
     action          VARCHAR(50) NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE permissions (
     UNIQUE(resource, action)
 );
 
-CREATE TABLE roles (
+CREATE TABLE IF NOT EXISTS roles (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       UUID REFERENCES tenants(id) ON DELETE CASCADE,
     code            VARCHAR(100) NOT NULL,
@@ -39,14 +39,14 @@ CREATE TABLE roles (
     UNIQUE(tenant_id, code)
 );
 
-CREATE TABLE role_permissions (
+CREATE TABLE IF NOT EXISTS role_permissions (
     role_id         UUID REFERENCES roles(id) ON DELETE CASCADE,
     permission_id   UUID REFERENCES permissions(id) ON DELETE CASCADE,
     scope           VARCHAR(50) DEFAULT 'organization',
     PRIMARY KEY (role_id, permission_id)
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     email           VARCHAR(255) NOT NULL,
@@ -62,14 +62,14 @@ CREATE TABLE users (
     UNIQUE(tenant_id, email)
 );
 
-CREATE TABLE user_roles (
+CREATE TABLE IF NOT EXISTS user_roles (
     user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
     role_id         UUID REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at     TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (user_id, role_id)
 );
 
-CREATE TABLE audit_logs (
+CREATE TABLE IF NOT EXISTS audit_logs (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       UUID NOT NULL REFERENCES tenants(id),
     user_id         UUID REFERENCES users(id),
@@ -81,7 +81,7 @@ CREATE TABLE audit_logs (
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_tenant_time ON audit_logs(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant_time ON audit_logs(tenant_id, created_at DESC);
 
 -- ============================================================
 -- ASSET MANAGEMENT

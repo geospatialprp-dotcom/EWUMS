@@ -1,10 +1,25 @@
-export function appDrawerPaperSx() {
+export const DRAWER_WIDTH = 260;
+export const DRAWER_WIDTH_MINI = 72;
+
+/** App bar + main content vertical offset (matches AppLayout Toolbar minHeight). */
+export function appMainTopOffsetSx() {
+  return { mt: { xs: '64px', sm: '68px' } };
+}
+
+/** Full-height page content below the app bar. */
+export function appMainHeightSx() {
+  return { height: { xs: 'calc(100vh - 64px)', sm: 'calc(100vh - 68px)' } };
+}
+
+export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
   return {
-    width: 260,
+    width,
     boxSizing: 'border-box',
     background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 48%, #0f172a 100%)',
     color: '#e2e8f0',
     borderRight: '1px solid #334155',
+    transition: 'width 0.2s ease',
+    overflowX: 'hidden',
   };
 }
 
@@ -43,28 +58,18 @@ export function appDrawerNameSx() {
   };
 }
 
-export function appNavSectionLabelSx() {
+export function appNavItemSx(selected: boolean, collapsed = false) {
   return {
-    px: 2.5,
-    pt: 1.5,
-    pb: 0.75,
-    fontSize: '0.625rem',
-    fontWeight: 700,
-    letterSpacing: '0.14em',
-    textTransform: 'uppercase' as const,
-    color: '#64748b',
-  };
-}
-
-export function appNavItemSx(selected: boolean) {
-  return {
-    mx: 1.25,
+    mx: collapsed ? 0.75 : 1.25,
     mb: 0.35,
+    minHeight: 44,
     borderRadius: 1.5,
     color: selected ? '#f8fafc' : '#cbd5e1',
     bgcolor: selected ? 'rgba(37, 99, 235, 0.22)' : 'transparent',
     borderLeft: selected ? '3px solid #60a5fa' : '3px solid transparent',
     transition: 'background-color 0.15s ease, color 0.15s ease',
+    justifyContent: collapsed ? 'center' : undefined,
+    px: collapsed ? 1 : undefined,
     '&.Mui-selected': {
       bgcolor: 'rgba(37, 99, 235, 0.22)',
       color: '#f8fafc',
@@ -76,13 +81,36 @@ export function appNavItemSx(selected: boolean) {
     },
     '& .MuiListItemIcon-root': {
       color: selected ? '#93c5fd' : '#94a3b8',
-      minWidth: 40,
+      minWidth: collapsed ? 0 : 40,
+      justifyContent: 'center',
     },
+    '& .MuiListItemText-root': collapsed ? { display: 'none' } : undefined,
     '& .MuiListItemText-primary': {
       fontSize: '0.875rem',
       fontWeight: selected ? 700 : 500,
       letterSpacing: '0.01em',
     },
+  };
+}
+
+export function appNavSectionLabelSx(collapsed = false) {
+  return {
+    px: collapsed ? 0 : 2.5,
+    pt: 1.5,
+    pb: 0.75,
+    fontSize: '0.625rem',
+    fontWeight: 700,
+    letterSpacing: '0.14em',
+    textTransform: 'uppercase' as const,
+    color: '#64748b',
+    display: collapsed ? 'none' : 'block',
+  };
+}
+
+export function appTouchIconButtonSx() {
+  return {
+    minWidth: 44,
+    minHeight: 44,
   };
 }
 
@@ -98,9 +126,10 @@ export function appBarBrandRowSx() {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: 2,
-    flexGrow: 1,
+    gap: { xs: 0.75, sm: 1.5, md: 2 },
+    flex: 1,
     minWidth: 0,
+    overflow: 'hidden',
   };
 }
 
@@ -109,8 +138,10 @@ export function appBarTitleSx() {
     fontWeight: 700,
     letterSpacing: '-0.01em',
     color: '#0f172a',
-    fontSize: { xs: '0.95rem', sm: '1.05rem', md: '1.125rem' },
-    lineHeight: 1.25,
+    fontSize: { xs: '0.72rem', sm: '0.95rem', md: '1.125rem' },
+    lineHeight: { xs: 1.2, sm: 1.25 },
+    minWidth: 0,
+    flex: 1,
   };
 }
 
@@ -185,7 +216,8 @@ export function appDepartmentSwitcherSx(open: boolean) {
 
 export function appDepartmentMenuPaperSx() {
   return {
-    minWidth: 320,
+    minWidth: { xs: 'calc(100vw - 32px)', sm: 320 },
+    maxWidth: 'calc(100vw - 16px)',
     mt: 1,
     borderRadius: 2.5,
     overflow: 'hidden',

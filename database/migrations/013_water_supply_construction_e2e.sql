@@ -243,7 +243,7 @@ ON CONFLICT (project_id, item_code) DO NOTHING;
 -- Demo work packages
 -- Demo work packages are created by Administrator in the app (see migration 016)
 -- INSERT INTO work_packages ...
-ON CONFLICT (project_id, package_code) DO NOTHING;
+-- ON CONFLICT (project_id, package_code) DO NOTHING;
 
 -- Demo work planning is entered by Administrator in the app (see migration 017)
 -- INSERT INTO work_planning ...

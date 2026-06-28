@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Box,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -9,13 +8,18 @@ import {
   ListItem,
   ListItemText,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CloseIcon from '@mui/icons-material/Close';
 import { useTranslation } from '../../context/LanguageContext';
+import { appTouchIconButtonSx } from '../../utils/appShellStyles';
 
 export default function HelpPanel() {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [open, setOpen] = useState(false);
 
   const guides = [
@@ -28,14 +32,13 @@ export default function HelpPanel() {
   return (
     <>
       <IconButton
-        size="small"
         onClick={() => setOpen(true)}
         aria-label={t('common.help')}
-        sx={{ color: '#475569' }}
+        sx={{ color: '#475569', ...appTouchIconButtonSx() }}
       >
         <HelpOutlineIcon fontSize="small" />
       </IconButton>
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1 }}>
           <Typography variant="h6" fontWeight={800}>{t('help.title')}</Typography>
           <IconButton onClick={() => setOpen(false)} aria-label={t('common.close')}>

@@ -18,9 +18,9 @@ export default function DivisionSwitcher() {
   if (!canSwitchDivision) {
     if (!user.divisionName) return null;
     return (
-      <Box display="flex" alignItems="center" gap={0.75} mr={1}>
+      <Box display={{ xs: 'none', sm: 'flex' }} alignItems="center" gap={0.75} mr={1}>
         <BusinessOutlinedIcon fontSize="small" color="action" />
-        <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 180 }} noWrap>
+        <Typography variant="caption" color="text.secondary" sx={{ maxWidth: { sm: 120, md: 180 } }} noWrap>
           {user.divisionName}
         </Typography>
       </Box>
@@ -28,7 +28,15 @@ export default function DivisionSwitcher() {
   }
 
   return (
-    <FormControl size="small" sx={{ minWidth: 200, mr: 1 }}>
+    <FormControl
+      size="small"
+      sx={{
+        minWidth: { sm: 140, md: 200 },
+        maxWidth: { sm: 160, md: 220 },
+        mr: 1,
+        display: { xs: 'none', sm: 'block' },
+      }}
+    >
       <InputLabel id="division-switcher-label">{t('division.label')}</InputLabel>
       <Select
         labelId="division-switcher-label"
