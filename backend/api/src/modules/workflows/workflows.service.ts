@@ -8,6 +8,7 @@ import { isSuperAdmin } from '../../common/utils/operational-access.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditService } from '../../common/services/audit.service';
+import { AuditContext } from '../../common/utils/request-context.util';
 import { ActOnTaskDto, SubmitWorkflowDto } from './dto/workflow.dto';
 import { WorkflowDefinition } from './entities/workflow-definition.entity';
 import { WorkflowInstance } from './entities/workflow-instance.entity';
@@ -113,7 +114,7 @@ export class WorkflowsService {
     }));
   }
 
-  async submit(tenantId: string, user: JwtPayload, dto: SubmitWorkflowDto) {
+  async submit(tenantId: string, user: JwtPayload, dto: SubmitWorkflowDto, auditContext?: AuditContext) {
     if (isSuperAdmin(user.roles)) {
       throw new ForbiddenException('Super Admin cannot submit workflow requests. Use an HQ or division account.');
     }
@@ -153,7 +154,7 @@ export class WorkflowsService {
     await this.auditService.log(tenantId, userId, 'workflow.submit', 'workflow', saved.id, {
       definitionCode: dto.definitionCode,
       title: dto.title,
-    });
+    }, auditContext);
 
     return { id: saved.id, status: 'pending' };
   }
@@ -163,6 +164,7 @@ export class WorkflowsService {
     user: JwtPayload,
     taskId: string,
     dto: ActOnTaskDto,
+    auditContext?: AuditContext,
   ) {
     const userId = user.sub;
     const roles = user.roles ?? [];
@@ -222,7 +224,7 @@ export class WorkflowsService {
     await this.auditService.log(tenantId, userId, `workflow.${dto.action}`, 'workflow', instance.id, {
       taskId,
       comments: dto.comments,
-    });
+    }, auditContext);
 
     return {
       success: true,

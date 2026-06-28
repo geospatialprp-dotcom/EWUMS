@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { extractAuditContext } from '../../common/utils/request-context.util';
 import { AuthService } from './auth.service';
 import { PlatformStatsService } from './platform-stats.service';
 import { LoginDto } from './dto/login.dto';
@@ -24,8 +26,8 @@ export class AuthController {
 
   @Post('login')
   @ApiOperation({ summary: 'Authenticate user and receive JWT token' })
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: Request) {
+    return this.authService.login(dto, extractAuditContext(req));
   }
 
   @Post('forgot-password')

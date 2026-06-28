@@ -16,6 +16,7 @@ async function bootstrap() {
   // Survey imports (KML/SHP polygons) exceed the default 100kb JSON limit.
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ limit: '50mb', extended: true }));
+  app.set('trust proxy', true);
   app.setGlobalPrefix(config.get('API_PREFIX', 'api/v1'));
   app.enableCors({
     origin: config.get('CORS_ORIGIN', 'http://localhost:5173'),

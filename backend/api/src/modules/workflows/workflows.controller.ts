@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { extractAuditContext } from '../../common/utils/request-context.util';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { ActOnTaskDto, SubmitWorkflowDto } from './dto/workflow.dto';
 import { WorkflowsService } from './workflows.service';
@@ -42,8 +44,8 @@ export class WorkflowsController {
 
   @Post('submit')
   @ApiOperation({ summary: 'Submit a new workflow instance' })
-  submit(@CurrentUser() user: JwtPayload, @Body() dto: SubmitWorkflowDto) {
-    return this.workflowsService.submit(user.tenantId, user, dto);
+  submit(@CurrentUser() user: JwtPayload, @Body() dto: SubmitWorkflowDto, @Req() req: Request) {
+    return this.workflowsService.submit(user.tenantId, user, dto, extractAuditContext(req));
   }
 
   @Post('tasks/:taskId/act')
@@ -52,7 +54,8 @@ export class WorkflowsController {
     @CurrentUser() user: JwtPayload,
     @Param('taskId') taskId: string,
     @Body() dto: ActOnTaskDto,
+    @Req() req: Request,
   ) {
-    return this.workflowsService.actOnTask(user.tenantId, user, taskId, dto);
+    return this.workflowsService.actOnTask(user.tenantId, user, taskId, dto, extractAuditContext(req));
   }
 }

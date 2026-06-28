@@ -12,18 +12,26 @@ export class AuditLogsService {
   async findAll(tenantId: string, limit = 100) {
     const logs = await this.auditRepo.find({
       where: { tenantId },
+      relations: ['user'],
       order: { createdAt: 'DESC' },
       take: limit,
     });
 
-    return logs.map((l) => ({
-      id: l.id,
-      userId: l.userId,
-      action: l.action,
-      resourceType: l.resourceType,
-      resourceId: l.resourceId,
-      details: l.details,
-      createdAt: l.createdAt,
-    }));
+    return logs.map((l) => {
+      const userName = [l.user?.firstName, l.user?.lastName].filter(Boolean).join(' ').trim();
+      return {
+        id: l.id,
+        userId: l.userId,
+        userEmail: l.user?.email ?? null,
+        userName: userName || null,
+        action: l.action,
+        resourceType: l.resourceType,
+        resourceId: l.resourceId,
+        ipAddress: l.ipAddress ?? null,
+        location: l.location ?? null,
+        details: l.details,
+        createdAt: l.createdAt,
+      };
+    });
   }
 }

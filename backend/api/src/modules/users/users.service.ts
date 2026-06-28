@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository, In } from 'typeorm';
 import { AuditService } from '../../common/services/audit.service';
+import { AuditContext } from '../../common/utils/request-context.util';
 import { Role } from '../auth/entities/role.entity';
 import { User } from '../auth/entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -39,7 +40,7 @@ export class UsersService {
     return this.toResponse(user);
   }
 
-  async create(tenantId: string, actorId: string, dto: CreateUserDto) {
+  async create(tenantId: string, actorId: string, dto: CreateUserDto, auditContext?: AuditContext) {
     const existing = await this.usersRepo.findOne({
       where: { tenantId, email: dto.email },
     });
@@ -65,12 +66,12 @@ export class UsersService {
 
     await this.auditService.log(tenantId, actorId, 'user.create', 'user', saved.id, {
       email: dto.email,
-    });
+    }, auditContext);
 
     return this.findOne(tenantId, saved.id);
   }
 
-  async update(tenantId: string, actorId: string, id: string, dto: UpdateUserDto) {
+  async update(tenantId: string, actorId: string, id: string, dto: UpdateUserDto, auditContext?: AuditContext) {
     const user = await this.usersRepo.findOne({
       where: { id, tenantId },
       relations: ['roles'],
@@ -100,12 +101,12 @@ export class UsersService {
 
     await this.auditService.log(tenantId, actorId, 'user.update', 'user', id, {
       changes: Object.keys(dto),
-    });
+    }, auditContext);
 
     return this.findOne(tenantId, id);
   }
 
-  async remove(tenantId: string, actorId: string, id: string) {
+  async remove(tenantId: string, actorId: string, id: string, auditContext?: AuditContext) {
     const user = await this.usersRepo.findOne({ where: { id, tenantId } });
     if (!user) throw new NotFoundException('User not found');
     if (user.id === actorId) throw new BadRequestException('Cannot delete your own account');
@@ -113,7 +114,7 @@ export class UsersService {
     user.status = 'inactive';
     await this.usersRepo.save(user);
 
-    await this.auditService.log(tenantId, actorId, 'user.deactivate', 'user', id);
+    await this.auditService.log(tenantId, actorId, 'user.deactivate', 'user', id, undefined, auditContext);
     return { success: true };
   }
 

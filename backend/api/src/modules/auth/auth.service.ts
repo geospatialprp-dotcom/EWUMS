@@ -9,6 +9,8 @@ import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
 
 import { DivisionAccessService } from '../divisions/division-access.service';
+import { AuditService } from '../../common/services/audit.service';
+import { AuditContext } from '../../common/utils/request-context.util';
 
 import { LoginDto } from './dto/login.dto';
 
@@ -32,11 +34,13 @@ export class AuthService {
 
     private divisionAccess: DivisionAccessService,
 
+    private auditService: AuditService,
+
   ) {}
 
 
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, auditContext?: AuditContext) {
 
     const email = dto.email.trim().toLowerCase();
 
@@ -98,7 +102,15 @@ export class AuthService {
       canViewAllDivisions,
     };
 
-
+    await this.auditService.log(
+      user.tenantId,
+      user.id,
+      'auth.login',
+      'user',
+      user.id,
+      { email: user.email },
+      auditContext,
+    );
 
     return {
 

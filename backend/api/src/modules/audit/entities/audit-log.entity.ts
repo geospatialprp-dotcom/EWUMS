@@ -1,4 +1,12 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
+import { User } from '../../auth/entities/user.entity';
 
 @Entity('audit_logs')
 export class AuditLog {
@@ -22,6 +30,16 @@ export class AuditLog {
 
   @Column({ type: 'jsonb', default: {} })
   details: Record<string, unknown>;
+
+  @Column({ name: 'ip_address', type: 'inet', nullable: true })
+  ipAddress: string;
+
+  @Column({ length: 255, nullable: true })
+  location: string;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
