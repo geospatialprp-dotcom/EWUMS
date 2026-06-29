@@ -22,7 +22,7 @@ export default function DivisionSwitcher() {
         display="flex"
         alignItems="center"
         gap={0.5}
-        sx={{ minWidth: 0, maxWidth: { xs: 88, sm: 140, md: 180 }, flexShrink: 1, mr: { xs: 0.25, sm: 1 } }}
+        sx={{ minWidth: 0, maxWidth: { xs: 120, sm: 160, md: 180 }, flexShrink: 1, mr: { xs: 0.25, sm: 0.5 } }}
       >
         <BusinessOutlinedIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />
         <Typography
@@ -45,10 +45,10 @@ export default function DivisionSwitcher() {
     <FormControl
       size="small"
       sx={{
-        minWidth: { xs: 88, sm: 140, md: 200 },
-        maxWidth: { xs: 112, sm: 160, md: 220 },
+        minWidth: { xs: 100, sm: 140, md: 200 },
+        maxWidth: { xs: 140, sm: 180, md: 220 },
         flexShrink: 1,
-        mr: { xs: 0.25, sm: 1 },
+        mr: { xs: 0.25, sm: 0.5 },
       }}
     >
       <Select

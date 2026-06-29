@@ -41,6 +41,7 @@ import {
   appBarTitleSx,
   appBarUserBlockSx,
   appBarUserNameSx,
+  appDrawerBrandHeightSx,
   appDrawerBrandSx,
   appDrawerEyebrowSx,
   appDrawerNameSx,
@@ -48,8 +49,8 @@ import {
   appMainTopOffsetSx,
   appNavItemSx,
   appNavSectionLabelSx,
+  appToolbarSx,
   appTouchIconButtonSx,
-  APP_TOOLBAR_MIN_HEIGHT,
   DRAWER_WIDTH,
   DRAWER_WIDTH_MINI,
 } from '../../utils/appShellStyles';
@@ -148,20 +149,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={[
-        appDrawerBrandSx(),
-        {
-          minHeight: drawerCollapsed
-            ? 56
-            : { xs: 88, md: APP_TOOLBAR_MIN_HEIGHT.sm },
-          height: { md: drawerCollapsed ? 56 : APP_TOOLBAR_MIN_HEIGHT.sm },
-          px: drawerCollapsed ? 1 : 2,
-          py: { xs: 1.5, md: 0 },
-          ...(drawerCollapsed ? { alignItems: 'center' as const } : {}),
-        },
+        appDrawerBrandSx(drawerCollapsed),
+        appDrawerBrandHeightSx(drawerCollapsed),
       ]}>
         {!drawerCollapsed && (
           isMobile ? (
-            <>
+            <Box sx={{ minWidth: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
                 <AppLogo height={36} />
               </Box>
@@ -171,16 +164,39 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <Typography variant="subtitle1" sx={appDrawerNameSx()}>
                 {APP_BRAND.name}
               </Typography>
-              <Typography variant="caption" sx={{ color: '#94a3b8', mt: 0.75, lineHeight: 1.35, display: 'block' }}>
+              <Typography variant="caption" sx={{ color: '#94a3b8', mt: 0.5, lineHeight: 1.35, display: 'block' }}>
                 {APP_BRAND.headerTitle}
               </Typography>
-            </>
+            </Box>
           ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.25, minWidth: 0 }}>
-              <AppLogo height={32} />
-              <Typography variant="overline" sx={appDrawerEyebrowSx()}>
-                {APP_BRAND.sidebarEyebrow}
-              </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, flex: 1 }}>
+              <AppLogo height={28} sx={{ flexShrink: 0 }} />
+              <Box sx={{ minWidth: 0, lineHeight: 1.15 }}>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    ...appDrawerEyebrowSx(),
+                    fontSize: '0.5625rem',
+                    lineHeight: 1.15,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {APP_BRAND.sidebarEyebrow}
+                </Typography>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    ...appDrawerNameSx(),
+                    fontSize: '0.9375rem',
+                    lineHeight: 1.2,
+                    mt: 0.15,
+                  }}
+                >
+                  {APP_BRAND.name}
+                </Typography>
+              </Box>
             </Box>
           )
         )}
@@ -246,15 +262,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           transition: 'width 0.2s ease, margin 0.2s ease',
         }}
       >
-        <Toolbar
-          sx={{
-            minHeight: APP_TOOLBAR_MIN_HEIGHT,
-            gap: { xs: 0.5, sm: 1 },
-            px: { xs: 1, sm: 2 },
-            py: { sm: 0.5 },
-            overflow: 'hidden',
-          }}
-        >
+        <Toolbar sx={appToolbarSx()}>
           <IconButton
             edge="start"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -270,14 +278,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <MenuIcon />
           </IconButton>
 
-          <Box
-            sx={{
-              ...appBarBrandRowSx(),
-              flex: { xs: 1, md: '0 1 auto' },
-              maxWidth: { md: '45%', lg: '52%' },
-              minWidth: 0,
-            }}
-          >
+          <Box sx={appBarBrandRowSx()}>
             <Box
               component="a"
               href={APP_BRAND.companyUrl}
@@ -285,7 +286,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               rel="noopener noreferrer"
               sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', flexShrink: 0 }}
             >
-              <AppLogo height={34} />
+              <AppLogo height={32} />
             </Box>
             <Typography
               variant="h6"
@@ -300,7 +301,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                       overflow: 'hidden',
                       whiteSpace: 'normal',
                     }
-                  : {}),
+                  : { whiteSpace: 'nowrap' }),
               }}
             >
               <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>
@@ -312,15 +313,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Typography>
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 16, display: { xs: 'none', md: 'block' } }} />
+          <Box sx={{ flex: 1, minWidth: { xs: 4, md: 16 } }} />
 
           <Box
             sx={{
               display: 'flex',
               alignItems: 'center',
-              flexShrink: 1,
+              flexShrink: 0,
               minWidth: 0,
-              gap: { xs: 0.25, sm: 0.75, md: 1.25 },
+              gap: { xs: 0.25, sm: 0.5, md: 1 },
               flexWrap: 'nowrap',
             }}
           >
@@ -382,7 +383,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           minHeight: 0,
           minWidth: 0,
           overflowY: 'auto',
-          overflowX: 'hidden',
+          overflowX: 'auto',
           WebkitOverflowScrolling: 'touch',
         }}
       >

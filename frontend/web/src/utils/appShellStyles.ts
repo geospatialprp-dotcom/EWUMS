@@ -4,6 +4,9 @@ export const DRAWER_WIDTH_MINI = 72;
 /** Matches AppLayout Toolbar minHeight — keep drawer brand block in sync on md+. */
 export const APP_TOOLBAR_MIN_HEIGHT = { xs: 64, sm: 68 };
 
+/** Fixed header height on md+ — drawer brand and AppBar must match exactly. */
+export const APP_HEADER_HEIGHT_MD = APP_TOOLBAR_MIN_HEIGHT.sm;
+
 /** App bar + main content vertical offset (matches AppLayout Toolbar minHeight). */
 export function appMainTopOffsetSx() {
   return { mt: { xs: `${APP_TOOLBAR_MIN_HEIGHT.xs}px`, sm: `${APP_TOOLBAR_MIN_HEIGHT.sm}px` } };
@@ -26,15 +29,43 @@ export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
   };
 }
 
-export function appDrawerBrandSx() {
+export function appDrawerBrandSx(collapsed = false) {
   return {
-    px: 2,
+    px: collapsed ? 1 : 2,
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: collapsed ? 'column' : { xs: 'column', md: 'row' },
+    alignItems: collapsed ? 'center' : { xs: 'flex-start', md: 'center' },
     justifyContent: 'center',
+    gap: collapsed ? 0 : { xs: 0, md: 1.25 },
     borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
     background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #334155 100%)',
     boxSizing: 'border-box',
+    flexShrink: 0,
+  };
+}
+
+/** Shared md+ height so sidebar brand and AppBar share one clean edge. */
+export function appDrawerBrandHeightSx(collapsed = false) {
+  if (collapsed) {
+    return { minHeight: 56, height: 56, maxHeight: 56, py: 0 };
+  }
+  return {
+    minHeight: { xs: 88, md: APP_HEADER_HEIGHT_MD },
+    height: { md: APP_HEADER_HEIGHT_MD },
+    maxHeight: { md: APP_HEADER_HEIGHT_MD },
+    py: { xs: 1.5, md: 0 },
+  };
+}
+
+export function appToolbarSx() {
+  return {
+    minHeight: APP_TOOLBAR_MIN_HEIGHT,
+    height: { md: APP_HEADER_HEIGHT_MD },
+    maxHeight: { md: APP_HEADER_HEIGHT_MD },
+    gap: { xs: 0.5, sm: 1 },
+    px: { xs: 1, sm: 2 },
+    py: { xs: 0.25, sm: 0 },
+    overflow: 'visible',
   };
 }
 
@@ -128,9 +159,10 @@ export function appBarBrandRowSx() {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: { xs: 0.75, sm: 1.5, md: 2 },
+    gap: { xs: 0.75, sm: 1 },
     minWidth: 0,
-    overflow: 'hidden',
+    flex: { xs: '1 1 auto', md: '0 1 auto' },
+    maxWidth: { md: '42%' },
   };
 }
 
