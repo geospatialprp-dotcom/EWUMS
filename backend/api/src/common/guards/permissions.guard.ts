@@ -1,5 +1,5 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
+import { ModuleRef, Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
 import { AuthService } from '../../modules/auth/auth.service';
@@ -14,7 +14,7 @@ import {
 export class PermissionsGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
-    private authService: AuthService,
+    private moduleRef: ModuleRef,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -41,7 +41,8 @@ export class PermissionsGuard implements CanActivate {
 
     let permissions = user.permissions ?? [];
     try {
-      const profile = await this.authService.getProfile(user.sub);
+      const authService = this.moduleRef.get(AuthService, { strict: false });
+      const profile = await authService.getProfile(user.sub);
       if (profile.permissions?.length) {
         permissions = profile.permissions;
         user.permissions = permissions;
