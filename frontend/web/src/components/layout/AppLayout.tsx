@@ -34,6 +34,7 @@ import ApiModeBanner from './ApiModeBanner';
 import DivisionSwitcher from './DivisionSwitcher';
 import LanguageSwitcher from './LanguageSwitcher';
 import HelpPanel from './HelpPanel';
+import NotificationBell from './NotificationBell';
 import { useTranslation } from '../../context/LanguageContext';
 import {
   appBarBrandRowSx,
@@ -288,6 +289,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Box sx={{ display: { xs: 'none', sm: 'block' }, flexShrink: 0 }}>
               <LanguageSwitcher />
             </Box>
+            <NotificationBell />
             <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
               <HelpPanel />
             </Box>

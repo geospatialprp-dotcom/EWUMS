@@ -79,6 +79,7 @@ export interface WorkflowInboxItem {
   stepOrder: number;
   stepName: string;
   assignedRole: string;
+  createdAt: string;
   instance: {
     id: string;
     title: string;

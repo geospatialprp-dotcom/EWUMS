@@ -41,9 +41,12 @@ export class WorkflowsService {
       .andWhere('i.status = :status', { status: 'pending' })
       .andWhere('t.status = :taskStatus', { taskStatus: 'pending' });
 
-    qb.andWhere('t.assigned_role IN (:...roles)', { roles: user.roles });
+    const canViewAll = await this.divisionAccess.canViewAllDivisions(user);
+    if (!canViewAll) {
+      qb.andWhere('t.assigned_role IN (:...roles)', { roles: user.roles });
+    }
 
-    const tasks = await qb.orderBy('t.created_at', 'DESC').getMany();
+    const tasks = await qb.orderBy('t.created_at', 'DESC').take(25).getMany();
     const scopedTasks = await this.filterTasksByDivisionScope(tasks, user, tenantId);
 
     return scopedTasks.map((t) => ({
@@ -51,6 +54,7 @@ export class WorkflowsService {
       stepOrder: t.stepOrder,
       stepName: t.stepName,
       assignedRole: t.assignedRole,
+      createdAt: t.createdAt,
       instance: {
         id: t.instance.id,
         title: t.instance.title,

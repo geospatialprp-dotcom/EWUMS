@@ -449,6 +449,16 @@ export const en = {
       hoursAgo: '{hrs}h ago',
     },
   },
+  notificationBell: {
+    title: 'Pending Approvals',
+    empty: 'No pending approvals',
+    review: 'Review',
+    viewAll: 'Open Workflow Inbox',
+    module: 'Module',
+    step: 'Step',
+    loading: 'Loading…',
+    loadError: 'Could not load notifications.',
+  },
   help: {
     title: 'Help & documentation',
     intro: 'Browse module guides, workflows, and field procedures in your selected language.',
