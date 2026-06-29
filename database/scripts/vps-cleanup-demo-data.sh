@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Remove KPG demo complaints (CMP-KPG-*) and portal demo consumer (FHTC-DEMO-001).
-# Keeps users, roles, permissions, divisions, and all projects intact.
+# Remove ALL demo complaints (CMP-KPG-*, CMP-2026-* portal demo) and demo consumers.
+# Keeps users (ee.kpg, je.kpg), roles, permissions, divisions, and all projects intact.
 #
 # Run from deploy/hostinger-kvm/ after git pull:
 #   bash ../../database/scripts/vps-cleanup-demo-data.sh
 #
-# Or one-liner from VPS project root:
-#   cd deploy/hostinger-kvm && bash ../../database/scripts/vps-cleanup-demo-data.sh
+# One-liner (from repo root on VPS):
+#   cd deploy/hostinger-kvm && docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres psql -U "${DB_USERNAME:-egip}" -d "${DB_DATABASE:-egip}" -v ON_ERROR_STOP=1 < ../../database/scripts/cleanup-demo-kpg-data.sql && docker compose -f docker-compose.prod.yml --env-file .env restart api
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +19,7 @@ if [[ ! -f "${SQL}" ]]; then
 fi
 
 cd "${DEPLOY_DIR}"
-echo "Removing demo KPG complaints and FHTC-DEMO-001 consumer..."
+echo "Removing ALL demo complaints (CMP-KPG-*, CMP-2026-* portal) and demo consumers..."
 docker compose -f docker-compose.prod.yml --env-file .env exec -T postgres \
   psql -U "${DB_USERNAME:-egip}" -d "${DB_DATABASE:-egip}" -v ON_ERROR_STOP=1 \
   < "${SQL}"
