@@ -297,30 +297,48 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Box>
 
             <Box sx={appBarUserBlockSx()}>
-              {userProfileName && (
-                <Box sx={appBarUserNameSx()}>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      display: 'block',
-                      color: '#64748b',
-                      fontWeight: 700,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      lineHeight: 1.1,
-                      fontSize: '0.625rem',
-                    }}
-                  >
-                    {userCaption}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    noWrap
-                    sx={{ color: '#0f172a', fontWeight: 700, lineHeight: 1.25, mt: 0.15 }}
-                  >
-                    {userProfileName}
-                  </Typography>
-                </Box>
+              {user && (userCaption || userProfileName) && (
+                <Tooltip
+                  title={[userCaption, userProfileName].filter(Boolean).join(' · ')}
+                  placement="bottom"
+                  arrow
+                  enterTouchDelay={0}
+                >
+                  <Box sx={appBarUserNameSx()}>
+                    {userCaption && (
+                      <Typography
+                        variant="caption"
+                        noWrap
+                        sx={{
+                          display: 'block',
+                          color: '#64748b',
+                          fontWeight: 700,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase',
+                          lineHeight: 1.1,
+                          fontSize: { sm: '0.5625rem', md: '0.625rem' },
+                        }}
+                      >
+                        {userCaption}
+                      </Typography>
+                    )}
+                    {userProfileName && (
+                      <Typography
+                        variant="body2"
+                        noWrap
+                        sx={{
+                          color: '#0f172a',
+                          fontWeight: 700,
+                          lineHeight: 1.25,
+                          mt: userCaption ? 0.15 : 0,
+                          fontSize: { sm: '0.75rem', md: '0.8125rem', lg: '0.875rem' },
+                        }}
+                      >
+                        {userProfileName}
+                      </Typography>
+                    )}
+                  </Box>
+                </Tooltip>
               )}
               <DepartmentLogoMenu />
             </Box>

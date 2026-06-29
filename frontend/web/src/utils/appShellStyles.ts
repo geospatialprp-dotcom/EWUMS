@@ -259,12 +259,13 @@ export function appBarBrandRowSx() {
     gap: { xs: 0.75, sm: 1, md: 1.25 },
     minWidth: 0,
     flex: { xs: '1 1 auto', md: '0 1 auto' },
-    // Reserve space for menu + division + globe + help + bell + account controls.
+    // Reserve space for menu + division + globe + help + bell + user + account controls.
     maxWidth: {
       xs: 'calc(100% - 196px)',
-      sm: 'calc(100% - 320px)',
-      md: '42%',
-      lg: '46%',
+      sm: 'calc(100% - 400px)',
+      md: '36%',
+      lg: '40%',
+      xl: '44%',
     },
     overflow: 'hidden',
   };
@@ -358,22 +359,25 @@ export function appBarUserBlockSx() {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: { xs: 1, md: 1.25 },
+    gap: { xs: 0.75, sm: 1, md: 1.25 },
     flexShrink: 0,
+    minWidth: 0,
   };
 }
 
+/** Compact logged-in user caption + name between bell and department menu (sm+). */
 export function appBarUserNameSx() {
   return {
-    // Hidden on md+ so globe, help, and bell stay visible in the header toolbar.
-    display: { xs: 'none', md: 'none' },
+    display: { xs: 'none', sm: 'block' },
+    flexShrink: 1,
     textAlign: 'right',
     minWidth: 0,
-    maxWidth: 220,
-    px: 1.25,
+    maxWidth: { sm: 96, md: 120, lg: 156, xl: 200 },
+    px: { sm: 0.75, md: 1, lg: 1.25 },
     py: 0.25,
     borderRight: '1px solid',
     borderColor: '#e2e8f0',
+    overflow: 'hidden',
   };
 }
 
