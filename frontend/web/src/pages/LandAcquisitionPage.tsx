@@ -20,7 +20,7 @@ import LaAiAlertsPanel, { type LaAiAlertsBundle } from '../components/la/LaAiAle
 import { laStatusColor, laStatusLabel } from '../constants/laAcquisition';
 import { useDivisionScopeKey } from '../context/DivisionContext';
 import { useAuth } from '../context/AuthContext';
-import { canPerformOperational } from '../utils/operationalAccess';
+import { canPerformOperational, isSuperAdmin, SUPER_ADMIN_VIEW_ONLY_MESSAGE } from '../utils/operationalAccess';
 
 type CaseRow = {
   id: string;
@@ -56,7 +56,7 @@ function normalizeOptionalUuid(value: string): string | undefined {
 
 export default function LandAcquisitionPage() {
   const navigate = useNavigate();
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, loading: authLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const createFor = searchParams.get('createFor');
   const prefilledTitle = searchParams.get('title') ?? '';
@@ -90,11 +90,12 @@ export default function LandAcquisitionPage() {
   }, [linkedProposalId]);
 
   useEffect(() => {
+    if (authLoading) return;
     if (createFor && canCreateLaCase) setCreateOpen(true);
     if (prefilledTitle) {
       setForm((f) => ({ ...f, title: prefilledTitle }));
     }
-  }, [createFor, prefilledTitle, canCreateLaCase]);
+  }, [createFor, prefilledTitle, canCreateLaCase, authLoading]);
 
   const divisionScopeKey = useDivisionScopeKey();
 
@@ -167,6 +168,14 @@ export default function LandAcquisitionPage() {
       />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {!authLoading && createFor && !canCreateLaCase && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {isSuperAdmin(user?.roles)
+            ? SUPER_ADMIN_VIEW_ONLY_MESSAGE
+            : 'You do not have permission to create land acquisition cases. Log in as an EE or division engineer (e.g. ee.kpg@egip.local) with la_case:create access.'}
+        </Alert>
+      )}
 
       <SurfaceCard title="GIS Dashboard — Land Acquisition Overview" sx={{ mb: 2.5 }}>
         <LaGisDashboardPanel data={gis} title="" />

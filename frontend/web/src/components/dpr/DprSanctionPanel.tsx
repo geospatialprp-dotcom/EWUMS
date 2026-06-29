@@ -244,6 +244,7 @@ export default function DprSanctionPanel({ open, proposalId, onClose, onUpdated 
               proposalId={detail.id}
               proposalTitle={detail.title}
               readiness={detail.laReadiness ?? readiness?.laReadiness}
+              onNavigateAway={onClose}
             />
 
             {sanctioned && (

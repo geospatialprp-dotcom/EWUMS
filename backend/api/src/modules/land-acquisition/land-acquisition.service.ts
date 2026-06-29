@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { assertNotSuperAdminForOperations } from '../../common/utils/operational-access.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -66,6 +66,10 @@ import {
   type LaDocumentContext,
 } from './utils/la-document-generator.util';
 import { LaAutoRouteService, type RouteGeometry } from './la-auto-route.service';
+import { FeatureClassesService } from '../projects/feature-classes.service';
+import { buildProjectCodeFromName } from '../projects/utils/project-code.util';
+import { ProjectsService } from '../projects/projects.service';
+import { DPR_GIS_WORKSPACE_PROJECT_STATUS } from '../projects/constants/project-status.constants';
 import { classifyParcelOwnership } from './utils/la-ownership-classification.util';
 import {
   classifyAcquisition,
@@ -137,6 +141,7 @@ export class LandAcquisitionService {
     private divisionAccess: DivisionAccessService,
     private dataSource: DataSource,
     private autoRouteService: LaAutoRouteService,
+    private projectsService: ProjectsService,
   ) {}
 
   getCatalog() {
@@ -376,9 +381,11 @@ export class LandAcquisitionService {
       projectId = proposal.projectId ?? projectId;
       divisionId = proposal.divisionId;
       if (!title) title = proposal.title;
-    }
-
-    if (projectId) {
+      if (!projectId) {
+        const workspace = await this.projectsService.ensureDprGisWorkspaceProject(tenantId, proposal);
+        projectId = workspace.id;
+      }
+    } else if (dto.projectId) {
       await this.divisionAccess.assertProjectAccess(user, projectId, tenantId);
       const project = await this.projectRepo.findOne({ where: { id: projectId, tenantId } });
       if (!project) throw new NotFoundException('Project not found');
@@ -448,6 +455,14 @@ export class LandAcquisitionService {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
 
+    if (!laCase.projectId && laCase.dprProposalId) {
+      try {
+        await this.resolveCaseProjectId(tenantId, user, laCase);
+      } catch {
+        // Non-fatal on read — manual project link remains available for standalone cases.
+      }
+    }
+
     const [alignments, parcels, clearances, events, compensations, clearanceProposal, documents] = await Promise.all([
       this.alignmentRepo.find({ where: { tenantId, laCaseId: caseId }, order: { createdAt: 'ASC' } }),
       this.parcelRepo.find({ where: { tenantId, laCaseId: caseId }, order: { khasraNo: 'ASC' } }),
@@ -469,10 +484,16 @@ export class LandAcquisitionService {
     const project = laCase.projectId
       ? await this.projectRepo.findOne({ where: { id: laCase.projectId, tenantId } })
       : null;
+    const dprProposal = laCase.dprProposalId
+      ? await this.proposalRepo.findOne({ where: { id: laCase.dprProposalId, tenantId } })
+      : null;
 
     return {
       ...this.toCaseSummary(laCase),
-      projectName: project?.name ?? null,
+      projectName: project?.name ?? dprProposal?.title ?? null,
+      projectStatus: project?.status ?? null,
+      isDprGisWorkspace: project?.status === DPR_GIS_WORKSPACE_PROJECT_STATUS,
+      dprProposalNo: dprProposal?.proposalNo ?? null,
       alignments: alignments.map((a) => this.toAlignment(a)),
       parcels: parcels.map((p) => ({
         ...this.toParcel(p),
@@ -542,9 +563,7 @@ export class LandAcquisitionService {
   ) {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
-    if (!laCase.projectId) {
-      throw new BadRequestException('Link a project to this LA case before tracing alignment');
-    }
+    const projectId = await this.resolveCaseProjectId(tenantId, user, laCase);
 
     const rowWidth = dto.rowWidthM ?? 6;
     await this.alignmentRepo.delete({ tenantId, laCaseId: caseId });
@@ -556,7 +575,7 @@ export class LandAcquisitionService {
     const featureClasses = await this.fcRepo
       .createQueryBuilder('fc')
       .where('fc.tenant_id = :tenantId', { tenantId })
-      .andWhere('fc.project_id = :projectId', { projectId: laCase.projectId })
+      .andWhere('fc.project_id = :projectId', { projectId })
       .andWhere('(fc.code IN (:...codes) OR fc.geometry_type = :lineType)', {
         codes,
         lineType: 'LineString',
@@ -626,9 +645,7 @@ export class LandAcquisitionService {
   ) {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
-    if (!laCase.projectId) {
-      throw new BadRequestException('Project is required to identify parcels');
-    }
+    const projectId = await this.resolveCaseProjectId(tenantId, user, laCase);
 
     const segments = await this.alignmentRepo.find({ where: { tenantId, laCaseId: caseId } });
     if (!segments.length) {
@@ -647,7 +664,7 @@ export class LandAcquisitionService {
     const parcelClasses = await this.fcRepo
       .createQueryBuilder('fc')
       .where('fc.tenant_id = :tenantId', { tenantId })
-      .andWhere('fc.project_id = :projectId', { projectId: laCase.projectId })
+      .andWhere('fc.project_id = :projectId', { projectId })
       .andWhere('(fc.code IN (:...codes) OR fc.geometry_type = :polyType)', {
         codes: parcelCodes,
         polyType: 'Polygon',
@@ -877,9 +894,7 @@ export class LandAcquisitionService {
   async detectClearances(tenantId: string, user: JwtPayload, caseId: string) {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
-    if (!laCase.projectId) {
-      throw new BadRequestException('Link a project before detecting clearances');
-    }
+    const projectId = await this.resolveCaseProjectId(tenantId, user, laCase);
 
     const segments = await this.alignmentRepo.find({ where: { tenantId, laCaseId: caseId } });
     if (!segments.length) {
@@ -1068,13 +1083,11 @@ export class LandAcquisitionService {
   async recommendRoutes(tenantId: string, user: JwtPayload, caseId: string, dto: AutoRouteDto) {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
-    if (!laCase.projectId) {
-      throw new BadRequestException('Link a project to this LA case before route recommendations');
-    }
+    const projectId = await this.resolveCaseProjectId(tenantId, user, laCase);
 
     const result = await this.autoRouteService.generateRouteRecommendations({
       tenantId,
-      projectId: laCase.projectId,
+      projectId,
       laCaseId: caseId,
       start: [dto.start.lon, dto.start.lat],
       end: [dto.end.lon, dto.end.lat],
@@ -1110,9 +1123,7 @@ export class LandAcquisitionService {
   async previewAutoRoute(tenantId: string, user: JwtPayload, caseId: string, dto: AutoRouteDto) {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
-    if (!laCase.projectId) {
-      throw new BadRequestException('Link a project to this LA case before auto-routing');
-    }
+    const projectId = await this.resolveCaseProjectId(tenantId, user, laCase);
 
     const networkLines = dto.importedNetwork
       ? await this.autoRouteService.extractLineStringsFromNetwork(dto.importedNetwork)
@@ -1147,14 +1158,14 @@ export class LandAcquisitionService {
     const route = mergedImported && dto.useImportedAsCorridor !== false
       ? await this.autoRouteService.buildRouteFromExistingGeometry(
         tenantId,
-        laCase.projectId,
+        projectId,
         mergedImported,
         dto.gridCellSizeM,
         dto.weights,
       )
       : await this.autoRouteService.generateRoute({
         tenantId,
-        projectId: laCase.projectId,
+        projectId,
         start,
         end,
         gridCellSizeM: dto.gridCellSizeM,
@@ -1175,9 +1186,7 @@ export class LandAcquisitionService {
   async autoRoute(tenantId: string, user: JwtPayload, caseId: string, dto: AutoRouteDto) {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
-    if (!laCase.projectId) {
-      throw new BadRequestException('Link a project to this LA case before auto-routing');
-    }
+    const projectId = await this.resolveCaseProjectId(tenantId, user, laCase);
 
     const networkLines = dto.importedNetwork
       ? await this.autoRouteService.extractLineStringsFromNetwork(dto.importedNetwork)
@@ -1212,7 +1221,7 @@ export class LandAcquisitionService {
     const route = dto.geometry
       ? await this.autoRouteService.buildRouteFromExistingGeometry(
         tenantId,
-        laCase.projectId,
+        projectId,
         dto.geometry as RouteGeometry,
         dto.gridCellSizeM,
         dto.weights,
@@ -1220,14 +1229,14 @@ export class LandAcquisitionService {
       : mergedImported && dto.useImportedAsCorridor !== false
         ? await this.autoRouteService.buildRouteFromExistingGeometry(
           tenantId,
-          laCase.projectId,
+          projectId,
           mergedImported,
           dto.gridCellSizeM,
           dto.weights,
         )
         : await this.autoRouteService.generateRoute({
           tenantId,
-          projectId: laCase.projectId,
+          projectId,
           start,
           end,
           gridCellSizeM: dto.gridCellSizeM,
@@ -1245,11 +1254,11 @@ export class LandAcquisitionService {
       }
       const alignmentClass = await this.autoRouteService.ensureAlignmentFeatureClass(
         tenantId,
-        laCase.projectId,
+        projectId,
       );
       await this.autoRouteService.saveRouteFeature(
         tenantId,
-        laCase.projectId,
+        projectId,
         alignmentClass.id,
         user.sub,
         route.geometry,
@@ -1998,6 +2007,39 @@ export class LandAcquisitionService {
     });
   }
 
+  private async resolveCaseProjectId(
+    tenantId: string,
+    user: JwtPayload,
+    laCase: LaCase,
+  ): Promise<string> {
+    if (laCase.projectId) return laCase.projectId;
+    if (!laCase.dprProposalId) {
+      throw new BadRequestException('Link a project to this LA case before GIS routing');
+    }
+
+    const proposal = await this.proposalRepo.findOne({
+      where: { id: laCase.dprProposalId, tenantId },
+    });
+    if (!proposal) throw new NotFoundException('DPR proposal not found');
+
+    const workspace = await this.projectsService.ensureDprGisWorkspaceProject(tenantId, proposal);
+    laCase.projectId = workspace.id;
+    if (!laCase.divisionId && proposal.divisionId) {
+      laCase.divisionId = proposal.divisionId;
+    }
+    await this.caseRepo.save(laCase);
+    await this.logEvent(
+      tenantId,
+      laCase.id,
+      laCase.status,
+      'dpr_gis_workspace_linked',
+      user.sub,
+      `GIS workspace linked from DPR ${proposal.proposalNo}`,
+      { projectId: workspace.id, dprProposalId: proposal.id },
+    );
+    return workspace.id;
+  }
+
   private async requireCase(tenantId: string, caseId: string) {
     const row = await this.caseRepo.findOne({ where: { id: caseId, tenantId } });
     if (!row) throw new NotFoundException('Land acquisition case not found');
@@ -2237,7 +2279,7 @@ export class LandAcquisitionService {
          )`,
       [
         tenantId,
-        projectId,
+        laCase.projectId,
         layerCodes.map((c) => c.toLowerCase()),
         JSON.stringify(parcelGeometry),
       ],
@@ -2274,7 +2316,7 @@ export class LandAcquisitionService {
        LIMIT 1`,
       [
         tenantId,
-        projectId,
+        laCase.projectId,
         featureClassCodes.map((c) => c.toLowerCase()),
         JSON.stringify(parcelGeometry),
       ],

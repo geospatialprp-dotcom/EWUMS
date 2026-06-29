@@ -329,6 +329,7 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
               proposalId={proposalId ?? detail.id}
               proposalTitle={detail.title}
               readiness={detail.laReadiness ?? detail.stage3Readiness?.laReadiness}
+              onNavigateAway={onClose}
             />
             <Typography variant="subtitle1" fontWeight={600} gutterBottom>{detail.title}</Typography>
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>

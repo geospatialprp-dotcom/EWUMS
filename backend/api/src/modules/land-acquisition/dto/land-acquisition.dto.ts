@@ -9,9 +9,17 @@ function emptyToUndefined({ value }: { value: unknown }) {
 }
 
 export class LinkLaCaseProjectDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(emptyToUndefined)
   @IsUuidLike()
-  projectId: string;
+  projectId?: string;
+
+  @ApiPropertyOptional({ description: 'Link via DPR proposal — auto-resolves planning GIS project' })
+  @IsOptional()
+  @Transform(emptyToUndefined)
+  @IsUuidLike()
+  dprProposalId?: string;
 }
 
 export class CreateLaCaseDto {

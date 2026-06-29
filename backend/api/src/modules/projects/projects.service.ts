@@ -44,6 +44,8 @@ import {
 } from './utils/orthomosaic-files.util';
 import { buildProjectCodeFromName, isValidProjectCode } from './utils/project-code.util';
 import { assertNotSuperAdminForOperations } from '../../common/utils/operational-access.util';
+import { DPR_GIS_WORKSPACE_PROJECT_STATUS } from './constants/project-status.constants';
+import { FeatureClassesService } from './feature-classes.service';
 
 function sortMilestones(milestones: ProjectMilestone[] = []): ProjectMilestone[] {
   return [...milestones].sort((a, b) => {
@@ -70,6 +72,7 @@ export class ProjectsService {
     private progressSync: ProjectProgressSyncService,
     private divisionAccess: DivisionAccessService,
     private divisionStaff: DivisionStaffProvisionerService,
+    private featureClassesService: FeatureClassesService,
   ) {}
 
   async getPortfolioReadiness(
@@ -86,7 +89,8 @@ export class ProjectsService {
     const proposals = await proposalQb.getMany();
 
     const projectQb = this.projectsRepo.createQueryBuilder('p')
-      .where('p.tenant_id = :tenantId', { tenantId });
+      .where('p.tenant_id = :tenantId', { tenantId })
+      .andWhere('p.status != :gisWorkspace', { gisWorkspace: DPR_GIS_WORKSPACE_PROJECT_STATUS });
     await this.divisionAccess.applyProjectScope(projectQb, user, 'p');
     if (targetDivisionId) {
       projectQb.andWhere('p.division_id = :targetDivisionId', { targetDivisionId });
@@ -166,6 +170,7 @@ export class ProjectsService {
       throw new BadRequestException('Construction can only be linked to a tender-published DPR proposal');
     }
     if (proposal.projectId) {
+      if (proposal.projectId === projectId) return proposal;
       throw new BadRequestException('This DPR proposal is already linked to a construction project');
     }
     if (divisionId && proposal.divisionId && proposal.divisionId !== divisionId) {
@@ -248,16 +253,132 @@ export class ProjectsService {
     }
   }
 
+  async ensureDprGisWorkspaceProject(tenantId: string, proposal: DprProposal): Promise<Project> {
+    if (proposal.projectId) {
+      const linked = await this.projectsRepo.findOne({ where: { id: proposal.projectId, tenantId } });
+      if (linked) return linked;
+    }
+
+    const existingRows = await this.projectsRepo.manager.query(
+      `SELECT p.id
+       FROM projects p
+       JOIN la_cases c ON c.project_id = p.id AND c.tenant_id = p.tenant_id
+       WHERE c.dpr_proposal_id = $1
+         AND p.tenant_id = $2
+         AND p.status = $3
+       LIMIT 1`,
+      [proposal.id, tenantId, DPR_GIS_WORKSPACE_PROJECT_STATUS],
+    ) as Array<{ id: string }>;
+    if (existingRows[0]?.id) {
+      const existing = await this.projectsRepo.findOne({
+        where: { id: existingRows[0].id, tenantId },
+      });
+      if (existing) return existing;
+    }
+
+    const projectCode = await this.resolveProjectCodeForCreate(tenantId, proposal.title);
+    const project = this.projectsRepo.create({
+      tenantId,
+      name: proposal.title.trim(),
+      projectCode,
+      description: `GIS workspace for DPR ${proposal.proposalNo} (pre-tender land acquisition)`,
+      status: DPR_GIS_WORKSPACE_PROJECT_STATUS,
+      spent: 0,
+      physicalProgress: 0,
+      financialProgress: 0,
+    });
+    const saved = await this.projectsRepo.save(project);
+    if (proposal.divisionId) {
+      await this.divisionAccess.assignProjectDivision(saved.id, proposal.divisionId);
+    }
+    await this.featureClassesService.scaffoldLaGisLayers(tenantId, saved.id).catch(() => undefined);
+    return saved;
+  }
+
+  private async findLaGisWorkspaceForProposal(tenantId: string, dprProposalId: string) {
+    const rows = await this.projectsRepo.manager.query(
+      `SELECT p.id
+       FROM projects p
+       JOIN la_cases c ON c.project_id = p.id AND c.tenant_id = p.tenant_id
+       WHERE c.dpr_proposal_id = $1
+         AND p.tenant_id = $2
+         AND p.status = $3
+       LIMIT 1`,
+      [dprProposalId, tenantId, DPR_GIS_WORKSPACE_PROJECT_STATUS],
+    ) as Array<{ id: string }>;
+    if (!rows[0]?.id) return null;
+    return this.projectsRepo.findOne({ where: { id: rows[0].id, tenantId } });
+  }
+
+  private async upgradeGisWorkspaceToConstruction(
+    tenantId: string,
+    workspace: Project,
+    dto: CreateProjectDto,
+    user: JwtPayload,
+    divisionId: string | null,
+  ) {
+    const nextName = dto.name.trim();
+    const nextCode = dto.projectCode?.trim()
+      ? dto.projectCode.trim().toUpperCase()
+      : await this.resolveProjectCodeForCreate(tenantId, nextName);
+
+    workspace.name = nextName;
+    workspace.projectCode = nextCode;
+    workspace.description = dto.description?.trim() || workspace.description;
+    workspace.status = dto.status?.trim() || 'active';
+    workspace.startDate = dto.startDate || null;
+    workspace.endDate = dto.endDate || null;
+    workspace.orthomosaicConfig = this.normalizeOrthomosaicConfig(
+      dto.orthomosaicConfig,
+      workspace.orthomosaicConfig,
+    );
+
+    const saved = await this.projectsRepo.save(workspace);
+    await this.divisionAccess.assignProjectDivision(saved.id, divisionId);
+
+    const proposal = await this.linkDprProposalOnCreate(
+      tenantId,
+      saved.id,
+      dto.dprProposalId!.trim(),
+      divisionId,
+    );
+    if (proposal.preliminaryEstimate != null) {
+      saved.budget = proposal.preliminaryEstimate;
+      await this.projectsRepo.save(saved);
+    }
+    await this.seedDefaultConstructionMilestones(saved.id, user.sub);
+
+    const divisionIdOut = await this.divisionAccess.getProjectDivisionId(saved.id);
+
+    let divisionStaffLogins: Awaited<ReturnType<DivisionStaffProvisionerService['ensureDivisionStaff']>> = [];
+    if (divisionId) {
+      divisionStaffLogins = await this.divisionStaff.ensureDivisionStaff(tenantId, divisionId);
+    }
+
+    return { ...saved, divisionId: divisionIdOut, divisionStaffLogins, upgradedFromGisWorkspace: true as const };
+  }
+
   async create(tenantId: string, dto: CreateProjectDto, user: JwtPayload) {
     this.assertHqProjectRegistrar(user);
     if (!dto.dprProposalId?.trim()) {
       throw new BadRequestException('dprProposalId is required to register a construction project');
     }
 
-    const projectCode = await this.resolveProjectCodeForCreate(tenantId, dto.name.trim());
-
     const divisionId = await this.divisionAccess.resolveDivisionIdForCreate(user, dto.divisionId);
     await this.assertConstructionCreateAllowed(tenantId, user, divisionId);
+
+    const workspace = await this.findLaGisWorkspaceForProposal(tenantId, dto.dprProposalId.trim());
+    if (workspace) {
+      return this.upgradeGisWorkspaceToConstruction(
+        tenantId,
+        workspace,
+        dto,
+        user,
+        divisionId,
+      );
+    }
+
+    const projectCode = await this.resolveProjectCodeForCreate(tenantId, dto.name.trim());
 
     const project = this.projectsRepo.create({
       tenantId,

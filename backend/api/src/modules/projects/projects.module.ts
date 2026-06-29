@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { ConstructionModule } from '../construction/construction.module';
+import { LandAcquisitionModule } from '../land-acquisition/land-acquisition.module';
 import { GisLayer } from '../gis/entities/gis-layer.entity';
 import { FeatureClassesController } from './feature-classes.controller';
 import { FeatureClassesService } from './feature-classes.service';
@@ -18,11 +19,13 @@ import { ProjectsService } from './projects.service';
   imports: [
     AuthModule,
     ConstructionModule,
+    forwardRef(() => LandAcquisitionModule),
     TypeOrmModule.forFeature([
       Project, ProjectMilestone, ProjectFeatureClass, ProjectFeature, GisLayer, DprProposal,
     ]),
   ],
   controllers: [ProjectsController, MilestonesController, FeatureClassesController],
   providers: [ProjectsService, FeatureClassesService],
+  exports: [ProjectsService, FeatureClassesService],
 })
 export class ProjectsModule {}
