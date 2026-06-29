@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# DEPRECATED — re-seeds demo complaints (088). Prefer vps-cleanup-demo-data.sh for a fresh start.
 # Emergency VPS fix when migration 088 did not apply. Run from deploy/hostinger-kvm/:
 #   bash ../../database/scripts/vps-fix-kpg-complaints-one-liner.sh
 # Resolves Tharali (PRJ-TPPWSS-2026-27) dynamically — no hardcoded project UUID.
