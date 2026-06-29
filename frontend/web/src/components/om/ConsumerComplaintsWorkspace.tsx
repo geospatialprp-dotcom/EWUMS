@@ -36,6 +36,7 @@ import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import { formatCoordinatePair } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions, divisionScopeSubtitle } from '../../utils/divisionAccess';
+import { canPerformOperational } from '../../utils/operationalAccess';
 
 type ComplaintRow = {
   id: string;
@@ -136,7 +137,8 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const canViewAll = useCanViewAllDivisions();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const canRegisterComplaint = canPerformOperational(user?.roles, hasPermission, 'om:create');
   const { activeDivision, scopeKey } = useDivisionScope();
   const { t } = useTranslation();
 
@@ -183,19 +185,29 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
   const load = useCallback(() => {
     setBusy(true);
     setError('');
-    Promise.all([
-      omApi.listComplaints({
-        projectCode: selectedProject?.projectCode,
-        channel: channelFilter || undefined,
-        status: statusFilter === 'all' ? undefined : statusFilter,
-      }),
+    const listParams = {
+      projectCode: selectedProject?.projectCode,
+      channel: channelFilter || undefined,
+      status: statusFilter === 'all' ? undefined : statusFilter,
+    };
+    Promise.allSettled([
+      omApi.listComplaints(listParams),
       omApi.complaintSummary(selectedProject?.id),
     ])
-      .then(([listRes, sumRes]) => {
-        setRows(listRes.data ?? []);
-        setSummary(sumRes.data ?? {});
+      .then((results) => {
+        const [listResult, summaryResult] = results;
+        if (listResult.status === 'fulfilled') {
+          setRows(listResult.value.data ?? []);
+        } else {
+          setError(getApiError(listResult.reason, t('complaints.errors.loadFailed')));
+          setRows([]);
+        }
+        if (summaryResult.status === 'fulfilled') {
+          setSummary(summaryResult.value.data ?? {});
+        } else if (listResult.status === 'fulfilled') {
+          setSummary({});
+        }
       })
-      .catch((err) => setError(getApiError(err, t('complaints.errors.loadFailed'))))
       .finally(() => setBusy(false));
   }, [selectedProject, statusFilter, channelFilter, scopeKey, t]);
 
@@ -573,15 +585,17 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
                   <MenuItem value="closed">{t('complaints.filters.closed')}</MenuItem>
                 </Select>
               </FormControl>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddOutlinedIcon />}
-                onClick={() => setCreateOpen(true)}
-                sx={{ bgcolor: '#f97316', '&:hover': { bgcolor: '#ea580c' } }}
-              >
-                {t('complaints.register')}
-              </Button>
+              {canRegisterComplaint && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddOutlinedIcon />}
+                  onClick={() => { setError(''); setCreateOpen(true); }}
+                  sx={{ bgcolor: '#f97316', '&:hover': { bgcolor: '#ea580c' } }}
+                >
+                  {t('complaints.register')}
+                </Button>
+              )}
             </Box>
           </Box>
         )}

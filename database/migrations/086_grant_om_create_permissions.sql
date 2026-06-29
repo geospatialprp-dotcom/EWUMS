@@ -12,3 +12,8 @@ WHERE r.tenant_id = 'a0000000-0000-0000-0000-000000000001'
   AND p.action IN ('create', 'update')
   AND r.code IN ('super_admin', 'ee', 'je', 'ae', 'om_operator')
 ON CONFLICT DO NOTHING;
+
+-- Verify after apply:
+-- SELECT r.code, p.resource || ':' || p.action FROM role_permissions rp
+-- JOIN roles r ON r.id = rp.role_id JOIN permissions p ON p.id = rp.permission_id
+-- WHERE p.resource = 'om' AND p.action IN ('create','update') AND r.code = 'ee';
