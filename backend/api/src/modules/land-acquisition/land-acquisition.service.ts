@@ -66,8 +66,6 @@ import {
   type LaDocumentContext,
 } from './utils/la-document-generator.util';
 import { LaAutoRouteService, type RouteGeometry } from './la-auto-route.service';
-import { FeatureClassesService } from '../projects/feature-classes.service';
-import { buildProjectCodeFromName } from '../projects/utils/project-code.util';
 import { ProjectsService } from '../projects/projects.service';
 import { DPR_GIS_WORKSPACE_PROJECT_STATUS } from '../projects/constants/project-status.constants';
 import { classifyParcelOwnership } from './utils/la-ownership-classification.util';
@@ -141,6 +139,7 @@ export class LandAcquisitionService {
     private divisionAccess: DivisionAccessService,
     private dataSource: DataSource,
     private autoRouteService: LaAutoRouteService,
+    @Inject(forwardRef(() => ProjectsService))
     private projectsService: ProjectsService,
   ) {}
 
@@ -385,7 +384,9 @@ export class LandAcquisitionService {
         const workspace = await this.projectsService.ensureDprGisWorkspaceProject(tenantId, proposal);
         projectId = workspace.id;
       }
-    } else if (dto.projectId) {
+    }
+
+    if (projectId) {
       await this.divisionAccess.assertProjectAccess(user, projectId, tenantId);
       const project = await this.projectRepo.findOne({ where: { id: projectId, tenantId } });
       if (!project) throw new NotFoundException('Project not found');
@@ -401,6 +402,19 @@ export class LandAcquisitionService {
       ? await this.caseRepo.findOne({ where: { tenantId, dprProposalId: dto.dprProposalId } })
       : null;
     if (existing) {
+      if (!existing.projectId && existing.dprProposalId) {
+        const proposal = await this.proposalRepo.findOne({
+          where: { id: existing.dprProposalId, tenantId },
+        });
+        if (proposal) {
+          const workspace = await this.projectsService.ensureDprGisWorkspaceProject(tenantId, proposal);
+          existing.projectId = workspace.id;
+          if (!existing.divisionId && proposal.divisionId) {
+            existing.divisionId = proposal.divisionId;
+          }
+          await this.caseRepo.save(existing);
+        }
+      }
       return this.getCase(tenantId, user, existing.id);
     }
 
@@ -421,11 +435,92 @@ export class LandAcquisitionService {
     return this.getCase(tenantId, user, saved.id);
   }
 
+  async getRoutingSchemes(tenantId: string, user: JwtPayload, caseId: string) {
+    const laCase = await this.requireCase(tenantId, caseId);
+    await this.assertCaseAccess(user, laCase, tenantId);
+
+    const schemes: Array<{
+      id: string;
+      projectId: string | null;
+      label: string;
+      kind: 'linked_project' | 'dpr_scheme';
+      projectStatus?: string;
+      proposalNo?: string;
+    }> = [];
+    const seenProjectIds = new Set<string>();
+
+    if (laCase.projectId) {
+      const project = await this.projectRepo.findOne({ where: { id: laCase.projectId, tenantId } });
+      if (project) {
+        schemes.push({
+          id: project.id,
+          projectId: project.id,
+          label: project.status === DPR_GIS_WORKSPACE_PROJECT_STATUS
+            ? `${project.name} (DPR GIS workspace)`
+            : project.name,
+          kind: 'linked_project',
+          projectStatus: project.status,
+        });
+        seenProjectIds.add(project.id);
+      }
+    }
+
+    if (laCase.dprProposalId) {
+      const proposal = await this.proposalRepo.findOne({ where: { id: laCase.dprProposalId, tenantId } });
+      if (proposal) {
+        const dprLabel = `${proposal.proposalNo} — ${proposal.title} (DPR scheme)`;
+        if (proposal.projectId && !seenProjectIds.has(proposal.projectId)) {
+          const planningProject = await this.projectRepo.findOne({
+            where: { id: proposal.projectId, tenantId },
+          });
+          schemes.push({
+            id: `dpr:${proposal.id}`,
+            projectId: proposal.projectId,
+            label: dprLabel,
+            kind: 'dpr_scheme',
+            projectStatus: planningProject?.status,
+            proposalNo: proposal.proposalNo,
+          });
+        } else if (!proposal.projectId) {
+          schemes.push({
+            id: `dpr:${proposal.id}`,
+            projectId: null,
+            label: dprLabel,
+            kind: 'dpr_scheme',
+            proposalNo: proposal.proposalNo,
+          });
+        }
+      }
+    }
+
+    return {
+      linkedProjectId: laCase.projectId,
+      dprProposalId: laCase.dprProposalId,
+      schemes,
+    };
+  }
+
+  async linkLaCasesForDprProposal(tenantId: string, dprProposalId: string, projectId: string) {
+    await this.caseRepo.update(
+      { tenantId, dprProposalId },
+      { projectId },
+    );
+  }
+
   async linkProject(tenantId: string, user: JwtPayload, caseId: string, dto: LinkLaCaseProjectDto) {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
 
-    const projectId = dto.projectId.trim();
+    let projectId = dto.projectId?.trim() ?? '';
+    if (!projectId && dto.dprProposalId) {
+      const proposal = await this.proposalRepo.findOne({ where: { id: dto.dprProposalId, tenantId } });
+      if (!proposal) throw new NotFoundException('DPR proposal not found');
+      const workspace = await this.projectsService.ensureDprGisWorkspaceProject(tenantId, proposal);
+      projectId = workspace.id;
+    }
+    if (!projectId) {
+      throw new BadRequestException('Select a GIS project or DPR scheme to link');
+    }
     if (laCase.projectId) {
       if (laCase.projectId === projectId) return this.getCase(tenantId, user, caseId);
       throw new BadRequestException('This LA case already has a linked project');
@@ -597,7 +692,7 @@ export class LandAcquisitionService {
          WHERE pf.tenant_id = $1 AND pf.project_id = $2 AND pf.feature_class_id = $3
            AND pf.geometry IS NOT NULL
            AND GeometryType(pf.geometry) IN ('LINESTRING', 'MULTILINESTRING')`,
-        [tenantId, laCase.projectId, fc.id],
+        [tenantId, projectId, fc.id],
       ) as Array<{ id: string; attributes: Record<string, unknown>; geometry: object }>;
 
       for (const row of rows) {
@@ -612,7 +707,7 @@ export class LandAcquisitionService {
           [
             tenantId,
             caseId,
-            laCase.projectId,
+            projectId,
             row.id,
             fc.code,
             fc.code,
@@ -979,7 +1074,7 @@ export class LandAcquisitionService {
     const corridorGeom = corridorReady[0]?.geometry;
     if (corridorGeom) {
       const featureClasses = await this.fcRepo.find({
-        where: { tenantId, projectId: laCase.projectId },
+        where: { tenantId, projectId },
       });
       const parcelGeometries = await this.dataSource.query(
         `SELECT id, geometry FROM la_parcels
@@ -1005,7 +1100,7 @@ export class LandAcquisitionService {
              WHERE pf.tenant_id = $2 AND pf.project_id = $3 AND pf.feature_class_id = $4
                AND pf.geometry IS NOT NULL
                AND ST_Intersects(pf.geometry, c.geom)`,
-            [JSON.stringify(corridorGeom), tenantId, laCase.projectId, fc.id],
+            [JSON.stringify(corridorGeom), tenantId, projectId, fc.id],
           ) as Array<{ id: string; attributes: Record<string, unknown>; fc_code: string }>;
 
           for (const hit of hits) {
@@ -2279,7 +2374,7 @@ export class LandAcquisitionService {
          )`,
       [
         tenantId,
-        laCase.projectId,
+        projectId,
         layerCodes.map((c) => c.toLowerCase()),
         JSON.stringify(parcelGeometry),
       ],
@@ -2316,7 +2411,7 @@ export class LandAcquisitionService {
        LIMIT 1`,
       [
         tenantId,
-        laCase.projectId,
+        projectId,
         featureClassCodes.map((c) => c.toLowerCase()),
         JSON.stringify(parcelGeometry),
       ],

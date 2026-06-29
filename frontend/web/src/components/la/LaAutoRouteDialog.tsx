@@ -52,6 +52,12 @@ type RouteRow = {
 type Props = {
   caseId: string;
   projectId?: string | null;
+  projectName?: string | null;
+  projectCode?: string | null;
+  projectStatus?: string | null;
+  dprProposalId?: string | null;
+  isDprGisWorkspace?: boolean;
+  dprProposalNo?: string | null;
   open: boolean;
   onClose: () => void;
   onApplied: () => void;
@@ -113,7 +119,8 @@ function pointCoords(geom: Point): [number, number] | null {
 }
 
 export default function LaAutoRouteDialog({
-  caseId, projectId, open, onClose, onApplied, onProjectLinked, criteria = [],
+  caseId, projectId, projectName, projectCode, projectStatus, dprProposalId,
+  isDprGisWorkspace = false, dprProposalNo, open, onClose, onApplied, onProjectLinked, criteria = [],
   importedPipelineNetwork: sharedImportedNetwork,
   onImportedPipelineNetworkChange,
   importedPipelineFileName: sharedImportFileName,
@@ -526,16 +533,31 @@ export default function LaAutoRouteDialog({
           hazards, and environmental layers from Feature Class Catalog.
         </Typography>
 
-        {!projectId && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" fontWeight={700} mb={1}>
-              Link a project to this LA case before auto-routing
+        <Alert severity={projectId ? 'info' : 'warning'} sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700} mb={1}>
+            {projectId ? 'GIS project linked for auto-routing' : 'Link a project to this LA case before auto-routing'}
+          </Typography>
+          <LaLinkProjectPanel
+            caseId={caseId}
+            compact
+            linkedProjectId={projectId}
+            linkedProjectName={projectName}
+            linkedProjectCode={projectCode}
+            linkedProjectStatus={projectStatus}
+            dprProposalId={dprProposalId}
+            onLinked={() => onProjectLinked?.()}
+          />
+        </Alert>
+
+        {projectId && isDprGisWorkspace && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" fontWeight={700} mb={0.5}>
+              Routing via DPR GIS workspace
             </Typography>
-            <LaLinkProjectPanel
-              caseId={caseId}
-              compact
-              onLinked={() => onProjectLinked?.()}
-            />
+            <Typography variant="body2" color="text.secondary">
+              Using scheme layers from DPR {dprProposalNo ? `${dprProposalNo} ` : ''}before formal construction registration.
+              HQ can upgrade this workspace when tender is published.
+            </Typography>
           </Alert>
         )}
 

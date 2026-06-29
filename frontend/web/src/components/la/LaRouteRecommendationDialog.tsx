@@ -44,6 +44,10 @@ type RouteRow = {
 type Props = {
   caseId: string;
   projectId?: string | null;
+  projectName?: string | null;
+  projectCode?: string | null;
+  projectStatus?: string | null;
+  dprProposalId?: string | null;
   open: boolean;
   onClose: () => void;
   onApplied: () => void;
@@ -121,7 +125,8 @@ function alignmentFeaturesFromMap(fc: FeatureCollection): FeatureCollection {
 }
 
 export default function LaRouteRecommendationDialog({
-  caseId, projectId, open, onClose, onApplied, onProjectLinked,
+  caseId, projectId, projectName, projectCode, projectStatus, dprProposalId,
+  open, onClose, onApplied, onProjectLinked,
   importedPipelineNetwork: sharedImportedNetwork,
   onImportedPipelineNetworkChange,
   importedPipelineFileName: sharedImportFileName,
@@ -539,14 +544,21 @@ export default function LaRouteRecommendationDialog({
           imported pipelines appear in orange.
         </Typography>
 
-        {!projectId && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" fontWeight={700} mb={1}>
-              Link a project to this LA case first
-            </Typography>
-            <LaLinkProjectPanel caseId={caseId} compact onLinked={() => onProjectLinked?.()} />
-          </Alert>
-        )}
+        <Alert severity={projectId ? 'info' : 'warning'} sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700} mb={1}>
+            {projectId ? 'GIS project linked for route analysis' : 'Link a project to this LA case first'}
+          </Typography>
+          <LaLinkProjectPanel
+            caseId={caseId}
+            compact
+            linkedProjectId={projectId}
+            linkedProjectName={projectName}
+            linkedProjectCode={projectCode}
+            linkedProjectStatus={projectStatus}
+            dprProposalId={dprProposalId}
+            onLinked={() => onProjectLinked?.()}
+          />
+        </Alert>
 
         <Box
           sx={{

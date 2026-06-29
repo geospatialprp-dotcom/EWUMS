@@ -73,6 +73,13 @@ export class LandAcquisitionController {
     return this.service.getCase(user.tenantId, user, id);
   }
 
+  @Get('cases/:id/routing-schemes')
+  @RequirePermissions('la_case:read')
+  @ApiOperation({ summary: 'GIS project / DPR scheme options for LA auto-routing' })
+  getRoutingSchemes(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.getRoutingSchemes(user.tenantId, user, id);
+  }
+
   @Patch('cases/:id/link-project')
   @RequirePermissions('la_case:update')
   @ApiOperation({ summary: 'Link a GIS project to an LA case for routing and overlay analysis' })

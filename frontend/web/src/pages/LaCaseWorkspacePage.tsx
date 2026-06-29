@@ -196,7 +196,16 @@ export default function LaCaseWorkspacePage() {
                   label={String(detail.statusLabel ?? laStatusLabel(String(detail.status)))} />
                 <Chip size="small" variant="outlined" label={String(detail.schemeType)} />
                 {detail.projectId ? (
-                  <Chip size="small" variant="outlined" color="primary" label={String(detail.projectName ?? 'Linked project')} />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color={detail.isDprGisWorkspace ? 'info' : 'primary'}
+                    label={detail.isDprGisWorkspace
+                      ? `DPR GIS: ${String(detail.projectName ?? detail.dprProposalNo ?? 'Scheme')}`
+                      : String(detail.projectName ?? 'Linked project')}
+                  />
+                ) : detail.dprProposalId ? (
+                  <Chip size="small" variant="outlined" color="info" label="DPR-linked (GIS workspace pending)" />
                 ) : (
                   <Chip size="small" variant="outlined" color="warning" label="No project linked" />
                 )}
@@ -271,13 +280,20 @@ export default function LaCaseWorkspacePage() {
             <LaPipelineWorkflowGuide state={pipelineWorkflowState} />
           </Box>
 
-          {!detail.projectId && (
+          {!detail.projectId && !detail.dprProposalId && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="subtitle2" fontWeight={700} mb={1}>
                 Link a GIS project to enable auto-routing
               </Typography>
               {canUpdate ? (
-                <LaLinkProjectPanel caseId={caseId} onLinked={load} />
+                <LaLinkProjectPanel
+                  caseId={caseId}
+                  linkedProjectId={detail.projectId as string | null | undefined}
+                  linkedProjectName={detail.projectName as string | null | undefined}
+                  linkedProjectStatus={detail.projectStatus as string | null | undefined}
+                  dprProposalId={detail.dprProposalId as string | null | undefined}
+                  onLinked={load}
+                />
               ) : (
                 <Typography variant="body2" color="text.secondary">
                   A division account with LA update permission must link a GIS project before routing can begin.
@@ -465,6 +481,11 @@ export default function LaCaseWorkspacePage() {
           <LaAutoRouteDialog
             caseId={caseId}
             projectId={detail?.projectId as string | null | undefined}
+            projectName={detail?.projectName as string | null | undefined}
+            projectStatus={detail?.projectStatus as string | null | undefined}
+            dprProposalId={detail?.dprProposalId as string | null | undefined}
+            isDprGisWorkspace={Boolean(detail?.isDprGisWorkspace)}
+            dprProposalNo={detail?.dprProposalNo as string | null | undefined}
             open={autoRouteOpen}
             onClose={() => setAutoRouteOpen(false)}
             onApplied={() => { load(); loadMap(); setSuccess('Auto route applied and alignment traced'); }}
@@ -478,6 +499,9 @@ export default function LaCaseWorkspacePage() {
           <LaRouteRecommendationDialog
             caseId={caseId}
             projectId={detail?.projectId as string | null | undefined}
+            projectName={detail?.projectName as string | null | undefined}
+            projectStatus={detail?.projectStatus as string | null | undefined}
+            dprProposalId={detail?.dprProposalId as string | null | undefined}
             open={recommendOpen}
             onClose={() => setRecommendOpen(false)}
             onApplied={() => { load(); loadMap(); setSuccess('Recommended route applied and alignment traced'); }}

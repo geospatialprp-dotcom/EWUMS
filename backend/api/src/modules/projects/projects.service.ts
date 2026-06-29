@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { statSync, writeFileSync } from 'fs';
 import { In, Repository } from 'typeorm';
@@ -45,6 +45,7 @@ import {
 import { buildProjectCodeFromName, isValidProjectCode } from './utils/project-code.util';
 import { assertNotSuperAdminForOperations } from '../../common/utils/operational-access.util';
 import { DPR_GIS_WORKSPACE_PROJECT_STATUS } from './constants/project-status.constants';
+import { LandAcquisitionService } from '../land-acquisition/land-acquisition.service';
 import { FeatureClassesService } from './feature-classes.service';
 
 function sortMilestones(milestones: ProjectMilestone[] = []): ProjectMilestone[] {
@@ -73,6 +74,8 @@ export class ProjectsService {
     private divisionAccess: DivisionAccessService,
     private divisionStaff: DivisionStaffProvisionerService,
     private featureClassesService: FeatureClassesService,
+    @Inject(forwardRef(() => LandAcquisitionService))
+    private landAcquisitionService: LandAcquisitionService,
   ) {}
 
   async getPortfolioReadiness(
@@ -291,6 +294,9 @@ export class ProjectsService {
     if (proposal.divisionId) {
       await this.divisionAccess.assignProjectDivision(saved.id, proposal.divisionId);
     }
+    if (!proposal.projectId) {
+      await this.dprProposalRepo.update(proposal.id, { projectId: saved.id });
+    }
     await this.featureClassesService.scaffoldLaGisLayers(tenantId, saved.id).catch(() => undefined);
     return saved;
   }
@@ -369,13 +375,19 @@ export class ProjectsService {
 
     const workspace = await this.findLaGisWorkspaceForProposal(tenantId, dto.dprProposalId.trim());
     if (workspace) {
-      return this.upgradeGisWorkspaceToConstruction(
+      const upgraded = await this.upgradeGisWorkspaceToConstruction(
         tenantId,
         workspace,
         dto,
         user,
         divisionId,
       );
+      await this.landAcquisitionService.linkLaCasesForDprProposal(
+        tenantId,
+        dto.dprProposalId.trim(),
+        upgraded.id,
+      );
+      return upgraded;
     }
 
     const projectCode = await this.resolveProjectCodeForCreate(tenantId, dto.name.trim());
@@ -411,6 +423,12 @@ export class ProjectsService {
     await this.seedDefaultConstructionMilestones(saved.id, user.sub);
 
     const divisionIdOut = await this.divisionAccess.getProjectDivisionId(saved.id);
+
+    await this.landAcquisitionService.linkLaCasesForDprProposal(
+      tenantId,
+      dto.dprProposalId.trim(),
+      saved.id,
+    );
 
     let divisionStaffLogins: Awaited<ReturnType<DivisionStaffProvisionerService['ensureDivisionStaff']>> = [];
     if (divisionId) {
