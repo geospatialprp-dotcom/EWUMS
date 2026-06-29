@@ -140,6 +140,71 @@ export class AlertNotificationService {
     });
   }
 
+  async notifyComplaintRegistered(
+    tenantId: string,
+    data: {
+      projectId: string;
+      complaintNo: string;
+      complaintType: string;
+      complaintId: string;
+      channel: string;
+      village?: string | null;
+      fhtcNumber?: string | null;
+    },
+  ) {
+    const divisionRows = await this.userRepo.query(
+      'SELECT division_id FROM projects WHERE id = $1 AND tenant_id = $2',
+      [data.projectId, tenantId],
+    ) as Array<{ division_id?: string | null }>;
+    const divisionId = divisionRows[0]?.division_id ?? null;
+
+    const staff = await this.queryDivisionStaff(tenantId, divisionId, ['ee', 'je']);
+    if (!staff.length) {
+      this.logger.log(
+        `[complaint_registered] No EE/JE staff for division ${divisionId ?? 'n/a'} — skipped email alerts`,
+      );
+      return { notified: 0 };
+    }
+
+    const location = [data.village, data.fhtcNumber ? `FHTC ${data.fhtcNumber}` : null]
+      .filter(Boolean)
+      .join(' · ');
+    const subject = `New complaint ${data.complaintNo} — ${data.complaintType}`;
+    const message = [
+      'A new consumer complaint has been registered in EWUMS.',
+      '',
+      `Ticket: ${data.complaintNo}`,
+      `Type: ${data.complaintType}`,
+      `Channel: ${data.channel}`,
+      location ? `Location: ${location}` : '',
+      '',
+      'Open Complaints in EWUMS to review and assign.',
+      '',
+      '— EWUMS Notifications',
+    ].filter(Boolean).join('\n');
+
+    let notified = 0;
+    for (const user of staff) {
+      if (!user.email?.trim()) continue;
+      await this.sendAlert({
+        tenantId,
+        eventType: 'complaint_registered',
+        subject,
+        message,
+        email: user.email,
+        channels: ['email'],
+        payload: {
+          complaintId: data.complaintId,
+          complaintNo: data.complaintNo,
+          projectId: data.projectId,
+        },
+      });
+      notified += 1;
+    }
+
+    return { notified };
+  }
+
   async notifyComplaintResolved(
     tenantId: string,
     data: {
@@ -296,6 +361,38 @@ export class AlertNotificationService {
          AND r.code = $2
        ORDER BY u.email`,
       [tenantId, roleCode],
+    ) as Promise<Array<{ id: string; email: string; firstName?: string | null; lastName?: string | null }>>;
+  }
+
+  private async queryDivisionStaff(
+    tenantId: string,
+    divisionId: string | null,
+    roleCodes: string[],
+  ) {
+    const params: unknown[] = [tenantId, roleCodes];
+    let divisionClause = '';
+    if (divisionId) {
+      divisionClause = `AND (
+        EXISTS (
+          SELECT 1 FROM user_division_assignments uda
+          WHERE uda.user_id = u.id AND uda.division_id = $3
+        )
+        OR u.division_id = $3
+      )`;
+      params.push(divisionId);
+    }
+
+    return this.userRepo.query(
+      `SELECT DISTINCT u.id, u.email, u.first_name AS "firstName", u.last_name AS "lastName"
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.id
+       JOIN roles r ON r.id = ur.role_id
+       WHERE u.tenant_id = $1
+         AND u.status = 'active'
+         AND r.code = ANY($2::text[])
+         ${divisionClause}
+       ORDER BY u.email`,
+      params,
     ) as Promise<Array<{ id: string; email: string; firstName?: string | null; lastName?: string | null }>>;
   }
 }

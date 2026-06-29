@@ -74,6 +74,8 @@ export class ConsumerPortalService {
     const consumer = await this.consumerRepo.findOne({ where: { id: consumerId, tenantId } });
     if (!consumer) throw new NotFoundException('Consumer not found');
 
+    const projectId = await this.resolveConsumerProjectId(tenantId, consumer);
+
     return this.complaintService.registerComplaint(this.portalUser(tenantId, consumerId), tenantId, null, {
       complaintType: dto.complaintType,
       channel: 'web_portal',
@@ -83,7 +85,7 @@ export class ConsumerPortalService {
       mobile: consumer.mobile ?? undefined,
       village: consumer.village ?? undefined,
       priority: dto.priority ?? 'medium',
-      projectId: consumer.projectId ?? undefined,
+      projectId,
     });
   }
 
@@ -91,10 +93,7 @@ export class ConsumerPortalService {
     const consumer = await this.consumerRepo.findOne({ where: { id: consumerId, tenantId } });
     if (!consumer) throw new NotFoundException('Consumer not found');
 
-    const all = await this.complaintService.listComplaints(this.portalUser(tenantId, consumerId), tenantId, {
-      projectId: consumer.projectId ?? undefined,
-    });
-    return all.filter((c) => c.omConsumerId === consumerId || c.fhtcNumber === consumer.fhtcNumber);
+    return this.complaintService.listComplaintsForConsumer(tenantId, consumerId, consumer.fhtcNumber);
   }
 
   async listMyApplications(tenantId: string, consumerId: string) {
@@ -334,13 +333,76 @@ export class ConsumerPortalService {
       sub: consumerId,
       email: '',
       tenantId,
-      roles: [],
-      permissions: ['state:view_all'],
-      accessScope: 'state',
+      roles: ['consumer'],
+      permissions: ['portal:read', 'portal:write'],
+      accessScope: 'division',
       consumerId,
       portalType: 'consumer',
-      canViewAllDivisions: true,
+      canViewAllDivisions: false,
     };
+  }
+
+  /** Consumer complaints must carry the scheme in their division — never a statewide default. */
+  private async resolveConsumerProjectId(tenantId: string, consumer: OmConsumer): Promise<string> {
+    const kpgProjectId = await this.findTharaliProjectId(tenantId);
+    const kpgDivisionId = 'd1000000-0000-0000-0000-000000000010';
+    const kpgVillages = ['tharali', 'karanprayag', 'pinder'];
+    const village = consumer.village?.trim().toLowerCase() ?? '';
+    const inKpgArea = !village || kpgVillages.some((name) => village.includes(name));
+
+    if (consumer.projectId) {
+      const linked = await this.projectRepo.findOne({
+        where: { id: consumer.projectId, tenantId },
+      });
+      if (linked) {
+        const divisionRows = await this.projectRepo.query(
+          'SELECT division_id FROM projects WHERE id = $1 AND tenant_id = $2',
+          [linked.id, tenantId],
+        ) as Array<{ division_id?: string | null }>;
+        const divisionId = divisionRows[0]?.division_id ?? null;
+        if (
+          kpgProjectId
+          && inKpgArea
+          && divisionId !== kpgDivisionId
+          && linked.id !== kpgProjectId
+        ) {
+          consumer.projectId = kpgProjectId;
+          await this.consumerRepo.save(consumer);
+          return kpgProjectId;
+        }
+        return linked.id;
+      }
+    }
+
+    if (kpgProjectId && inKpgArea) {
+      consumer.projectId = kpgProjectId;
+      await this.consumerRepo.save(consumer);
+      return kpgProjectId;
+    }
+
+    throw new BadRequestException(
+      'Your Jal Mitra account is not linked to a water supply scheme. Please contact your local Jal Sansthan office.',
+    );
+  }
+
+  private async findTharaliProjectId(tenantId: string): Promise<string | null> {
+    const rows = await this.projectRepo.query(
+      `SELECT p.id
+       FROM projects p
+       WHERE p.tenant_id = $1
+         AND p.status = 'active'
+         AND (
+           p.project_code IN ('PRJ-TPPWSS-2026-27', 'PRJ-2026-001')
+           OR p.name ILIKE '%Tharali%'
+         )
+       ORDER BY
+         CASE p.project_code WHEN 'PRJ-TPPWSS-2026-27' THEN 0 WHEN 'PRJ-2026-001' THEN 1 ELSE 2 END,
+         CASE WHEN p.division_id = 'd1000000-0000-0000-0000-000000000010' THEN 0 ELSE 1 END,
+         p.name ASC
+       LIMIT 1`,
+      [tenantId],
+    ) as Array<{ id: string }>;
+    return rows[0]?.id ?? null;
   }
 
   private async resolveProjectId(tenantId: string, projectCode?: string): Promise<string | null> {

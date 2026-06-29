@@ -96,6 +96,27 @@ export class OmComplaintService {
     }
   }
 
+  async listComplaintsForConsumer(tenantId: string, consumerId: string, fhtcNumber: string) {
+    try {
+      if (!(await this.isComplaintsTableReady())) return [];
+
+      const rows = await this.complaintRepo
+        .createQueryBuilder('c')
+        .where('c.tenant_id = :tenantId', { tenantId })
+        .andWhere('(c.om_consumer_id = :consumerId OR c.fhtc_number = :fhtcNumber)', {
+          consumerId,
+          fhtcNumber,
+        })
+        .orderBy('c.created_at', 'DESC')
+        .take(50)
+        .getMany();
+
+      return Promise.all(rows.map((r) => this.toRecord(tenantId, r)));
+    } catch {
+      return [];
+    }
+  }
+
   async getComplaint(user: JwtPayload, tenantId: string, id: string) {
     const row = await this.complaintRepo.findOne({ where: { id, tenantId } });
     if (!row) throw new NotFoundException('Complaint not found');
@@ -152,10 +173,17 @@ export class OmComplaintService {
 
     let resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, dto.projectId, dto.projectCode);
     if (!resolvedProjectId && consumerProjectId) {
-      await this.scope.assertProjectAccess(user, consumerProjectId, tenantId);
+      if (user.portalType !== 'consumer') {
+        await this.scope.assertProjectAccess(user, consumerProjectId, tenantId);
+      }
       resolvedProjectId = consumerProjectId;
     }
     if (!resolvedProjectId) {
+      if (user.portalType === 'consumer') {
+        throw new BadRequestException(
+          'Your Jal Mitra account is not linked to a water supply scheme. Please contact your local Jal Sansthan office.',
+        );
+      }
       resolvedProjectId = await this.scope.resolveDefaultProjectId(user, tenantId);
     }
     if (!resolvedProjectId) {
@@ -204,6 +232,16 @@ export class OmComplaintService {
       complaintNo: saved.complaintNo,
       complaintType: getComplaintTypeLabel(saved.complaintType),
       complaintId: saved.id,
+    }).catch(() => undefined);
+
+    await this.alertNotifications.notifyComplaintRegistered(tenantId, {
+      projectId: saved.projectId!,
+      complaintNo: saved.complaintNo,
+      complaintType: getComplaintTypeLabel(saved.complaintType),
+      complaintId: saved.id,
+      channel: getComplaintChannelLabel(saved.channel),
+      village: saved.village,
+      fhtcNumber: saved.fhtcNumber,
     }).catch(() => undefined);
 
     return result;
