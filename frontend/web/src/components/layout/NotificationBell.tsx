@@ -70,7 +70,7 @@ class NotificationBellErrorBoundary extends Component<
         <IconButton
           aria-label={this.props.fallbackLabel}
           disabled
-          sx={{ color: '#475569', flexShrink: 0, ...appTouchIconButtonSx() }}
+          sx={{ color: '#475569', flexShrink: 0, minWidth: 44, minHeight: 44, ...appTouchIconButtonSx() }}
         >
           <NotificationsOutlinedIcon fontSize="small" />
         </IconButton>
@@ -151,7 +151,18 @@ function NotificationBellInner() {
   return (
     <>
       <Tooltip title={t('notificationBell.title')}>
-        <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0, lineHeight: 0 }}>
+        <Box
+          component="span"
+          sx={{
+            display: 'inline-flex',
+            flexShrink: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+            minWidth: 44,
+            minHeight: 44,
+            lineHeight: 0,
+          }}
+        >
           <IconButton
             onClick={handleOpen}
             aria-label={t('common.notifications')}

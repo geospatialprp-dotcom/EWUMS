@@ -46,6 +46,7 @@ import {
   appBarUserNameSx,
   appHeaderActionItemSx,
   appHeaderActionsSx,
+  appNotificationBellSlotSx,
   appDrawerBrandHeightSx,
   appDrawerBrandSx,
   appDrawerBrandInnerSx,
@@ -281,16 +282,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <Box sx={appHeaderActionsSx()}>
             <DivisionSwitcher />
-            <Box sx={{ ...appHeaderActionItemSx(), display: { xs: 'none', sm: 'flex' } }}>
+            <Box sx={appHeaderActionItemSx()}>
               <LanguageSwitcher />
             </Box>
-            {user && (
-              <Box sx={appHeaderActionItemSx()}>
-                <NotificationBell />
-              </Box>
-            )}
-            <Box sx={{ ...appHeaderActionItemSx(), display: { xs: 'none', sm: 'flex' } }}>
+            <Box sx={appHeaderActionItemSx()}>
               <HelpPanel />
+            </Box>
+            <Box
+              sx={appNotificationBellSlotSx()}
+              role="region"
+              aria-label={t('common.notifications')}
+            >
+              <NotificationBell />
             </Box>
 
             <Box sx={appBarUserBlockSx()}>

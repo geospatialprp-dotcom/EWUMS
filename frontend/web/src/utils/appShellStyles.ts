@@ -259,12 +259,12 @@ export function appBarBrandRowSx() {
     gap: { xs: 0.75, sm: 1, md: 1.25 },
     minWidth: 0,
     flex: { xs: '1 1 auto', md: '0 1 auto' },
-    // Reserve space for menu + division + notification bell + account controls on small screens.
+    // Reserve space for menu + division + globe + help + bell + account controls.
     maxWidth: {
-      xs: 'calc(100% - 244px)',
-      sm: 'calc(100% - 304px)',
-      md: '48%',
-      lg: '54%',
+      xs: 'calc(100% - 196px)',
+      sm: 'calc(100% - 320px)',
+      md: '42%',
+      lg: '46%',
     },
     overflow: 'hidden',
   };
@@ -290,6 +290,24 @@ export function appHeaderActionItemSx() {
     display: 'flex',
     flexShrink: 0,
     alignItems: 'center',
+  };
+}
+
+/** Dedicated notification bell slot — always reserves touch target space in the header. */
+export function appNotificationBellSlotSx() {
+  return {
+    display: 'flex',
+    flexShrink: 0,
+    flexGrow: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 44,
+    minHeight: 44,
+    width: 44,
+    visibility: 'visible' as const,
+    overflow: 'visible' as const,
+    position: 'relative' as const,
+    zIndex: 3,
   };
 }
 
@@ -347,7 +365,8 @@ export function appBarUserBlockSx() {
 
 export function appBarUserNameSx() {
   return {
-    display: { xs: 'none', md: 'block' },
+    // Hidden on md+ so globe, help, and bell stay visible in the header toolbar.
+    display: { xs: 'none', md: 'none' },
     textAlign: 'right',
     minWidth: 0,
     maxWidth: 220,
@@ -355,7 +374,6 @@ export function appBarUserNameSx() {
     py: 0.25,
     borderRight: '1px solid',
     borderColor: '#e2e8f0',
-    mr: { md: 0.25 },
   };
 }
 
