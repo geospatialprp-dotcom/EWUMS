@@ -4,7 +4,12 @@ import { ModuleRef } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { JwtPayload } from '../../modules/auth/interfaces/jwt-payload.interface';
 import { AuthService } from '../../modules/auth/auth.service';
-import { isAdminPermission, isReadPermission, isSuperAdmin } from '../utils/operational-access.util';
+import {
+  isAdminPermission,
+  isDemoOperationalPermission,
+  isReadPermission,
+  isSuperAdmin,
+} from '../utils/operational-access.util';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -23,7 +28,13 @@ export class PermissionsGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user as JwtPayload;
     if (isSuperAdmin(user.roles)) {
-      if (required.every(isAdminPermission) || required.every(isReadPermission)) return true;
+      if (
+        required.every(isAdminPermission)
+        || required.every(isReadPermission)
+        || required.every(isDemoOperationalPermission)
+      ) {
+        return true;
+      }
       throw new ForbiddenException(
         'Super Admin has view-only access for operational modules. Use an HQ or division account.',
       );

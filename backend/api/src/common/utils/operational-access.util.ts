@@ -30,3 +30,10 @@ export function isAdminPermission(permission: string): boolean {
 export function isReadPermission(permission: string): boolean {
   return permission.endsWith(':read');
 }
+
+/** Super Admin demo exceptions — complaint registration and workflow on /complaints. */
+const SUPER_ADMIN_DEMO_OPERATIONAL = new Set(['om:create', 'om:update']);
+
+export function isDemoOperationalPermission(permission: string): boolean {
+  return SUPER_ADMIN_DEMO_OPERATIONAL.has(permission);
+}
