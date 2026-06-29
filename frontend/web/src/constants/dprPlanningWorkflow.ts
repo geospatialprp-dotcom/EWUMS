@@ -139,7 +139,7 @@ export const DPR_DOCUMENT_TYPES = [
   { type: 'nit', label: 'Notice Inviting Tender (NIT)' },
 ] as const;
 
-/** HQ officials who can perform Stage 2 proposal review (matches backend isHqReviewer). */
+/** HQ officials who can perform Stage 2 proposal review (matches backend isHqReviewer; super_admin allowed for demo). */
 export const DPR_HQ_REVIEWER_ROLES = ['se', 'ce', 'cgm', 'md'] as const;
 
 export const DPR_TAC_REVIEWER_ROLES = ['se', 'ce'] as const;
@@ -153,7 +153,7 @@ function hasDprRole(roles: string[], allowed: readonly string[]): boolean {
 }
 
 export function canPerformHqReview(roles: string[]): boolean {
-  return hasDprRole(roles, DPR_HQ_REVIEWER_ROLES);
+  return roles.includes('super_admin') || hasDprRole(roles, DPR_HQ_REVIEWER_ROLES);
 }
 
 export function canForwardDprToTac(roles: string[]): boolean {

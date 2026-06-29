@@ -2967,7 +2967,7 @@ export class DprPlanningService {
   }
 
   private isHqReviewer(roles: string[]) {
-    return roles.some((r) => ['se', 'ce', 'cgm', 'md'].includes(r));
+    return roles.some((r) => r === 'super_admin' || ['se', 'ce', 'cgm', 'md'].includes(r));
   }
 
   private assertCanPrepare(roles: string[]) {
@@ -3121,9 +3121,8 @@ export class DprPlanningService {
   }
 
   private assertCanReviewHq(roles: string[]) {
-    assertNotSuperAdminRolesForOperations(roles, 'HQ DPR proposal review');
-    if (!roles.some((r) => ['se', 'ce', 'cgm', 'md'].includes(r))) {
-      throw new ForbiddenException('Only HQ officials (SE, CE, CGM, MD) can review and approve DPR proposals');
+    if (!this.isHqReviewer(roles)) {
+      throw new ForbiddenException('Only HQ officials (SE, CE, CGM, MD) or Super Admin (demo) can review and approve DPR proposals');
     }
   }
 

@@ -31,8 +31,8 @@ export function isReadPermission(permission: string): boolean {
   return permission.endsWith(':read');
 }
 
-/** Super Admin demo exceptions — complaint registration and workflow on /complaints. */
-const SUPER_ADMIN_DEMO_OPERATIONAL = new Set(['om:create', 'om:update']);
+/** Super Admin demo exceptions — complaints and DPR HQ stage-2 approval for demos without HQ role accounts. */
+const SUPER_ADMIN_DEMO_OPERATIONAL = new Set(['om:create', 'om:update', 'dpr_proposal:approve']);
 
 export function isDemoOperationalPermission(permission: string): boolean {
   return SUPER_ADMIN_DEMO_OPERATIONAL.has(permission);
