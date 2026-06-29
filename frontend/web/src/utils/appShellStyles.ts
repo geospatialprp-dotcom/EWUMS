@@ -119,6 +119,8 @@ export function appToolbarSx() {
     px: { xs: 1, sm: 2 },
     py: { xs: 0.25, sm: 0 },
     overflow: 'visible',
+    flexWrap: 'nowrap',
+    justifyContent: 'flex-start',
   };
 }
 
@@ -244,8 +246,9 @@ export function appBarBrandRowSx() {
     alignItems: 'center',
     gap: { xs: 0.75, sm: 1 },
     minWidth: 0,
-    flex: { xs: '1 1 auto', md: '0 1 auto' },
+    flex: { xs: '1 1 0', md: '0 1 auto' },
     maxWidth: { md: '42%' },
+    overflow: 'hidden',
   };
 }
 

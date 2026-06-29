@@ -22,7 +22,12 @@ export default function DivisionSwitcher() {
         display="flex"
         alignItems="center"
         gap={0.5}
-        sx={{ minWidth: 0, maxWidth: { xs: 120, sm: 160, md: 180 }, flexShrink: 1, mr: { xs: 0.25, sm: 0.5 } }}
+        sx={{
+          minWidth: { xs: 88, sm: 100 },
+          maxWidth: { xs: 120, sm: 160, md: 180 },
+          flexShrink: 0,
+          mr: { xs: 0.25, sm: 0.5 },
+        }}
       >
         <BusinessOutlinedIcon fontSize="small" color="action" sx={{ flexShrink: 0 }} />
         <Typography
@@ -45,9 +50,9 @@ export default function DivisionSwitcher() {
     <FormControl
       size="small"
       sx={{
-        minWidth: { xs: 100, sm: 140, md: 200 },
-        maxWidth: { xs: 140, sm: 180, md: 220 },
-        flexShrink: 1,
+        minWidth: { xs: 88, sm: 120, md: 200 },
+        maxWidth: { xs: 120, sm: 180, md: 220 },
+        flexShrink: 0,
         mr: { xs: 0.25, sm: 0.5 },
       }}
     >
@@ -57,22 +62,26 @@ export default function DivisionSwitcher() {
         onChange={(e) => setActiveDivisionId(e.target.value || null)}
         disabled={loading}
         renderValue={() => (
-          <Typography
-            variant="body2"
-            noWrap
-            sx={{ fontWeight: 600, color: '#334155', fontSize: { xs: '0.75rem', md: '0.875rem' } }}
-          >
-            {selectedLabel}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, overflow: 'hidden' }}>
+            <BusinessOutlinedIcon fontSize="small" color="action" sx={{ flexShrink: 0, display: { xs: 'inline-flex', sm: 'none' } }} />
+            <Typography
+              variant="body2"
+              noWrap
+              sx={{ fontWeight: 600, color: '#334155', fontSize: { xs: '0.7rem', sm: '0.75rem', md: '0.875rem' } }}
+            >
+              {selectedLabel}
+            </Typography>
+          </Box>
         )}
         sx={{
           bgcolor: '#fff',
           borderRadius: 1,
+          border: '1px solid #e2e8f0',
           height: { xs: 36, md: 40 },
           '& .MuiSelect-select': {
             py: { xs: 0.75, md: 1 },
-            pl: { xs: 1, md: 1.5 },
-            pr: { xs: 3, md: 4 },
+            pl: { xs: 0.75, md: 1.5 },
+            pr: { xs: 2.5, md: 4 },
             display: 'flex',
             alignItems: 'center',
           },

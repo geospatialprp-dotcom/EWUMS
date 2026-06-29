@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 
 import {
   Box, Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tooltip, Typography, useMediaQuery, useTheme,
+  Tooltip, Typography,
 } from '@mui/material';
 
 import { auditApi } from '../../services/api';
@@ -118,9 +118,6 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
 }
 
 export default function AuditLogsPage() {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -151,15 +148,18 @@ export default function AuditLogsPage() {
         cardSx={{ overflow: 'visible' }}
         contentSx={{ overflow: 'visible', minWidth: 0, p: 0, '&:last-child': { pb: 0 } }}
       >
-        {isMobile ? (
-          <Stack spacing={1.25} sx={{ px: 1.5, py: 1.5 }}>
-            {logs.map((log) => (
-              <AuditLogMobileCard key={log.id} log={log} actionColor={actionColor} />
-            ))}
-          </Stack>
-        ) : (
-          <TableContainer
+        <Stack
+          spacing={1.25}
+          sx={{ display: { xs: 'flex', md: 'none' }, px: 1.5, py: 1.5 }}
+        >
+          {logs.map((log) => (
+            <AuditLogMobileCard key={log.id} log={log} actionColor={actionColor} />
+          ))}
+        </Stack>
+
+        <TableContainer
             sx={{
+              display: { xs: 'none', md: 'block' },
               width: '100%',
               maxWidth: '100%',
               overflowX: 'auto',
@@ -247,7 +247,6 @@ export default function AuditLogsPage() {
               </TableBody>
             </Table>
           </TableContainer>
-        )}
       </SurfaceCard>
     </PageShell>
   );

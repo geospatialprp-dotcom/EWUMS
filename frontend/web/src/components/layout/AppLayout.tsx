@@ -267,13 +267,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <MenuIcon />
           </IconButton>
 
-          <Box sx={appBarBrandRowSx()}>
+          <Box sx={{ ...appBarBrandRowSx(), maxWidth: { xs: 'calc(100% - 200px)', sm: 'calc(100% - 260px)', md: '42%' } }}>
             <Box
               component="a"
               href={APP_BRAND.companyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', flexShrink: 0 }}
+              sx={{ display: { xs: 'none', sm: 'flex', md: 'none' }, alignItems: 'center', flexShrink: 0 }}
             >
               <AppLogo height={32} />
             </Box>
@@ -302,7 +302,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Typography>
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: { xs: 4, md: 16 } }} />
+          <Box sx={{ flex: { xs: '0 0 auto', md: 1 }, minWidth: { xs: 0, md: 16 } }} />
 
           <Box
             sx={{
@@ -312,11 +312,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               minWidth: 0,
               gap: { xs: 0.25, sm: 0.5, md: 1 },
               flexWrap: 'nowrap',
+              ml: 'auto',
             }}
           >
             <DivisionSwitcher />
             <LanguageSwitcher />
-            <HelpPanel />
+            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+              <HelpPanel />
+            </Box>
 
             <Box sx={appBarUserBlockSx()}>
               {userProfileName && (
