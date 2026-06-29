@@ -22,6 +22,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import PeopleIcon from '@mui/icons-material/People';
 import SecurityIcon from '@mui/icons-material/Security';
 import HistoryIcon from '@mui/icons-material/History';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import InboxIcon from '@mui/icons-material/Inbox';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -94,6 +95,7 @@ const adminNav: NavItem[] = [
   { path: '/admin/users', labelKey: 'nav.userManagement', icon: <PeopleIcon />, permission: 'user:read' },
   { path: '/admin/roles', labelKey: 'nav.rolesPermissions', icon: <SecurityIcon />, permission: 'user:read' },
   { path: '/admin/audit', labelKey: 'nav.auditTrail', icon: <HistoryIcon />, permission: 'audit:read' },
+  { path: '/admin/notifications', labelKey: 'nav.notificationSettings', icon: <NotificationsActiveOutlinedIcon />, permission: 'om:read' },
 ];
 
 function isNavSelected(pathname: string, path: string) {

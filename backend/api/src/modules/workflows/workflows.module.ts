@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditModule } from '../audit/audit.module';
+import { OmNotificationsModule } from '../om/om-notifications.module';
 
 import { WorkflowDefinition } from './entities/workflow-definition.entity';
 
@@ -31,7 +32,7 @@ import { WorkflowsService } from './workflows.service';
     ]),
 
     AuditModule,
-
+    OmNotificationsModule,
   ],
 
   controllers: [WorkflowsController],

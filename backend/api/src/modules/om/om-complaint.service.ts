@@ -20,6 +20,7 @@ import { AdvanceOmComplaintDto, CreateOmComplaintDto } from './dto/create-om-com
 import { OmConsumerComplaint } from './entities/om-consumer-complaint.entity';
 import { OmConsumer } from './entities/om-consumer.entity';
 import { ConsumerNotificationService } from './consumer-notification.service';
+import { AlertNotificationService } from './alert-notification.service';
 
 @Injectable()
 export class OmComplaintService {
@@ -29,6 +30,7 @@ export class OmComplaintService {
     @InjectRepository(Project) private projectRepo: Repository<Project>,
     @InjectRepository(User) private userRepo: Repository<User>,
     private consumerNotifications: ConsumerNotificationService,
+    private alertNotifications: AlertNotificationService,
     private scope: OmDivisionScopeService,
   ) {}
 
@@ -197,6 +199,17 @@ export class OmComplaintService {
       complaint.assignedTo = assigneeId;
       complaint.assignedAt = now;
       complaint.responseTimeMins = Math.round((now.getTime() - complaint.createdAt.getTime()) / 60000);
+
+      const assigneeName = [assignee.firstName, assignee.lastName].filter(Boolean).join(' ') || null;
+      const contactPreview = await this.resolveComplaintContact(tenantId, complaint);
+      await this.alertNotifications.notifyComplaintAssigned(tenantId, {
+        assigneeEmail: assignee.email,
+        assigneeName,
+        complaintNo: complaint.complaintNo,
+        complaintType: getComplaintTypeLabel(complaint.complaintType),
+        complaintId: complaint.id,
+        consumerMobile: contactPreview.mobile,
+      }).catch(() => undefined);
     }
 
     if (current === 'assigned') {
@@ -234,6 +247,13 @@ export class OmComplaintService {
         complaintTypeLabel: getComplaintTypeLabel(saved.complaintType),
         resolutionNotes: saved.resolutionNotes,
       }).catch(() => undefined);
+
+      await this.alertNotifications.notifyComplaintResolved(tenantId, {
+        mobile: contact.mobile,
+        complaintNo: saved.complaintNo,
+        complaintId: saved.id,
+        resolutionNotes: saved.resolutionNotes,
+      }).catch(() => undefined);
     } else {
       const statusDetail = next === 'resolution' && saved.resolutionNotes
         ? saved.resolutionNotes.slice(0, 120)
@@ -248,7 +268,7 @@ export class OmComplaintService {
         complaintId: saved.id,
         status: next,
         detail: statusDetail,
-      }, { sendSms: false }).catch(() => undefined);
+      }, { sendSms: next === 'assigned' }).catch(() => undefined);
     }
 
     return result;

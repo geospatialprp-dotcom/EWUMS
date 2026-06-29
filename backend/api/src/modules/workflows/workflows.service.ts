@@ -16,6 +16,7 @@ import { WorkflowInstance } from './entities/workflow-instance.entity';
 import { WorkflowTask } from './entities/workflow-task.entity';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { DivisionAccessService } from '../divisions/division-access.service';
+import { AlertNotificationService } from '../om/alert-notification.service';
 
 @Injectable()
 export class WorkflowsService {
@@ -30,6 +31,7 @@ export class WorkflowsService {
     @InjectRepository(WorkflowTask) private tasksRepo: Repository<WorkflowTask>,
     private auditService: AuditService,
     private divisionAccess: DivisionAccessService,
+    private alertNotifications: AlertNotificationService,
   ) {}
 
   async getDefinitions(tenantId: string) {
@@ -173,7 +175,7 @@ export class WorkflowsService {
 
     const firstStep = def.steps.find((s) => s.order === 1);
     if (firstStep) {
-      await this.tasksRepo.save(
+      const task = await this.tasksRepo.save(
         this.tasksRepo.create({
           instanceId: saved.id,
           stepOrder: firstStep.order,
@@ -182,6 +184,7 @@ export class WorkflowsService {
           status: 'pending',
         }),
       );
+      this.notifyPendingTask(tenantId, saved, firstStep.name, firstStep.role, task.id).catch(() => undefined);
     }
 
     await this.auditService.log(tenantId, userId, 'workflow.submit', 'workflow', saved.id, {
@@ -238,7 +241,7 @@ export class WorkflowsService {
       if (nextStep) {
         instance.currentStep = nextStep.order;
         await this.instancesRepo.save(instance);
-        await this.tasksRepo.save(
+        const nextTask = await this.tasksRepo.save(
           this.tasksRepo.create({
             instanceId: instance.id,
             stepOrder: nextStep.order,
@@ -247,6 +250,7 @@ export class WorkflowsService {
             status: 'pending',
           }),
         );
+        this.notifyPendingTask(tenantId, instance, nextStep.name, nextStep.role, nextTask.id).catch(() => undefined);
       } else {
         instance.status = 'approved';
         instance.completedAt = new Date();
@@ -264,6 +268,22 @@ export class WorkflowsService {
       instanceStatus: instance.status,
       currentStep: instance.currentStep,
     };
+  }
+
+  private notifyPendingTask(
+    tenantId: string,
+    instance: Pick<WorkflowInstance, 'id' | 'title'>,
+    stepName: string,
+    assignedRole: string,
+    taskId: string,
+  ) {
+    return this.alertNotifications.notifyWorkflowPendingApproval(tenantId, {
+      assignedRole,
+      instanceTitle: instance.title,
+      stepName,
+      taskId,
+      instanceId: instance.id,
+    });
   }
 
   private async assertInstanceDivisionAccess(

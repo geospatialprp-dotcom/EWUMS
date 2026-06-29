@@ -10,12 +10,14 @@ export type ConsumerNotifyInput = {
   tenantId: string;
   consumerId?: string | null;
   mobile?: string | null;
+  email?: string | null;
   eventType: string;
   title: string;
   message: string;
   smsText?: string;
   payload?: Record<string, unknown>;
   sendSms?: boolean;
+  sendEmail?: boolean;
 };
 
 @Injectable()
@@ -31,6 +33,8 @@ export class ConsumerNotificationService {
 
   async notify(input: ConsumerNotifyInput) {
     let smsResult: NotificationSendResult | null = null;
+    let emailResult: NotificationSendResult | null = null;
+
     if (input.sendSms !== false && input.mobile?.trim()) {
       try {
         smsResult = await this.billingNotify.sendSms(input.mobile, input.smsText ?? input.message);
@@ -47,6 +51,26 @@ export class ConsumerNotificationService {
       }
     }
 
+    if (input.sendEmail !== false && input.email?.trim()) {
+      try {
+        emailResult = await this.billingNotify.sendEmail(
+          input.email.trim(),
+          input.title,
+          input.message,
+        );
+      } catch (err) {
+        this.logger.warn(`Email failed for ${input.eventType}: ${(err as Error).message}`);
+        emailResult = {
+          channel: 'email',
+          status: 'failed',
+          destination: input.email,
+          provider: null,
+          message: input.message,
+          reason: (err as Error).message,
+        };
+      }
+    }
+
     const row = await this.notifRepo.save(this.notifRepo.create({
       tenantId: input.tenantId,
       consumerId: input.consumerId ?? null,
@@ -58,11 +82,12 @@ export class ConsumerNotificationService {
       payload: {
         ...(input.payload ?? {}),
         sms: smsResult,
+        email: emailResult,
       },
       sentAt: new Date(),
     }));
 
-    return { notification: this.toDto(row), sms: smsResult };
+    return { notification: this.toDto(row), sms: smsResult, email: emailResult };
   }
 
   async notifyBillDelivered(

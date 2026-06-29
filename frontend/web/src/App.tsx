@@ -22,6 +22,7 @@ import WorkflowInboxPage from './pages/WorkflowInboxPage';
 import UsersPage from './pages/admin/UsersPage';
 import RolesPage from './pages/admin/RolesPage';
 import AuditLogsPage from './pages/admin/AuditLogsPage';
+import NotificationSettingsPage from './pages/admin/NotificationSettingsPage';
 import PermissionRoute from './components/auth/PermissionRoute';
 import { useConsumerPortal } from './context/ConsumerPortalContext';
 import { Box, CircularProgress } from '@mui/material';
@@ -130,6 +131,9 @@ export default function App() {
                 } />
                 <Route path="/admin/audit" element={
                   <PermissionRoute permission="audit:read"><AuditLogsPage /></PermissionRoute>
+                } />
+                <Route path="/admin/notifications" element={
+                  <PermissionRoute permission="om:read"><NotificationSettingsPage /></PermissionRoute>
                 } />
               </Routes>
             </AppLayout>

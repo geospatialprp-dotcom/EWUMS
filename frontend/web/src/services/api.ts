@@ -825,6 +825,8 @@ export const omApi = {
   syncMobileBillingBatch: (data: object) => api.post('/om/billing/mobile/sync', data),
   jalMitraAnalytics: () => api.get('/om/jal-mitra/analytics'),
   scanDueBillReminders: () => api.post('/om/notifications/scan-due-bills'),
+  getNotificationConfig: () => api.get('/om/notifications/config'),
+  getAlertLog: (limit = 50) => api.get('/om/notifications/alert-log', { params: { limit } }),
 };
 
 export const dprPlanningApi = {

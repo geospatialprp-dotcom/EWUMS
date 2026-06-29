@@ -63,6 +63,7 @@ import { OmBillingService } from './om-billing.service';
 import { OmAccountingService } from './om-accounting.service';
 import { OmMobileBillingService } from './om-mobile-billing.service';
 import { ConsumerNotificationService } from './consumer-notification.service';
+import { AlertNotificationService } from './alert-notification.service';
 import { MobileMeterReadingDto, MobilePaymentDto, MobileSyncBatchDto, CreatePaymentGatewayOrderDto, VerifyPaymentGatewayDto } from './dto/om-mobile-billing.dto';
 import { OmReportsService } from './om-reports.service';
 import { OmInspectionService } from './om-inspection.service';
@@ -94,6 +95,7 @@ export class OmController {
     private omAccountingService: OmAccountingService,
     private omMobileBillingService: OmMobileBillingService,
     private consumerNotificationService: ConsumerNotificationService,
+    private alertNotificationService: AlertNotificationService,
   ) {}
 
   @Get('stages')
@@ -1295,6 +1297,21 @@ export class OmController {
   @ApiOperation({ summary: 'Send proactive bill due reminders (deduped per bill per 7 days)' })
   scanDueBillReminders(@CurrentUser() user: JwtPayload) {
     return this.consumerNotificationService.scanDueBillReminders(user.tenantId);
+  }
+
+  @Get('notifications/config')
+  @RequirePermissions('om:read')
+  @ApiOperation({ summary: 'Notification channel configuration status (read-only)' })
+  getNotificationConfig() {
+    return this.alertNotificationService.getConfigStatus();
+  }
+
+  @Get('notifications/alert-log')
+  @RequirePermissions('om:read')
+  @ApiOperation({ summary: 'Recent staff/system alert notifications sent' })
+  getAlertLog(@CurrentUser() user: JwtPayload, @Query('limit') limit?: string) {
+    const parsed = limit ? Number(limit) : 50;
+    return this.alertNotificationService.listRecent(user.tenantId, Number.isFinite(parsed) ? parsed : 50);
   }
 
   @Get('billing/gis-revenue')

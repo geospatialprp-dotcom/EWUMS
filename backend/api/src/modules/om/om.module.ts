@@ -54,7 +54,7 @@ import { OmBillingService } from './om-billing.service';
 import { OmAccountingService } from './om-accounting.service';
 import { OmMobileBillingService } from './om-mobile-billing.service';
 import { PaymentGatewayService } from './payment-gateway.service';
-import { BillingNotificationService } from './billing-notification.service';
+import { OmNotificationsModule } from './om-notifications.module';
 import { ConsumerPortalAuthService } from './consumer-portal-auth.service';
 import { ConsumerPortalService } from './consumer-portal.service';
 import { ConsumerPortalController } from './consumer-portal.controller';
@@ -68,6 +68,7 @@ import { JalMitraMessage } from './entities/jal-mitra-message.entity';
 import { JalMitraKnowledgeArticle } from './entities/jal-mitra-knowledge-article.entity';
 import { ConsumerPortalOtpChallenge } from './entities/consumer-portal-otp-challenge.entity';
 import { OmConsumerNotification } from './entities/om-consumer-notification.entity';
+import { OmAlertNotification } from './entities/om-alert-notification.entity';
 import { ConsumerNotificationService } from './consumer-notification.service';
 import { OmService } from './om.service';
 import { OmDivisionScopeService } from './om-division-scope.service';
@@ -75,6 +76,7 @@ import { OmDivisionScopeService } from './om-division-scope.service';
 @Module({
   imports: [
     WorkflowsModule,
+    OmNotificationsModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -121,10 +123,11 @@ import { OmDivisionScopeService } from './om-division-scope.service';
       JalMitraKnowledgeArticle,
       ConsumerPortalOtpChallenge,
       OmConsumerNotification,
+      OmAlertNotification,
     ]),
   ],
   controllers: [OmController, ConsumerPortalController, JalMitraController],
-  providers: [OmDivisionScopeService, OmService, OmAssetService, OmInspectionService, OmPmService, OmBreakdownService, OmWqService, OmEnergyService, OmScadaService, OmConsumerService, OmComplaintService, OmContractService, OmLifecycleService, OmDashboardService, OmReportsService, BillingNotificationService, ConsumerNotificationService, OmBillingService, OmAccountingService, OmMobileBillingService, PaymentGatewayService, ConsumerPortalAuthService, ConsumerPortalService, ConsumerPortalOtpService, JalMitraKnowledgeService, JalMitraLlmService, JalMitraService],
-  exports: [OmService, OmAssetService, OmInspectionService, OmPmService, OmBreakdownService, OmWqService, OmEnergyService, OmScadaService, OmConsumerService, OmComplaintService, OmContractService, OmLifecycleService, OmDashboardService, OmReportsService, BillingNotificationService, OmBillingService, OmAccountingService, OmMobileBillingService],
+  providers: [OmDivisionScopeService, OmService, OmAssetService, OmInspectionService, OmPmService, OmBreakdownService, OmWqService, OmEnergyService, OmScadaService, OmConsumerService, OmComplaintService, OmContractService, OmLifecycleService, OmDashboardService, OmReportsService, ConsumerNotificationService, OmBillingService, OmAccountingService, OmMobileBillingService, PaymentGatewayService, ConsumerPortalAuthService, ConsumerPortalService, ConsumerPortalOtpService, JalMitraKnowledgeService, JalMitraLlmService, JalMitraService],
+  exports: [OmService, OmAssetService, OmInspectionService, OmPmService, OmBreakdownService, OmWqService, OmEnergyService, OmScadaService, OmConsumerService, OmComplaintService, OmContractService, OmLifecycleService, OmDashboardService, OmReportsService, OmNotificationsModule, OmBillingService, OmAccountingService, OmMobileBillingService],
 })
 export class OmModule {}

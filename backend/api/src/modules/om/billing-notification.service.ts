@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as net from 'net';
+import * as tls from 'tls';
 
 export type BillNotifyMode = 'live' | 'handoff';
 export type NotificationChannel = 'sms' | 'whatsapp' | 'email';
@@ -36,6 +38,12 @@ export class BillingNotificationService {
       sms: { configured: !!smsProvider, provider: smsProvider },
       whatsapp: { configured: !!whatsappProvider, provider: whatsappProvider },
       email: { configured: !!emailProvider, provider: emailProvider },
+      events: {
+        complaintAssigned: true,
+        complaintResolved: true,
+        workflowPendingApproval: true,
+        billDueReminder: true,
+      },
       handoffNote: mode === 'handoff'
         ? 'Set BILL_NOTIFY_MODE=live and configure gateway credentials in .env for automatic delivery.'
         : null,
@@ -53,9 +61,11 @@ export class BillingNotificationService {
     }
 
     const provider = this.resolveSmsProvider();
+    if (provider === 'http') return this.sendSmsHttpGateway(destination, message);
     if (provider === 'msg91') return this.sendSmsMsg91(destination, message);
     if (provider === 'twilio') return this.sendSmsTwilio(destination, message);
-    return this.failed('sms', destination, null, 'SMS gateway not configured (MSG91 or Twilio)');
+    this.logger.log(`SMS not configured — would send to ${destination}: ${message.slice(0, 80)}`);
+    return this.failed('sms', destination, null, 'SMS gateway not configured (HTTP, MSG91, or Twilio)');
   }
 
   async sendWhatsApp(mobile: string, message: string): Promise<NotificationSendResult> {
@@ -71,6 +81,7 @@ export class BillingNotificationService {
     const provider = this.resolveWhatsappProvider();
     if (provider === 'twilio') return this.sendWhatsAppTwilio(destination, message);
     if (provider === 'meta') return this.sendWhatsAppMeta(destination, message);
+    this.logger.log(`WhatsApp not configured — would send to ${destination}: ${message.slice(0, 80)}`);
     return this.failed('whatsapp', destination, null, 'WhatsApp gateway not configured (Twilio or Meta Cloud API)');
   }
 
@@ -85,12 +96,15 @@ export class BillingNotificationService {
     }
 
     const provider = this.resolveEmailProvider();
+    if (provider === 'smtp') return this.sendEmailSmtp(destination, subject, body);
     if (provider === 'sendgrid') return this.sendEmailSendGrid(destination, subject, body);
     if (provider === 'mailgun') return this.sendEmailMailgun(destination, subject, body);
-    return this.failed('email', destination, null, 'Email gateway not configured (SendGrid or Mailgun)');
+    this.logger.log(`Email not configured — would send to ${destination}: ${subject}`);
+    return this.failed('email', destination, null, 'Email gateway not configured (SMTP, SendGrid, or Mailgun)');
   }
 
   private resolveSmsProvider(): string | null {
+    if (this.config.get('SMS_GATEWAY_URL')?.trim() && this.config.get('SMS_GATEWAY_API_KEY')?.trim()) return 'http';
     if (this.config.get('MSG91_AUTH_KEY')?.trim()) return 'msg91';
     if (this.config.get('TWILIO_ACCOUNT_SID')?.trim() && this.config.get('TWILIO_AUTH_TOKEN')?.trim()) return 'twilio';
     return null;
@@ -106,9 +120,17 @@ export class BillingNotificationService {
   }
 
   private resolveEmailProvider(): string | null {
+    if (this.isSmtpConfigured()) return 'smtp';
     if (this.config.get('SENDGRID_API_KEY')?.trim()) return 'sendgrid';
     if (this.config.get('MAILGUN_API_KEY')?.trim() && this.config.get('MAILGUN_DOMAIN')?.trim()) return 'mailgun';
     return null;
+  }
+
+  private isSmtpConfigured(): boolean {
+    return Boolean(
+      this.config.get('SMTP_HOST')?.trim()
+      && this.config.get('SMTP_FROM')?.trim(),
+    );
   }
 
   private normalizeIndianMobile(mobile: string): string | null {
@@ -149,6 +171,216 @@ export class BillingNotificationService {
       message: '',
       reason,
     };
+  }
+
+  private async sendSmsHttpGateway(mobile: string, message: string): Promise<NotificationSendResult> {
+    const url = this.config.get<string>('SMS_GATEWAY_URL', '').trim();
+    const apiKey = this.config.get<string>('SMS_GATEWAY_API_KEY', '').trim();
+    if (!url || !apiKey) {
+      return this.failed('sms', mobile, 'http', 'SMS_GATEWAY_URL and SMS_GATEWAY_API_KEY are required');
+    }
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify({ to: mobile, message, text: message }),
+      });
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (!res.ok) {
+        this.logger.warn(`HTTP SMS gateway failed: ${res.status} ${JSON.stringify(data)}`);
+        return this.failed('sms', mobile, 'http', String(data.message ?? data.error ?? 'HTTP SMS gateway failed'));
+      }
+      return {
+        channel: 'sms',
+        status: 'sent',
+        destination: mobile,
+        provider: 'http',
+        message,
+        externalId: String(data.id ?? data.messageId ?? ''),
+      };
+    } catch (err) {
+      this.logger.error(`HTTP SMS gateway error: ${String(err)}`);
+      return this.failed('sms', mobile, 'http', 'HTTP SMS gateway connection failed');
+    }
+  }
+
+  private async sendEmailSmtp(email: string, subject: string, body: string): Promise<NotificationSendResult> {
+    const host = this.config.get<string>('SMTP_HOST', '').trim();
+    const port = Number(this.config.get('SMTP_PORT', 587));
+    const user = this.config.get<string>('SMTP_USER', '').trim();
+    const pass = this.config.get<string>('SMTP_PASS', '').trim();
+    const from = this.config.get<string>('SMTP_FROM', '').trim();
+    const secure = this.config.get<string>('SMTP_SECURE', 'false') === 'true';
+
+    if (!host || !from) {
+      return this.failed('email', email, 'smtp', 'SMTP_HOST and SMTP_FROM are required');
+    }
+
+    try {
+      await this.deliverSmtpMessage({ host, port, user, pass, from, secure, to: email, subject, body });
+      return {
+        channel: 'email',
+        status: 'sent',
+        destination: email,
+        provider: 'smtp',
+        message: body,
+      };
+    } catch (err) {
+      this.logger.error(`SMTP error: ${String(err)}`);
+      return this.failed('email', email, 'smtp', (err as Error).message || 'SMTP delivery failed');
+    }
+  }
+
+  private deliverSmtpMessage(opts: {
+    host: string;
+    port: number;
+    user: string;
+    pass: string;
+    from: string;
+    secure: boolean;
+    to: string;
+    subject: string;
+    body: string;
+  }): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let stage: 'greeting' | 'ehlo' | 'starttls' | 'auth' | 'mail' | 'rcpt' | 'data' | 'quit' = 'greeting';
+      let buffer = '';
+      let dataSent = false;
+
+      const send = (cmd: string) => {
+        socket.write(`${cmd}\r\n`);
+      };
+
+      const handleLine = (line: string) => {
+        const code = Number(line.slice(0, 3));
+        if (Number.isNaN(code)) return;
+
+        if (stage === 'greeting') {
+          if (code !== 220) return reject(new Error(`SMTP greeting failed: ${line}`));
+          send(`EHLO ${opts.host}`);
+          stage = 'ehlo';
+          return;
+        }
+
+        if (stage === 'ehlo') {
+          if (code >= 400) return reject(new Error(`SMTP EHLO failed: ${line}`));
+          if (line.startsWith('250 ') || line.startsWith('250-')) {
+            if (line.startsWith('250 ') && !opts.secure && opts.port === 587) {
+              send('STARTTLS');
+              stage = 'starttls';
+              return;
+            }
+            if (line.startsWith('250 ')) {
+              if (opts.user && opts.pass) {
+                send('AUTH LOGIN');
+                stage = 'auth';
+              } else {
+                send(`MAIL FROM:<${opts.from}>`);
+                stage = 'mail';
+              }
+            }
+          }
+          return;
+        }
+
+        if (stage === 'starttls') {
+          if (code !== 220) return reject(new Error(`SMTP STARTTLS failed: ${line}`));
+          const plain = socket as net.Socket;
+          const secureSocket = tls.connect({ socket: plain, servername: opts.host }, () => {
+            socket = secureSocket as net.Socket;
+            socket.on('data', onData);
+            socket.on('error', reject);
+            send(`EHLO ${opts.host}`);
+            stage = 'ehlo';
+          });
+          secureSocket.on('error', reject);
+          return;
+        }
+
+        if (stage === 'auth') {
+          if (line.startsWith('334')) {
+            if (line.includes('Username') || line.includes('VXNlcm5hbWU')) {
+              send(Buffer.from(opts.user).toString('base64'));
+            } else {
+              send(Buffer.from(opts.pass).toString('base64'));
+            }
+            return;
+          }
+          if (code === 235) {
+            send(`MAIL FROM:<${opts.from}>`);
+            stage = 'mail';
+            return;
+          }
+          if (code >= 400) return reject(new Error(`SMTP auth failed: ${line}`));
+          return;
+        }
+
+        if (stage === 'mail') {
+          if (code >= 400) return reject(new Error(`SMTP MAIL FROM failed: ${line}`));
+          send(`RCPT TO:<${opts.to}>`);
+          stage = 'rcpt';
+          return;
+        }
+
+        if (stage === 'rcpt') {
+          if (code >= 400) return reject(new Error(`SMTP RCPT TO failed: ${line}`));
+          send('DATA');
+          stage = 'data';
+          return;
+        }
+
+        if (stage === 'data') {
+          if (code >= 400) return reject(new Error(`SMTP DATA failed: ${line}`));
+          if (!dataSent) {
+            const payload = [
+              `From: ${opts.from}`,
+              `To: ${opts.to}`,
+              `Subject: ${opts.subject}`,
+              'MIME-Version: 1.0',
+              'Content-Type: text/plain; charset=utf-8',
+              '',
+              opts.body,
+              '.',
+            ].join('\r\n');
+            send(payload);
+            dataSent = true;
+            return;
+          }
+          send('QUIT');
+          stage = 'quit';
+          return;
+        }
+
+        if (stage === 'quit') {
+          resolve();
+        }
+      };
+
+      const onData = (chunk: Buffer) => {
+        buffer += chunk.toString('utf8');
+        const lines = buffer.split('\r\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.trim()) handleLine(line);
+        }
+      };
+
+      let socket: net.Socket = opts.secure
+        ? tls.connect({ host: opts.host, port: opts.port, servername: opts.host })
+        : net.connect({ host: opts.host, port: opts.port });
+
+      socket.setEncoding('utf8');
+      socket.on('data', onData);
+      socket.on('error', reject);
+      socket.on('close', () => {
+        if (stage !== 'quit') reject(new Error('SMTP connection closed unexpectedly'));
+      });
+    });
   }
 
   private async sendSmsMsg91(mobile: string, message: string): Promise<NotificationSendResult> {
