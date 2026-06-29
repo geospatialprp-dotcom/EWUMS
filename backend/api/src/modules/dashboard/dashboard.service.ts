@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
@@ -6,8 +6,25 @@ import { DivisionAccessService } from '../divisions/division-access.service';
 import { Asset } from '../assets/entities/asset.entity';
 import { Project } from '../projects/entities/project.entity';
 
+type AssetSummary = {
+  total: number;
+  active: number;
+  critical: number;
+  avg_health: number | null;
+};
+
+type ProjectSummary = {
+  total: number;
+  avg_physical: number | null;
+  avg_financial: number | null;
+  delayed: number;
+};
+
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
+  private assetProjectColumnReady: boolean | null = null;
+
   constructor(
     @InjectRepository(Asset) private assetsRepo: Repository<Asset>,
     @InjectRepository(Project) private projectsRepo: Repository<Project>,
@@ -15,30 +32,48 @@ export class DashboardService {
   ) {}
 
   async getExecutiveDashboard(tenantId: string, user: JwtPayload) {
+    try {
+      return await this.loadExecutiveDashboard(tenantId, user);
+    } catch (err) {
+      this.logger.error(
+        `Executive dashboard failed for user ${user.sub}: ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      return this.emptyExecutiveDashboard();
+    }
+  }
+
+  private async loadExecutiveDashboard(tenantId: string, user: JwtPayload) {
     const projectIds = await this.divisionAccess.getAccessibleProjectIds(user, tenantId);
-    const assetProjectFilter = projectIds === null
+    const scopedProjectIds = projectIds ?? [];
+    const canScopeAssetsByProject = projectIds === null || await this.assetsHaveProjectLink();
+
+    const assetProjectFilter = projectIds === null || !canScopeAssetsByProject
       ? ''
       : projectIds.length === 0
         ? 'AND 1 = 0'
         : 'AND a.project_id = ANY($2::uuid[])';
-    const assetParams: unknown[] = projectIds === null || !projectIds.length
+    const assetParams: unknown[] = projectIds === null || !canScopeAssetsByProject || !projectIds.length
       ? [tenantId]
       : [tenantId, projectIds];
 
-    const iotAlertFilter = projectIds === null
+    const iotAlertFrom = projectIds === null || !canScopeAssetsByProject
+      ? `FROM iot_alerts ia
+         JOIN iot_devices id ON id.id = ia.device_id`
+      : projectIds.length === 0
+        ? `FROM iot_alerts ia
+           JOIN iot_devices id ON id.id = ia.device_id`
+        : `FROM iot_alerts ia
+           JOIN iot_devices id ON id.id = ia.device_id
+           JOIN assets a ON a.id = id.asset_id AND a.tenant_id = $1 AND a.deleted_at IS NULL`;
+    const iotAlertFilter = projectIds === null || !canScopeAssetsByProject
       ? ''
       : projectIds.length === 0
         ? 'AND 1 = 0'
         : 'AND a.project_id = ANY($2::uuid[])';
-    const iotAlertParams: unknown[] = projectIds === null || !projectIds.length
+    const iotAlertParams: unknown[] = projectIds === null || !canScopeAssetsByProject || !projectIds.length
       ? [tenantId]
       : [tenantId, projectIds];
-
-    const projectQb = this.projectsRepo.createQueryBuilder('p')
-      .where('p.tenant_id = :tenantId', { tenantId });
-    await this.divisionAccess.applyDivisionScope(projectQb, user, 'p', tenantId);
-    const scopedProjects = await projectQb.select(['p.id']).getMany();
-    const scopedProjectIds = scopedProjects.map((p) => p.id);
 
     const projectStatsSql = projectIds === null
       ? `SELECT COUNT(*)::int AS total,
@@ -83,9 +118,7 @@ export class DashboardService {
       this.assetsRepo.query(
         `SELECT ia.id, ia.severity, ia.message, ia.metric, ia.value, ia.created_at,
                 id.name AS device_name
-         FROM iot_alerts ia
-         JOIN iot_devices id ON id.id = ia.device_id
-         LEFT JOIN assets a ON a.id = id.asset_id AND a.tenant_id = $1
+         ${iotAlertFrom}
          WHERE ia.tenant_id = $1 AND ia.acknowledged = false
            ${iotAlertFilter}
          ORDER BY ia.created_at DESC LIMIT 10`,
@@ -93,8 +126,8 @@ export class DashboardService {
       ),
     ]);
 
-    const assets = assetStats[0];
-    const projects = projectStats[0];
+    const assets = this.normalizeAssetSummary(assetStats[0]);
+    const projects = this.normalizeProjectSummary(projectStats[0]);
 
     return {
       kpis: [
@@ -129,6 +162,62 @@ export class DashboardService {
                ORDER BY created_at DESC LIMIT 5`,
               [tenantId, scopedProjectIds],
             ),
+      },
+    };
+  }
+
+  private async assetsHaveProjectLink(): Promise<boolean> {
+    if (this.assetProjectColumnReady !== null) return this.assetProjectColumnReady;
+    try {
+      const rows = await this.assetsRepo.query(
+        `SELECT EXISTS (
+           SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'assets' AND column_name = 'project_id'
+         ) AS ok`,
+      ) as Array<{ ok: boolean }>;
+      this.assetProjectColumnReady = Boolean(rows[0]?.ok);
+    } catch {
+      this.assetProjectColumnReady = false;
+    }
+    return this.assetProjectColumnReady;
+  }
+
+  private normalizeAssetSummary(row: AssetSummary | undefined): AssetSummary {
+    return {
+      total: row?.total ?? 0,
+      active: row?.active ?? 0,
+      critical: row?.critical ?? 0,
+      avg_health: row?.avg_health ?? 0,
+    };
+  }
+
+  private normalizeProjectSummary(row: ProjectSummary | undefined): ProjectSummary {
+    return {
+      total: row?.total ?? 0,
+      avg_physical: row?.avg_physical ?? 0,
+      avg_financial: row?.avg_financial ?? 0,
+      delayed: row?.delayed ?? 0,
+    };
+  }
+
+  private emptyExecutiveDashboard() {
+    const assets = this.normalizeAssetSummary(undefined);
+    const projects = this.normalizeProjectSummary(undefined);
+    return {
+      kpis: [
+        { id: 'total_assets', label: 'Total Assets', value: 0, trend: '+2.3%', status: 'up' },
+        { id: 'active_alerts', label: 'Active Alerts', value: 0, trend: '-12%', status: 'down' },
+        { id: 'critical_assets', label: 'Critical Assets', value: 0, trend: null, status: 'warning' },
+        { id: 'project_completion', label: 'Avg Project Progress', value: '0%', trend: '+5%', status: 'up' },
+        { id: 'avg_health', label: 'Avg Asset Health', value: '0%', trend: '-0.8%', status: 'down' },
+      ],
+      assetSummary: assets,
+      projectSummary: projects,
+      criticalAssets: [],
+      recentAlerts: [],
+      charts: {
+        assetByStatus: [],
+        projectProgress: [],
       },
     };
   }

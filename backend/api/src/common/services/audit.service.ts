@@ -29,7 +29,7 @@ export class AuditService {
       location = await resolveIpLocation(ipAddress);
     }
 
-    await this.auditRepo.insert({
+    const base = {
       tenantId,
       userId,
       action,
@@ -37,7 +37,31 @@ export class AuditService {
       resourceId,
       details: (details ?? {}) as never,
       ipAddress: ipAddress ?? undefined,
-      location: location ?? undefined,
-    });
+    };
+
+    try {
+      await this.auditRepo.insert({
+        ...base,
+        location: location ?? undefined,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/column "location" of relation "audit_logs" does not exist/i.test(message)) {
+        throw err;
+      }
+      await this.auditRepo.query(
+        `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, ip_address)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+        [
+          tenantId,
+          userId,
+          action,
+          resourceType ?? null,
+          resourceId ?? null,
+          JSON.stringify(details ?? {}),
+          ipAddress ?? null,
+        ],
+      );
+    }
   }
 }

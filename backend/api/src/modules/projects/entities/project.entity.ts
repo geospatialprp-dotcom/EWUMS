@@ -58,6 +58,9 @@ export class Project {
   @Column({ name: 'financial_progress', type: 'decimal', precision: 5, scale: 2, default: 0 })
   financialProgress: number;
 
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
   @Column({ name: 'orthomosaic_config', type: 'jsonb', nullable: true })
   orthomosaicConfig: OrthomosaicConfig | null;
 
