@@ -57,14 +57,31 @@ export default function WorkflowInboxPage() {
     setLoading(true);
     setError('');
     try {
-      const [inboxRes, submissionsRes, definitionsRes] = await Promise.all([
+      const [inboxRes, submissionsRes, definitionsRes] = await Promise.allSettled([
         workflowsApi.inbox(),
         workflowsApi.submissions(),
         workflowsApi.definitions(),
       ]);
-      setInbox(inboxRes.data);
-      setSubmissions(submissionsRes.data);
-      setDefinitions(definitionsRes.data);
+
+      const errors: string[] = [];
+      if (inboxRes.status === 'fulfilled') {
+        setInbox(inboxRes.value.data);
+      } else {
+        errors.push(getErrorMessage(inboxRes.reason));
+      }
+      if (submissionsRes.status === 'fulfilled') {
+        setSubmissions(submissionsRes.value.data);
+      } else {
+        errors.push(getErrorMessage(submissionsRes.reason));
+      }
+      if (definitionsRes.status === 'fulfilled') {
+        setDefinitions(definitionsRes.value.data);
+      } else {
+        errors.push(getErrorMessage(definitionsRes.reason));
+      }
+      if (errors.length) {
+        setError(errors[0]);
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
