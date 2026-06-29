@@ -37,6 +37,8 @@ import { projectsApi, divisionsApi, type Division, type DivisionStaffLogin, type
 import { hasOrthomosaicBasemap, normalizeOrthomosaicConfig } from '../utils/orthomosaicBasemap';
 import { useAuth } from '../context/AuthContext';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
+import { exportProjectsPdf } from '../utils/pdfExport';
+import ExportPdfButton from '../components/common/ExportPdfButton';
 import { formatApiError } from '../utils/apiError';
 import { canManageMilestones, isMilestoneReadOnlyViewer } from '../utils/milestoneAccess';
 import { isDivisionScopedUser } from '../utils/projectWorkflow';
@@ -257,7 +259,7 @@ export default function ProjectsPage() {
   const canCreateProject = portfolioReadiness?.canCreateProject === true && canCreate;
   const canManageProjectMilestones = canManageMilestones(user);
   const milestoneReadOnly = isMilestoneReadOnlyViewer(user);
-  const { activeDivisionId } = useDivisionScope();
+  const { activeDivisionId, activeDivision } = useDivisionScope();
   const divisionScopeKey = useDivisionScopeKey();
   const canViewAllDivisions = user?.canViewAllDivisions ?? false;
   const hqNeedsDivisionPick = canViewAllDivisions && !activeDivisionId;
@@ -626,6 +628,22 @@ export default function ProjectsPage() {
         leading={<AssignmentOutlinedIcon sx={{ fontSize: 36, color: '#2563eb', mt: 0.5 }} />}
         actions={(
           <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
+            <ExportPdfButton
+              disabled={loading || filteredProjects.length === 0}
+              onClick={() => exportProjectsPdf(
+                filteredProjects.map((p) => ({
+                  projectCode: p.projectCode,
+                  name: p.name,
+                  divisionName: divisionNameById(p.divisionId),
+                  status: p.status,
+                  physicalProgress: Number(p.physicalProgress) || 0,
+                  financialProgress: Number(p.financialProgress) || 0,
+                  budget: p.budget,
+                  spent: Number(p.spent) || 0,
+                })),
+                activeDivision?.name ?? null,
+              )}
+            />
             {canCreateProject && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate} sx={{ px: 2.5, boxShadow: 2 }}>
                 New Project

@@ -39,6 +39,7 @@ export const en = {
     next: 'Next',
     refresh: 'Refresh',
     download: 'Download',
+    exportPdf: 'Export PDF',
     upload: 'Upload',
     yes: 'Yes',
     no: 'No',

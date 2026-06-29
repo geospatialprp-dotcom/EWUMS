@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { Box, Chip, Typography } from '@mui/material';
 
@@ -38,9 +38,19 @@ import {
 
 } from '../components/om/billingUi';
 
+import { useDivisionScope } from '../context/DivisionContext';
+
+import { exportBillingPdf, type BillingPdfData } from '../utils/pdfExport';
+
+import ExportPdfButton from '../components/common/ExportPdfButton';
+
 
 
 export default function BillingRevenuePage() {
+
+  const { activeDivision } = useDivisionScope();
+
+  const billingExportRef = useRef<(() => BillingPdfData | null) | null>(null);
 
   const [activeTab, setActiveTab] = useState(0);
 
@@ -62,6 +72,18 @@ export default function BillingRevenuePage() {
 
 
 
+  const handleExportPdf = useCallback(() => {
+
+    const data = billingExportRef.current?.();
+
+    if (!data) return;
+
+    exportBillingPdf(data, activeDivision?.name ?? null);
+
+  }, [activeDivision?.name]);
+
+
+
   return (
 
     <PageShell>
@@ -77,6 +99,8 @@ export default function BillingRevenuePage() {
         accent="amber"
 
         leading={<ReceiptLongOutlinedIcon sx={{ fontSize: 36, color: '#d97706', mt: 0.5 }} />}
+
+        actions={<ExportPdfButton onClick={handleExportPdf} />}
 
       />
 
@@ -206,7 +230,11 @@ export default function BillingRevenuePage() {
 
       <Box id="billing-workspace" sx={{ scrollMarginTop: '88px' }}>
 
-        <OmBillingStage activeTab={activeTab} onTabChange={setActiveTab} />
+        <OmBillingStage
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onExportReady={(getter) => { billingExportRef.current = getter; }}
+        />
 
       </Box>
 

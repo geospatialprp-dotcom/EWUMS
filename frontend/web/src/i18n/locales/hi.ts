@@ -71,6 +71,7 @@ export const hi: {
     next: 'आगे',
     refresh: 'रीफ़्रेश',
     download: 'डाउनलोड',
+    exportPdf: 'PDF निर्यात',
     upload: 'अपलोड',
     yes: 'हाँ',
     no: 'नहीं',

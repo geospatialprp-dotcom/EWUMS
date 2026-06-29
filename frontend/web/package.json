@@ -21,6 +21,8 @@
     "@turf/buffer": "^7.3.5",
     "@turf/helpers": "^7.3.5",
     "axios": "^1.7.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "ol": "^10.0.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

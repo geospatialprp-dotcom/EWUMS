@@ -47,6 +47,7 @@ import { formatCoordinatePair } from '../../utils/coordinateFields';
 import { openBillPrintView, openSmsApp, openWhatsAppApp, openEmailApp } from '../../utils/billExport';
 import { openReceiptPrintView } from '../../utils/receiptExport';
 import { openArrearNoticePrintView } from '../../utils/arrearExport';
+import type { BillingPdfData } from '../../utils/pdfExport';
 import { useCanViewAllDivisions } from '../../utils/divisionAccess';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { parseBilingualText, serializeBilingualText } from '../../utils/bilingualText';
@@ -125,9 +126,11 @@ function getApiError(err: unknown, fallback: string): string {
 export default function OmBillingStage({
   activeTab: externalTab,
   onTabChange,
+  onExportReady,
 }: {
   activeTab?: number;
   onTabChange?: (tab: number) => void;
+  onExportReady?: (getter: () => BillingPdfData | null) => void;
 }) {
   const canViewAll = useCanViewAllDivisions();
   const [tab, setTabState] = useState(0);
@@ -285,6 +288,17 @@ export default function OmBillingStage({
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!onExportReady) return;
+    onExportReady(() => ({
+      summary,
+      bills,
+      projectLabel: selectedProject
+        ? `${selectedProject.projectCode} — ${selectedProject.name}`
+        : 'All schemes',
+    }));
+  }, [onExportReady, summary, bills, selectedProject]);
 
   useEffect(() => {
     if (tab === 5 || tab === 9) {

@@ -14,6 +14,9 @@ import PageHeader from '../../components/layout/PageHeader';
 import SurfaceCard from '../../components/layout/SurfaceCard';
 
 import { dataTableSx } from '../../utils/pagePresentationStyles';
+import { exportAuditTrailPdf } from '../../utils/pdfExport';
+import { useDivisionScope } from '../../context/DivisionContext';
+import ExportPdfButton from '../../components/common/ExportPdfButton';
 
 interface AuditEntry {
   id: string;
@@ -118,6 +121,7 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
 }
 
 export default function AuditLogsPage() {
+  const { activeDivision } = useDivisionScope();
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -140,6 +144,12 @@ export default function AuditLogsPage() {
         eyebrow="Compliance"
         title="Audit Trail"
         accent="slate"
+        actions={(
+          <ExportPdfButton
+            disabled={loading || logs.length === 0}
+            onClick={() => exportAuditTrailPdf(logs, activeDivision?.name ?? null)}
+          />
+        )}
       />
 
       <SurfaceCard
