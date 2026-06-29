@@ -31,7 +31,7 @@ export default function ExportPdfButton({
         '&:hover': { borderColor: '#ea580c', bgcolor: 'rgba(249, 115, 22, 0.08)' },
       }}
     >
-      {t.common.exportPdf}
+      {t('common.exportPdf')}
     </Button>
   );
 }
