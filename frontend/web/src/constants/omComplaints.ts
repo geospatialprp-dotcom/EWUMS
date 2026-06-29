@@ -1,5 +1,7 @@
 /** Stage 10 — Consumer complaint management (mirrors backend) */
 
+export const COMPLAINT_SLA_RESOLUTION_MINS = 480;
+
 export type OmComplaintChannel = 'mobile_app' | 'web_portal' | 'call_centre' | 'whatsapp';
 
 export type OmComplaintType =

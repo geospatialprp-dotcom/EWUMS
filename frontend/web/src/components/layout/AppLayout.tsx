@@ -15,6 +15,7 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import LandscapeOutlinedIcon from '@mui/icons-material/LandscapeOutlined';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
+import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import PhoneAndroidOutlinedIcon from '@mui/icons-material/PhoneAndroidOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -83,6 +84,7 @@ const managementNav: NavItem[] = [
   { path: '/land-acquisition', labelKey: 'nav.landAcquisition', icon: <LandscapeOutlinedIcon />, permission: 'la_case:read' },
   { path: '/projects', labelKey: 'nav.projectManagement', icon: <AssignmentIcon />, permission: 'project:read' },
   { path: '/om', labelKey: 'nav.omManagement', icon: <BuildCircleOutlinedIcon />, permission: 'om:read' },
+  { path: '/complaints', labelKey: 'nav.consumerComplaints', icon: <ReportProblemOutlinedIcon />, permission: 'om:read' },
   { path: '/billing', labelKey: 'nav.billingRevenue', icon: <ReceiptLongOutlinedIcon />, permission: 'om:read' },
   { path: '/mobile-billing', labelKey: 'nav.mobileBilling', icon: <PhoneAndroidOutlinedIcon />, permission: 'om:read' },
 ];

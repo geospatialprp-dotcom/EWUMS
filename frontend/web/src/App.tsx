@@ -9,6 +9,7 @@ import ProjectsPage from './pages/ProjectsPage';
 import ProjectFeatureClassesPage from './pages/ProjectFeatureClassesPage';
 import ProjectConstructionPage from './pages/ProjectConstructionPage';
 import OmManagementPage from './pages/OmManagementPage';
+import ConsumerComplaintsPage from './pages/ConsumerComplaintsPage';
 import DprPlanningPage from './pages/DprPlanningPage';
 import LandAcquisitionPage from './pages/LandAcquisitionPage';
 import LaCaseWorkspacePage from './pages/LaCaseWorkspacePage';
@@ -113,6 +114,9 @@ export default function App() {
                 } />
                 <Route path="/om" element={
                   <PermissionRoute permission="om:read"><OmManagementPage /></PermissionRoute>
+                } />
+                <Route path="/complaints" element={
+                  <PermissionRoute permission="om:read"><ConsumerComplaintsPage /></PermissionRoute>
                 } />
                 <Route path="/billing" element={
                   <PermissionRoute permission="om:read"><BillingRevenuePage /></PermissionRoute>

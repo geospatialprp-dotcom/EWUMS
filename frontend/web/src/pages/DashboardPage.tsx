@@ -312,6 +312,9 @@ function DivisionSummaryCard({ division }: { division: DivisionSummary }) {
       </Grid>
       {division.open_complaints > 0 && (
         <Chip
+          component={RouterLink}
+          to="/complaints"
+          clickable
           label={t(
             division.open_complaints > 1 ? 'commandCenter.openComplaintsMany' : 'commandCenter.openComplaintsOne',
             { count: division.open_complaints },
@@ -475,15 +478,26 @@ export default function DashboardPage() {
               const cfg = KPI_CONFIG[kpi.id] ?? { tone: 'blue' as KpiTone, icon: null };
               const labelKey = `commandCenter.kpi.${kpi.id}` as const;
               const label = t(labelKey) !== labelKey ? t(labelKey) : kpi.label;
+              const card = (
+                <KpiStatCard
+                  label={label}
+                  value={kpi.value}
+                  tone={cfg.tone}
+                  icon={cfg.icon}
+                  footer={<KpiTrendFooter kpi={kpi} />}
+                />
+              );
               return (
                 <Grid item xs={12} sm={6} md={2.4} key={kpi.id}>
-                  <KpiStatCard
-                    label={label}
-                    value={kpi.value}
-                    tone={cfg.tone}
-                    icon={cfg.icon}
-                    footer={<KpiTrendFooter kpi={kpi} />}
-                  />
+                  {kpi.id === 'open_complaints' ? (
+                    <Box
+                      component={RouterLink}
+                      to="/complaints"
+                      sx={{ textDecoration: 'none', display: 'block', cursor: 'pointer', '&:hover': { opacity: 0.92 } }}
+                    >
+                      {card}
+                    </Box>
+                  ) : card}
                 </Grid>
               );
             })}

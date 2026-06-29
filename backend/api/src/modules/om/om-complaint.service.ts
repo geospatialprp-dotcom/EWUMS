@@ -62,7 +62,11 @@ export class OmComplaintService {
 
     if (filters.status) {
       if (filters.status === 'open') {
-        qb.andWhere('c.status != :closed', { closed: 'closed' });
+        qb.andWhere('c.status = :ticketGenerated', { ticketGenerated: 'ticket_generated' });
+      } else if (filters.status === 'in_progress') {
+        qb.andWhere('c.status IN (:...inProgress)', { inProgress: ['assigned', 'resolution', 'feedback'] });
+      } else if (filters.status === 'closed') {
+        qb.andWhere('c.status = :closed', { closed: 'closed' });
       } else {
         qb.andWhere('c.status = :status', { status: filters.status });
       }
@@ -259,9 +263,16 @@ export class OmComplaintService {
       .where('c.tenant_id = :tenantId', { tenantId });
     await this.scope.scopeProjectQb(base, user, tenantId, 'c', resolvedProjectId);
 
-    const [openComplaints, closedComplaints, total, avgResponse, byChannel] = await Promise.all([
-      base.clone().andWhere('c.status != :closed', { closed: 'closed' }).getCount(),
+    const slaResolutionMins = 480;
+
+    const [openComplaints, inProgressComplaints, closedComplaints, slaBreached, total, avgResponse, byChannel] = await Promise.all([
+      base.clone().andWhere('c.status = :ticketGenerated', { ticketGenerated: 'ticket_generated' }).getCount(),
+      base.clone().andWhere('c.status IN (:...inProgress)', { inProgress: ['assigned', 'resolution', 'feedback'] }).getCount(),
       base.clone().andWhere('c.status = :closed', { closed: 'closed' }).getCount(),
+      base.clone()
+        .andWhere('c.status != :closed', { closed: 'closed' })
+        .andWhere('EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 60 > :slaMins', { slaMins: slaResolutionMins })
+        .getCount(),
       base.clone().getCount(),
       base.clone()
         .andWhere('c.response_time_mins IS NOT NULL')
@@ -280,7 +291,9 @@ export class OmComplaintService {
 
     return {
       openComplaints,
+      inProgressComplaints,
       closedComplaints,
+      slaBreached,
       total,
       avgResponseTimeMins: avgResponse?.avg ? Math.round(Number(avgResponse.avg)) : null,
       channelBreakdown,
@@ -398,10 +411,21 @@ export class OmComplaintService {
   private async toRecord(tenantId: string, row: OmConsumerComplaint) {
     let projectName: string | null = null;
     let projectCode: string | null = null;
+    let divisionName: string | null = null;
+    let divisionCode: string | null = null;
     if (row.projectId) {
-      const project = await this.projectRepo.findOne({ where: { id: row.projectId, tenantId } });
+      const projectRows = await this.projectRepo.query(
+        `SELECT p.name, p.project_code AS "projectCode", d.name AS "divisionName", d.code AS "divisionCode"
+         FROM projects p
+         LEFT JOIN divisions d ON d.id = p.division_id AND d.tenant_id = p.tenant_id
+         WHERE p.id = $1 AND p.tenant_id = $2`,
+        [row.projectId, tenantId],
+      ) as Array<{ name: string; projectCode: string; divisionName?: string | null; divisionCode?: string | null }>;
+      const project = projectRows[0];
       projectName = project?.name ?? null;
       projectCode = project?.projectCode ?? null;
+      divisionName = project?.divisionName ?? null;
+      divisionCode = project?.divisionCode ?? null;
     }
 
     let assignedToName: string | null = null;
@@ -447,6 +471,8 @@ export class OmComplaintService {
       projectId: row.projectId,
       projectName,
       projectCode,
+      divisionName,
+      divisionCode,
       reportedBy: row.reportedBy,
       assignedAt: row.assignedAt,
       resolvedAt: row.resolvedAt,
