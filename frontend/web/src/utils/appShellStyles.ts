@@ -68,17 +68,22 @@ export function appDrawerBrandInnerSx(collapsed = false) {
   };
 }
 
-export function appDrawerBrandLogoWrapSx() {
+/** Clickable logo in sidebar brand — no bordered card so wide logos are not clipped. */
+export function appDrawerBrandLogoLinkSx() {
   return {
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 1,
-    bgcolor: 'rgba(255, 255, 255, 0.04)',
-    border: '1px solid rgba(148, 163, 184, 0.12)',
-    p: { xs: 0.75, md: 0.5 },
     lineHeight: 0,
+    textDecoration: 'none',
+    transition: 'opacity 0.15s ease',
+    '&:hover': { opacity: 0.88 },
+    '&:focus-visible': {
+      outline: '2px solid #60a5fa',
+      outlineOffset: 2,
+      borderRadius: 1,
+    },
   };
 }
 
@@ -148,13 +153,13 @@ export function appDrawerNameSx() {
 export function appDrawerCompanyLinkSx() {
   return {
     display: 'inline-block',
-    color: '#64748b',
-    fontSize: '0.625rem',
-    fontWeight: 500,
+    color: '#94a3b8',
+    fontSize: { xs: '0.6875rem', md: '0.625rem' },
+    fontWeight: 600,
     lineHeight: 1.2,
     letterSpacing: '0.02em',
     textDecoration: 'none',
-    mt: { xs: 0.25, md: 0 },
+    mt: { xs: 0.25, md: 0.125 },
     transition: 'color 0.15s ease',
     '&:hover': {
       color: '#cbd5e1',

@@ -16,8 +16,10 @@ export default function AppLogo({ height = 36, sx }: AppLogoProps) {
       sx={{
         height,
         width: 'auto',
-        maxWidth: height * 5.5,
+        maxWidth: height * 6.5,
+        minHeight: height,
         objectFit: 'contain',
+        objectPosition: 'left center',
         display: 'block',
         ...sx,
       }}

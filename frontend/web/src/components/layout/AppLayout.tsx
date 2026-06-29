@@ -44,7 +44,7 @@ import {
   appDrawerBrandHeightSx,
   appDrawerBrandSx,
   appDrawerBrandInnerSx,
-  appDrawerBrandLogoWrapSx,
+  appDrawerBrandLogoLinkSx,
   appDrawerBrandTextStackSx,
   appDrawerCompanyLinkSx,
   appDrawerEyebrowSx,
@@ -158,44 +158,35 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       ]}>
         {!drawerCollapsed && (
           <Box sx={appDrawerBrandInnerSx(drawerCollapsed)}>
-            {isMobile ? (
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, minWidth: 0, flex: 1 }}>
-                <Box sx={appDrawerBrandLogoWrapSx()}>
-                  <AppLogo height={40} />
-                </Box>
-                <Box sx={appDrawerBrandTextStackSx()}>
-                  <Typography variant="overline" sx={appDrawerEyebrowSx()}>
-                    {APP_BRAND.sidebarEyebrow}
-                  </Typography>
-                  <Typography variant="subtitle1" sx={appDrawerNameSx()}>
-                    {APP_BRAND.name}
-                  </Typography>
-                  <Box
-                    component="a"
-                    href={APP_BRAND.companyUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    sx={appDrawerCompanyLinkSx()}
-                  >
-                    {APP_BRAND.sidebarCompanyShort}
-                  </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, flex: 1 }}>
+              <Box
+                component="a"
+                href={APP_BRAND.companyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${APP_BRAND.companyName} website`}
+                sx={appDrawerBrandLogoLinkSx()}
+              >
+                <AppLogo height={48} />
+              </Box>
+              <Box sx={appDrawerBrandTextStackSx()}>
+                <Typography variant="overline" sx={appDrawerEyebrowSx()}>
+                  {APP_BRAND.sidebarEyebrow}
+                </Typography>
+                <Typography variant={isMobile ? 'subtitle1' : 'subtitle2'} sx={appDrawerNameSx()}>
+                  {APP_BRAND.name}
+                </Typography>
+                <Box
+                  component="a"
+                  href={APP_BRAND.companyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={appDrawerCompanyLinkSx()}
+                >
+                  {APP_BRAND.sidebarCompanyShort}
                 </Box>
               </Box>
-            ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, flex: 1 }}>
-                <Box sx={appDrawerBrandLogoWrapSx()}>
-                  <AppLogo height={32} />
-                </Box>
-                <Box sx={appDrawerBrandTextStackSx()}>
-                  <Typography variant="overline" sx={appDrawerEyebrowSx()}>
-                    {APP_BRAND.sidebarEyebrow}
-                  </Typography>
-                  <Typography variant="subtitle2" sx={appDrawerNameSx()}>
-                    {APP_BRAND.name}
-                  </Typography>
-                </Box>
-              </Box>
-            )}
+            </Box>
           </Box>
         )}
         {!isMobile && !isDesktop && (
