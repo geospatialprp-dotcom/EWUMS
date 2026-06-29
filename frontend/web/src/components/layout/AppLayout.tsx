@@ -153,12 +153,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={[
-        appDrawerBrandSx(drawerCollapsed),
-        appDrawerBrandHeightSx(drawerCollapsed),
+        appDrawerBrandSx(drawerCollapsed, isMobile),
+        appDrawerBrandHeightSx(drawerCollapsed, isMobile),
       ]}>
         {!drawerCollapsed && (
-          <Box sx={appDrawerBrandInnerSx(drawerCollapsed)}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, flex: 1 }}>
+          <Box sx={appDrawerBrandInnerSx(drawerCollapsed, isMobile)}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, minWidth: 0, flex: 1 }}>
               <Box
                 component="a"
                 href={APP_BRAND.companyUrl}
@@ -169,7 +169,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               >
                 <AppLogo height={48} />
               </Box>
-              <Box sx={appDrawerBrandTextStackSx()}>
+              <Box sx={appDrawerBrandTextStackSx(isMobile)}>
                 <Typography variant="overline" sx={appDrawerEyebrowSx()}>
                   {APP_BRAND.sidebarEyebrow}
                 </Typography>
@@ -273,9 +273,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               href={APP_BRAND.companyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ display: { xs: 'none', sm: 'flex', md: 'none' }, alignItems: 'center', flexShrink: 0 }}
+              sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', flexShrink: 0, lineHeight: 0 }}
             >
-              <AppLogo height={32} />
+              <AppLogo height={isMobile ? 28 : 32} />
             </Box>
             <Typography
               variant="h6"

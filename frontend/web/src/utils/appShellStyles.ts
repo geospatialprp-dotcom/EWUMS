@@ -29,19 +29,20 @@ export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
   };
 }
 
-export function appDrawerBrandSx(collapsed = false) {
+export function appDrawerBrandSx(collapsed = false, isMobile = false) {
   return {
-    px: collapsed ? 1 : { xs: 2.5, md: 2 },
+    px: collapsed ? 1 : isMobile ? 2 : 2,
     display: 'flex',
-    flexDirection: collapsed ? 'column' : { xs: 'column', md: 'row' },
-    alignItems: collapsed ? 'center' : { xs: 'flex-start', md: 'center' },
-    justifyContent: collapsed ? 'center' : { xs: 'flex-start', md: 'space-between' },
-    gap: collapsed ? 0 : { xs: 0, md: 0.5 },
+    flexDirection: collapsed ? 'column' : isMobile ? 'column' : 'row',
+    alignItems: collapsed ? 'center' : isMobile ? 'flex-start' : 'center',
+    justifyContent: collapsed ? 'center' : isMobile ? 'flex-start' : 'space-between',
+    gap: collapsed ? 0 : isMobile ? 0 : 0.5,
     borderBottom: '1px solid rgba(148, 163, 184, 0.18)',
     background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 52%, #0f172a 100%)',
     boxShadow: 'inset 0 -1px 0 rgba(255, 255, 255, 0.04)',
     boxSizing: 'border-box',
     flexShrink: 0,
+    overflow: isMobile ? 'visible' : undefined,
     position: 'relative' as const,
     '&::after': collapsed
       ? undefined
@@ -58,13 +59,15 @@ export function appDrawerBrandSx(collapsed = false) {
 }
 
 /** Inner row: logo + text stack beside collapse control. */
-export function appDrawerBrandInnerSx(collapsed = false) {
+export function appDrawerBrandInnerSx(collapsed = false, isMobile = false) {
   return {
     display: 'flex',
-    alignItems: 'center',
-    gap: { xs: 0, md: 1.25 },
+    alignItems: isMobile ? 'flex-start' : 'center',
+    gap: isMobile ? 1.5 : 1.25,
     minWidth: 0,
-    flex: collapsed ? undefined : { xs: '1 1 auto', md: 1 },
+    width: isMobile ? '100%' : undefined,
+    flex: collapsed ? undefined : 1,
+    overflow: isMobile ? 'visible' : undefined,
   };
 }
 
@@ -87,26 +90,37 @@ export function appDrawerBrandLogoLinkSx() {
   };
 }
 
-export function appDrawerBrandTextStackSx() {
+export function appDrawerBrandTextStackSx(isMobile = false) {
   return {
     minWidth: 0,
+    flex: isMobile ? 1 : undefined,
     display: 'flex',
     flexDirection: 'column',
-    gap: { xs: 0.25, md: 0.125 },
-    pt: { xs: 0.5, md: 0 },
+    gap: isMobile ? 0.25 : 0.125,
+    pt: isMobile ? 0.25 : 0,
+    overflow: isMobile ? 'visible' : undefined,
   };
 }
 
-/** Shared md+ height so sidebar brand and AppBar share one clean edge. */
-export function appDrawerBrandHeightSx(collapsed = false) {
+/** Shared md+ height so sidebar brand and AppBar share one clean edge. Mobile drawer uses auto height. */
+export function appDrawerBrandHeightSx(collapsed = false, isMobile = false) {
   if (collapsed) {
     return { minHeight: 56, height: 56, maxHeight: 56, py: 0 };
   }
+  if (isMobile) {
+    return {
+      minHeight: 104,
+      height: 'auto',
+      maxHeight: 'none',
+      py: 2,
+      overflow: 'visible',
+    };
+  }
   return {
-    minHeight: { xs: 96, md: APP_HEADER_HEIGHT_MD },
-    height: { md: APP_HEADER_HEIGHT_MD },
-    maxHeight: { md: APP_HEADER_HEIGHT_MD },
-    py: { xs: 1.75, md: 0 },
+    minHeight: APP_HEADER_HEIGHT_MD,
+    height: APP_HEADER_HEIGHT_MD,
+    maxHeight: APP_HEADER_HEIGHT_MD,
+    py: 0,
   };
 }
 
@@ -248,7 +262,7 @@ export function appBarBrandRowSx() {
     minWidth: 0,
     flex: { xs: '1 1 0', md: '0 1 auto' },
     maxWidth: { md: '42%' },
-    overflow: 'hidden',
+    overflow: { xs: 'visible', md: 'hidden' },
   };
 }
 
