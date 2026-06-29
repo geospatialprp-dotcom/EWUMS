@@ -43,6 +43,10 @@ import {
   appBarUserNameSx,
   appDrawerBrandHeightSx,
   appDrawerBrandSx,
+  appDrawerBrandInnerSx,
+  appDrawerBrandLogoWrapSx,
+  appDrawerBrandTextStackSx,
+  appDrawerCompanyLinkSx,
   appDrawerEyebrowSx,
   appDrawerNameSx,
   appDrawerPaperSx,
@@ -153,52 +157,46 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         appDrawerBrandHeightSx(drawerCollapsed),
       ]}>
         {!drawerCollapsed && (
-          isMobile ? (
-            <Box sx={{ minWidth: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
-                <AppLogo height={36} />
+          <Box sx={appDrawerBrandInnerSx(drawerCollapsed)}>
+            {isMobile ? (
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, minWidth: 0, flex: 1 }}>
+                <Box sx={appDrawerBrandLogoWrapSx()}>
+                  <AppLogo height={40} />
+                </Box>
+                <Box sx={appDrawerBrandTextStackSx()}>
+                  <Typography variant="overline" sx={appDrawerEyebrowSx()}>
+                    {APP_BRAND.sidebarEyebrow}
+                  </Typography>
+                  <Typography variant="subtitle1" sx={appDrawerNameSx()}>
+                    {APP_BRAND.name}
+                  </Typography>
+                  <Box
+                    component="a"
+                    href={APP_BRAND.companyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={appDrawerCompanyLinkSx()}
+                  >
+                    {APP_BRAND.sidebarCompanyShort}
+                  </Box>
+                </Box>
               </Box>
-              <Typography variant="overline" sx={appDrawerEyebrowSx()}>
-                {APP_BRAND.sidebarEyebrow}
-              </Typography>
-              <Typography variant="subtitle1" sx={appDrawerNameSx()}>
-                {APP_BRAND.name}
-              </Typography>
-              <Typography variant="caption" sx={{ color: '#94a3b8', mt: 0.5, lineHeight: 1.35, display: 'block' }}>
-                {APP_BRAND.headerTitle}
-              </Typography>
-            </Box>
-          ) : (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, flex: 1 }}>
-              <AppLogo height={28} sx={{ flexShrink: 0 }} />
-              <Box sx={{ minWidth: 0, lineHeight: 1.15 }}>
-                <Typography
-                  variant="overline"
-                  sx={{
-                    ...appDrawerEyebrowSx(),
-                    fontSize: '0.5625rem',
-                    lineHeight: 1.15,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {APP_BRAND.sidebarEyebrow}
-                </Typography>
-                <Typography
-                  variant="subtitle2"
-                  sx={{
-                    ...appDrawerNameSx(),
-                    fontSize: '0.9375rem',
-                    lineHeight: 1.2,
-                    mt: 0.15,
-                  }}
-                >
-                  {APP_BRAND.name}
-                </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, flex: 1 }}>
+                <Box sx={appDrawerBrandLogoWrapSx()}>
+                  <AppLogo height={32} />
+                </Box>
+                <Box sx={appDrawerBrandTextStackSx()}>
+                  <Typography variant="overline" sx={appDrawerEyebrowSx()}>
+                    {APP_BRAND.sidebarEyebrow}
+                  </Typography>
+                  <Typography variant="subtitle2" sx={appDrawerNameSx()}>
+                    {APP_BRAND.name}
+                  </Typography>
+                </Box>
               </Box>
-            </Box>
-          )
+            )}
+          </Box>
         )}
         {!isMobile && !isDesktop && (
           <IconButton

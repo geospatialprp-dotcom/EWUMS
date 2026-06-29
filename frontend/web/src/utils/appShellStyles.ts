@@ -31,16 +31,64 @@ export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
 
 export function appDrawerBrandSx(collapsed = false) {
   return {
-    px: collapsed ? 1 : 2,
+    px: collapsed ? 1 : { xs: 2.5, md: 2 },
     display: 'flex',
     flexDirection: collapsed ? 'column' : { xs: 'column', md: 'row' },
     alignItems: collapsed ? 'center' : { xs: 'flex-start', md: 'center' },
-    justifyContent: 'center',
-    gap: collapsed ? 0 : { xs: 0, md: 1.25 },
-    borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-    background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #334155 100%)',
+    justifyContent: collapsed ? 'center' : { xs: 'flex-start', md: 'space-between' },
+    gap: collapsed ? 0 : { xs: 0, md: 0.5 },
+    borderBottom: '1px solid rgba(148, 163, 184, 0.18)',
+    background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 52%, #0f172a 100%)',
+    boxShadow: 'inset 0 -1px 0 rgba(255, 255, 255, 0.04)',
     boxSizing: 'border-box',
     flexShrink: 0,
+    position: 'relative' as const,
+    '&::after': collapsed
+      ? undefined
+      : {
+          content: '""',
+          position: 'absolute',
+          bottom: 0,
+          left: { xs: 20, md: 16 },
+          right: { xs: 20, md: 16 },
+          height: '1px',
+          background: 'linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.28), transparent)',
+        },
+  };
+}
+
+/** Inner row: logo + text stack beside collapse control. */
+export function appDrawerBrandInnerSx(collapsed = false) {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: { xs: 0, md: 1.25 },
+    minWidth: 0,
+    flex: collapsed ? undefined : { xs: '1 1 auto', md: 1 },
+  };
+}
+
+export function appDrawerBrandLogoWrapSx() {
+  return {
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 1,
+    bgcolor: 'rgba(255, 255, 255, 0.04)',
+    border: '1px solid rgba(148, 163, 184, 0.12)',
+    p: { xs: 0.75, md: 0.5 },
+    lineHeight: 0,
+  };
+}
+
+export function appDrawerBrandTextStackSx() {
+  return {
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: { xs: 0.25, md: 0.125 },
+    pt: { xs: 0.5, md: 0 },
   };
 }
 
@@ -50,10 +98,10 @@ export function appDrawerBrandHeightSx(collapsed = false) {
     return { minHeight: 56, height: 56, maxHeight: 56, py: 0 };
   }
   return {
-    minHeight: { xs: 88, md: APP_HEADER_HEIGHT_MD },
+    minHeight: { xs: 96, md: APP_HEADER_HEIGHT_MD },
     height: { md: APP_HEADER_HEIGHT_MD },
     maxHeight: { md: APP_HEADER_HEIGHT_MD },
-    py: { xs: 1.5, md: 0 },
+    py: { xs: 1.75, md: 0 },
   };
 }
 
@@ -71,13 +119,16 @@ export function appToolbarSx() {
 
 export function appDrawerEyebrowSx() {
   return {
-    color: '#64748b',
-    letterSpacing: '0.12em',
-    fontWeight: 700,
+    color: '#94a3b8',
+    letterSpacing: '0.14em',
+    fontWeight: 600,
     display: 'block',
-    lineHeight: 1.2,
-    fontSize: '0.625rem',
+    lineHeight: 1.15,
+    fontSize: { xs: '0.625rem', md: '0.5625rem' },
     textTransform: 'uppercase' as const,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   };
 }
 
@@ -85,9 +136,36 @@ export function appDrawerNameSx() {
   return {
     color: '#f8fafc',
     fontWeight: 800,
-    letterSpacing: '-0.02em',
-    fontSize: '1.125rem',
-    lineHeight: 1.3,
+    letterSpacing: '-0.03em',
+    fontSize: { xs: '1.25rem', md: '1.0625rem' },
+    lineHeight: 1.15,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  };
+}
+
+export function appDrawerCompanyLinkSx() {
+  return {
+    display: 'inline-block',
+    color: '#64748b',
+    fontSize: '0.625rem',
+    fontWeight: 500,
+    lineHeight: 1.2,
+    letterSpacing: '0.02em',
+    textDecoration: 'none',
+    mt: { xs: 0.25, md: 0 },
+    transition: 'color 0.15s ease',
+    '&:hover': {
+      color: '#cbd5e1',
+      textDecoration: 'underline',
+      textUnderlineOffset: '2px',
+    },
+    '&:focus-visible': {
+      outline: '2px solid #60a5fa',
+      outlineOffset: 2,
+      borderRadius: 0.5,
+    },
   };
 }
 
