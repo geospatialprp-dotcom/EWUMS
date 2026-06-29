@@ -42,12 +42,21 @@ export class OmDivisionScopeService {
       qb.andWhere('1 = 0');
       return;
     }
+    // TypeORM binds spread params once per name — duplicate :...scopedProjectIds causes 500s.
     qb.andWhere(
-      `(${alias}.project_id IN (:...scopedProjectIds) OR (${alias}.project_id IS NULL AND ${alias}.om_consumer_id IN (
-        SELECT oc.id FROM om_consumers oc
-        WHERE oc.tenant_id = :complaintScopeTenantId AND oc.project_id IN (:...scopedProjectIds)
-      )))`,
-      { scopedProjectIds: ids, complaintScopeTenantId: tenantId },
+      `(
+        ${alias}.project_id IN (:...scopedProjectIds)
+        OR (
+          ${alias}.project_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM om_consumers oc
+            WHERE oc.id = ${alias}.om_consumer_id
+              AND oc.tenant_id = :complaintScopeTenantId
+              AND oc.project_id IN (:...scopedConsumerProjectIds)
+          )
+        )
+      )`,
+      { scopedProjectIds: ids, scopedConsumerProjectIds: ids, complaintScopeTenantId: tenantId },
     );
   }
 

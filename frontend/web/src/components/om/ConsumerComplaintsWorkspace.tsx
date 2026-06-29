@@ -90,6 +90,16 @@ function userLabel(u: UserOption): string {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function parseComplaintRows(payload: unknown): ComplaintRow[] {
+  if (Array.isArray(payload)) return payload as ComplaintRow[];
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+    if (Array.isArray(obj.data)) return obj.data as ComplaintRow[];
+    if (Array.isArray(obj.items)) return obj.items as ComplaintRow[];
+  }
+  return [];
+}
+
 function isUuid(value: string): boolean {
   return UUID_RE.test(value);
 }
@@ -146,6 +156,7 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
   const [channelFilter, setChannelFilter] = useState('');
   const [rows, setRows] = useState<ComplaintRow[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projectsReady, setProjectsReady] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [consumers, setConsumers] = useState<ConsumerOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
@@ -186,7 +197,7 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
     setBusy(true);
     setError('');
     const listParams = {
-      projectCode: selectedProject?.projectCode,
+      projectId: selectedProject?.id,
       channel: channelFilter || undefined,
       status: statusFilter === 'all' ? undefined : statusFilter,
     };
@@ -197,7 +208,7 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
       .then((results) => {
         const [listResult, summaryResult] = results;
         if (listResult.status === 'fulfilled') {
-          setRows(listResult.value.data ?? []);
+          setRows(parseComplaintRows(listResult.value.data));
         } else {
           setError(getApiError(listResult.reason, t('complaints.errors.loadFailed')));
           setRows([]);
@@ -212,6 +223,7 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
   }, [selectedProject, statusFilter, channelFilter, scopeKey, t]);
 
   useEffect(() => {
+    setProjectsReady(false);
     projectsApi.list()
       .then((pRes) => {
         const plist = (pRes.data ?? []) as ProjectOption[];
@@ -223,9 +235,15 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
           setSelectedProject(first);
         }
       })
-      .catch(() => setError(t('complaints.errors.projectsFailed')));
+      .catch(() => setError(t('complaints.errors.projectsFailed')))
+      .finally(() => setProjectsReady(true));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey]);
+
+  useEffect(() => {
+    if (!projectsReady && !canViewAll) return;
+    load();
+  }, [load, projectsReady, canViewAll]);
 
   const loadAssignees = useCallback((projectCode?: string) => {
     return omApi.listComplaintAssignees(projectCode)
@@ -240,14 +258,12 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
   }, [selectedProject, loadAssignees]);
 
   useEffect(() => {
-    if (selectedProject) {
+    if (selectedProject?.projectCode) {
       omApi.listConsumers({ projectCode: selectedProject.projectCode })
         .then((res) => setConsumers(res.data ?? []))
         .catch(() => setConsumers([]));
     }
   }, [selectedProject]);
-
-  useEffect(() => { load(); }, [load]);
 
   const handleCreate = () => {
     setBusy(true);

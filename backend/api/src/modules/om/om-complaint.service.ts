@@ -22,6 +22,16 @@ import { OmConsumer } from './entities/om-consumer.entity';
 import { ConsumerNotificationService } from './consumer-notification.service';
 import { AlertNotificationService } from './alert-notification.service';
 
+const EMPTY_COMPLAINT_SUMMARY = {
+  openComplaints: 0,
+  inProgressComplaints: 0,
+  closedComplaints: 0,
+  slaBreached: 0,
+  total: 0,
+  avgResponseTimeMins: null as number | null,
+  channelBreakdown: {} as Record<string, number>,
+};
+
 @Injectable()
 export class OmComplaintService {
   constructor(
@@ -53,31 +63,37 @@ export class OmComplaintService {
       complaintType?: string;
     },
   ) {
-    const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, filters.projectId, filters.projectCode);
-    const qb = this.complaintRepo
-      .createQueryBuilder('c')
-      .where('c.tenant_id = :tenantId', { tenantId })
-      .orderBy('c.created_at', 'DESC')
-      .take(200);
+    try {
+      if (!(await this.isComplaintsTableReady())) return [];
 
-    await this.scope.scopeComplaintProjectQb(qb, user, tenantId, 'c', resolvedProjectId);
+      const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, filters.projectId, filters.projectCode);
+      const qb = this.complaintRepo
+        .createQueryBuilder('c')
+        .where('c.tenant_id = :tenantId', { tenantId })
+        .orderBy('c.created_at', 'DESC')
+        .take(200);
 
-    if (filters.status) {
-      if (filters.status === 'open') {
-        qb.andWhere('c.status = :ticketGenerated', { ticketGenerated: 'ticket_generated' });
-      } else if (filters.status === 'in_progress') {
-        qb.andWhere('c.status IN (:...inProgress)', { inProgress: ['assigned', 'resolution', 'feedback'] });
-      } else if (filters.status === 'closed') {
-        qb.andWhere('c.status = :closed', { closed: 'closed' });
-      } else {
-        qb.andWhere('c.status = :status', { status: filters.status });
+      await this.scope.scopeComplaintProjectQb(qb, user, tenantId, 'c', resolvedProjectId);
+
+      if (filters.status) {
+        if (filters.status === 'open') {
+          qb.andWhere('c.status = :ticketGenerated', { ticketGenerated: 'ticket_generated' });
+        } else if (filters.status === 'in_progress') {
+          qb.andWhere('c.status IN (:...inProgress)', { inProgress: ['assigned', 'resolution', 'feedback'] });
+        } else if (filters.status === 'closed') {
+          qb.andWhere('c.status = :closed', { closed: 'closed' });
+        } else {
+          qb.andWhere('c.status = :status', { status: filters.status });
+        }
       }
-    }
-    if (filters.channel) qb.andWhere('c.channel = :channel', { channel: filters.channel });
-    if (filters.complaintType) qb.andWhere('c.complaint_type = :complaintType', { complaintType: filters.complaintType });
+      if (filters.channel) qb.andWhere('c.channel = :channel', { channel: filters.channel });
+      if (filters.complaintType) qb.andWhere('c.complaint_type = :complaintType', { complaintType: filters.complaintType });
 
-    const rows = await qb.getMany();
-    return Promise.all(rows.map((r) => this.toRecord(tenantId, r)));
+      const rows = await qb.getMany();
+      return Promise.all(rows.map((r) => this.toRecord(tenantId, r)));
+    } catch {
+      return [];
+    }
   }
 
   async getComplaint(user: JwtPayload, tenantId: string, id: string) {
@@ -289,49 +305,55 @@ export class OmComplaintService {
   }
 
   async getSummary(user: JwtPayload, tenantId: string, projectId?: string) {
-    const resolvedProjectId = projectId
-      ? await this.scope.resolveProjectId(user, tenantId, projectId)
-      : null;
-    const base = this.complaintRepo
-      .createQueryBuilder('c')
-      .where('c.tenant_id = :tenantId', { tenantId });
-    await this.scope.scopeComplaintProjectQb(base, user, tenantId, 'c', resolvedProjectId);
+    try {
+      if (!(await this.isComplaintsTableReady())) return { ...EMPTY_COMPLAINT_SUMMARY };
 
-    const slaResolutionMins = 480;
+      const resolvedProjectId = projectId
+        ? await this.scope.resolveProjectId(user, tenantId, projectId)
+        : null;
+      const base = this.complaintRepo
+        .createQueryBuilder('c')
+        .where('c.tenant_id = :tenantId', { tenantId });
+      await this.scope.scopeComplaintProjectQb(base, user, tenantId, 'c', resolvedProjectId);
 
-    const [openComplaints, inProgressComplaints, closedComplaints, slaBreached, total, avgResponse, byChannel] = await Promise.all([
-      base.clone().andWhere('c.status = :ticketGenerated', { ticketGenerated: 'ticket_generated' }).getCount(),
-      base.clone().andWhere('c.status IN (:...inProgress)', { inProgress: ['assigned', 'resolution', 'feedback'] }).getCount(),
-      base.clone().andWhere('c.status = :closed', { closed: 'closed' }).getCount(),
-      base.clone()
-        .andWhere('c.status != :closed', { closed: 'closed' })
-        .andWhere('EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 60 > :slaMins', { slaMins: slaResolutionMins })
-        .getCount(),
-      base.clone().getCount(),
-      base.clone()
-        .andWhere('c.response_time_mins IS NOT NULL')
-        .select('AVG(c.response_time_mins)', 'avg')
-        .getRawOne<{ avg: string | null }>(),
-      base.clone()
-        .select('c.channel', 'channel')
-        .addSelect('COUNT(*)', 'count')
-        .groupBy('c.channel')
-        .getRawMany<{ channel: string; count: string }>(),
-    ]);
+      const slaResolutionMins = 480;
 
-    const channelBreakdown = Object.fromEntries(
-      byChannel.map((r) => [r.channel, Number(r.count)]),
-    );
+      const [openComplaints, inProgressComplaints, closedComplaints, slaBreached, total, avgResponse, byChannel] = await Promise.all([
+        base.clone().andWhere('c.status = :ticketGenerated', { ticketGenerated: 'ticket_generated' }).getCount(),
+        base.clone().andWhere('c.status IN (:...inProgress)', { inProgress: ['assigned', 'resolution', 'feedback'] }).getCount(),
+        base.clone().andWhere('c.status = :closed', { closed: 'closed' }).getCount(),
+        base.clone()
+          .andWhere('c.status != :closed', { closed: 'closed' })
+          .andWhere('EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 60 > :slaMins', { slaMins: slaResolutionMins })
+          .getCount(),
+        base.clone().getCount(),
+        base.clone()
+          .andWhere('c.response_time_mins IS NOT NULL')
+          .select('AVG(c.response_time_mins)', 'avg')
+          .getRawOne<{ avg: string | null }>(),
+        base.clone()
+          .select('c.channel', 'channel')
+          .addSelect('COUNT(*)', 'count')
+          .groupBy('c.channel')
+          .getRawMany<{ channel: string; count: string }>(),
+      ]);
 
-    return {
-      openComplaints,
-      inProgressComplaints,
-      closedComplaints,
-      slaBreached,
-      total,
-      avgResponseTimeMins: avgResponse?.avg ? Math.round(Number(avgResponse.avg)) : null,
-      channelBreakdown,
-    };
+      const channelBreakdown = Object.fromEntries(
+        byChannel.map((r) => [r.channel, Number(r.count)]),
+      );
+
+      return {
+        openComplaints,
+        inProgressComplaints,
+        closedComplaints,
+        slaBreached,
+        total,
+        avgResponseTimeMins: avgResponse?.avg ? Math.round(Number(avgResponse.avg)) : null,
+        channelBreakdown,
+      };
+    } catch {
+      return { ...EMPTY_COMPLAINT_SUMMARY };
+    }
   }
 
   countOpen(tenantId: string) {
@@ -340,6 +362,21 @@ export class OmComplaintService {
       .where('c.tenant_id = :tenantId', { tenantId })
       .andWhere('c.status != :closed', { closed: 'closed' })
       .getCount();
+  }
+
+  private complaintsTableReadyCache: boolean | null = null;
+
+  private async isComplaintsTableReady(): Promise<boolean> {
+    if (this.complaintsTableReadyCache !== null) return this.complaintsTableReadyCache;
+    try {
+      const rows = await this.complaintRepo.query(
+        `SELECT to_regclass('public.om_consumer_complaints') AS t`,
+      ) as Array<{ t: string | null }>;
+      this.complaintsTableReadyCache = Boolean(rows[0]?.t);
+    } catch {
+      this.complaintsTableReadyCache = false;
+    }
+    return this.complaintsTableReadyCache;
   }
 
   private async findOpenDuplicateComplaint(
