@@ -39,6 +39,7 @@ import { dashboardApi } from '../services/api';
 import { formatApiError } from '../utils/apiError';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../context/LanguageContext';
 import { divisionScopeSubtitle } from '../utils/divisionAccess';
 import PageShell from '../components/layout/PageShell';
 import KpiStatCard from '../components/layout/KpiStatCard';
@@ -117,27 +118,27 @@ const KPI_CONFIG: Record<string, { tone: KpiTone; icon: React.ReactNode }> = {
   open_complaints: { tone: 'rose', icon: <ReportProblemOutlinedIcon sx={{ color: '#e11d48', opacity: 0.85 }} /> },
 };
 
-const QUICK_ACTIONS = [
-  { label: 'Map Explorer', to: '/map', icon: <MapOutlinedIcon fontSize="small" /> },
-  { label: 'Workflow Inbox', to: '/workflows', icon: <InboxOutlinedIcon fontSize="small" /> },
-  { label: 'Billing & O&M', to: '/billing', icon: <ReceiptLongOutlinedIcon fontSize="small" /> },
-  { label: 'Audit Logs', to: '/admin/audit', icon: <HistoryOutlinedIcon fontSize="small" /> },
-];
+const QUICK_ACTION_KEYS = [
+  { labelKey: 'commandCenter.quickActions.map', to: '/map', icon: <MapOutlinedIcon fontSize="small" /> },
+  { labelKey: 'commandCenter.quickActions.workflows', to: '/workflows', icon: <InboxOutlinedIcon fontSize="small" /> },
+  { labelKey: 'commandCenter.quickActions.billing', to: '/billing', icon: <ReceiptLongOutlinedIcon fontSize="small" /> },
+  { labelKey: 'commandCenter.quickActions.audit', to: '/admin/audit', icon: <HistoryOutlinedIcon fontSize="small" /> },
+] as const;
 
-function greetingForHour(hour: number): string {
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+function greetingKeyForHour(hour: number): string {
+  if (hour < 12) return 'commandCenter.greetingMorning';
+  if (hour < 17) return 'commandCenter.greetingAfternoon';
+  return 'commandCenter.greetingEvening';
 }
 
-function formatRelativeTime(iso: string): string {
+function formatRelativeTime(iso: string, t: (key: string, params?: Record<string, string | number>) => string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t('commandCenter.time.justNow');
+  if (mins < 60) return t('commandCenter.time.minutesAgo', { mins });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  if (hrs < 24) return t('commandCenter.time.hoursAgo', { hrs });
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
 function formatInrCompact(value: number): string {
@@ -196,11 +197,15 @@ function CommandCenterHero({
   userName,
   divisionLabel,
   dateLabel,
+  eyebrow,
+  modulesChip,
 }: {
   greeting: string;
   userName: string;
   divisionLabel: string;
   dateLabel: string;
+  eyebrow: string;
+  modulesChip: string;
 }) {
   return (
     <Box
@@ -230,7 +235,7 @@ function CommandCenterHero({
           <Stack direction="row" alignItems="center" spacing={1} mb={0.5}>
             <DashboardCustomizeOutlinedIcon sx={{ color: '#f97316', fontSize: 20 }} />
             <Typography variant="overline" sx={{ color: '#94a3b8', letterSpacing: '0.14em', fontWeight: 700 }}>
-              UJS Command Center
+              {eyebrow}
             </Typography>
           </Stack>
           <Typography variant="h4" sx={{ color: '#f8fafc', fontWeight: 800, letterSpacing: '-0.02em', fontSize: { xs: '1.35rem', md: '1.75rem' } }}>
@@ -249,7 +254,7 @@ function CommandCenterHero({
             to="/platform"
             clickable
             size="small"
-            label="20 integrated modules →"
+            label={modulesChip}
             sx={{
               mt: 1,
               bgcolor: 'rgba(249,115,22,0.15)',
@@ -265,6 +270,7 @@ function CommandCenterHero({
 }
 
 function DivisionSummaryCard({ division }: { division: DivisionSummary }) {
+  const { t } = useTranslation();
   return (
     <Box
       sx={{
@@ -286,19 +292,19 @@ function DivisionSummaryCard({ division }: { division: DivisionSummary }) {
       <Chip label={division.code} size="small" variant="outlined" sx={{ mb: 1.5, fontSize: '0.65rem' }} />
       <Grid container spacing={1}>
         <Grid item xs={6}>
-          <Typography variant="caption" color="text.secondary">Schemes</Typography>
+          <Typography variant="caption" color="text.secondary">{t('commandCenter.schemes')}</Typography>
           <Typography variant="body2" fontWeight={700}>{division.project_count}</Typography>
         </Grid>
         <Grid item xs={6}>
-          <Typography variant="caption" color="text.secondary">Progress</Typography>
+          <Typography variant="caption" color="text.secondary">{t('commandCenter.progress')}</Typography>
           <Typography variant="body2" fontWeight={700}>{division.avg_progress}%</Typography>
         </Grid>
         <Grid item xs={6}>
-          <Typography variant="caption" color="text.secondary">Assets</Typography>
+          <Typography variant="caption" color="text.secondary">{t('commandCenter.assets')}</Typography>
           <Typography variant="body2" fontWeight={700}>{division.asset_count}</Typography>
         </Grid>
         <Grid item xs={6}>
-          <Typography variant="caption" color="text.secondary">Collection</Typography>
+          <Typography variant="caption" color="text.secondary">{t('commandCenter.collection')}</Typography>
           <Typography variant="body2" fontWeight={700} color={division.collection_pct != null && division.collection_pct >= 90 ? '#16a34a' : '#334155'}>
             {division.collection_pct != null ? `${division.collection_pct}%` : '—'}
           </Typography>
@@ -306,7 +312,10 @@ function DivisionSummaryCard({ division }: { division: DivisionSummary }) {
       </Grid>
       {division.open_complaints > 0 && (
         <Chip
-          label={`${division.open_complaints} open complaint${division.open_complaints > 1 ? 's' : ''}`}
+          label={t(
+            division.open_complaints > 1 ? 'commandCenter.openComplaintsMany' : 'commandCenter.openComplaintsOne',
+            { count: division.open_complaints },
+          )}
           size="small"
           color="warning"
           sx={{ mt: 1.5, fontSize: '0.65rem' }}
@@ -317,6 +326,7 @@ function DivisionSummaryCard({ division }: { division: DivisionSummary }) {
 }
 
 function SchemeSummaryCard({ scheme }: { scheme: SchemeSummary }) {
+  const { t } = useTranslation();
   return (
     <Box
       sx={{
@@ -335,7 +345,7 @@ function SchemeSummaryCard({ scheme }: { scheme: SchemeSummary }) {
       </Stack>
       <Chip label={scheme.project_code} size="small" variant="outlined" sx={{ mb: 1.5, fontSize: '0.65rem' }} />
       <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
-        Physical progress
+        {t('commandCenter.physicalProgress')}
       </Typography>
       <LinearProgress
         variant="determinate"
@@ -349,8 +359,12 @@ function SchemeSummaryCard({ scheme }: { scheme: SchemeSummary }) {
         }}
       />
       <Box display="flex" justifyContent="space-between">
-        <Typography variant="caption" color="text.secondary">{scheme.physical_progress}% physical</Typography>
-        <Typography variant="caption" color="text.secondary">{scheme.asset_count} assets</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {t('commandCenter.physicalPct', { pct: scheme.physical_progress })}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {t('commandCenter.assetCount', { count: scheme.asset_count })}
+        </Typography>
       </Box>
     </Box>
   );
@@ -358,6 +372,7 @@ function SchemeSummaryCard({ scheme }: { scheme: SchemeSummary }) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { t, locale } = useTranslation();
   const { activeDivision } = useDivisionScope();
   const divisionScopeKey = useDivisionScopeKey();
   const canViewAllDivisions = user?.canViewAllDivisions ?? false;
@@ -367,18 +382,20 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   const now = useMemo(() => new Date(), []);
-  const greeting = greetingForHour(now.getHours());
-  const dateLabel = now.toLocaleDateString('en-IN', {
+  const greeting = t(greetingKeyForHour(now.getHours()));
+  const dateLocale = locale === 'hi' ? 'hi-IN' : 'en-IN';
+  const dateLabel = now.toLocaleDateString(dateLocale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   });
-  const userName = user?.firstName ?? 'Officer';
+  const userName = user?.firstName ?? t('commandCenter.defaultOfficer');
   const divisionLabel = scopeSubtitle
     ?? activeDivision?.name
     ?? user?.divisionName
-    ?? 'Uttarakhand Jal Sansthan — Executive Overview';
+    ?? t('commandCenter.defaultDivisionLabel');
+  const noDataLabel = t('commandCenter.charts.noData');
 
   useEffect(() => {
     setData(null);
@@ -393,13 +410,10 @@ export default function DashboardPage() {
         setData(payload as DashboardData);
       })
       .catch((err) => {
-        setLoadError(formatApiError(
-          err,
-          'Could not load Command Center data. Ensure PostgreSQL is running and the API is started (scripts/start-dev.ps1).',
-        ));
+        setLoadError(formatApiError(err, t('commandCenter.loadError')));
       })
       .finally(() => setLoading(false));
-  }, [divisionScopeKey]);
+  }, [divisionScopeKey, t]);
 
   return (
     <PageShell fullHeight>
@@ -411,12 +425,12 @@ export default function DashboardPage() {
           sx={{ mb: 2, borderRadius: 2 }}
           action={(
             <Button color="inherit" size="small" onClick={() => window.location.reload()}>
-              Retry
+              {t('commandCenter.retry')}
             </Button>
           )}
         >
           <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-            Command Center unavailable
+            {t('commandCenter.unavailable')}
           </Typography>
           {loadError}
         </Alert>
@@ -429,10 +443,12 @@ export default function DashboardPage() {
             userName={userName}
             divisionLabel={divisionLabel}
             dateLabel={dateLabel}
+            eyebrow={t('commandCenter.eyebrow')}
+            modulesChip={t('commandCenter.modulesChip')}
           />
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 3 }}>
-            {QUICK_ACTIONS.map((action) => (
+            {QUICK_ACTION_KEYS.map((action) => (
               <Button
                 key={action.to}
                 component={RouterLink}
@@ -449,7 +465,7 @@ export default function DashboardPage() {
                   '&:hover': { borderColor: '#f97316', color: '#0f172a', bgcolor: '#fff7ed' },
                 }}
               >
-                {action.label}
+                {t(action.labelKey)}
               </Button>
             ))}
           </Stack>
@@ -457,10 +473,12 @@ export default function DashboardPage() {
           <Grid container spacing={2} mb={3}>
             {data.kpis.map((kpi) => {
               const cfg = KPI_CONFIG[kpi.id] ?? { tone: 'blue' as KpiTone, icon: null };
+              const labelKey = `commandCenter.kpi.${kpi.id}` as const;
+              const label = t(labelKey) !== labelKey ? t(labelKey) : kpi.label;
               return (
                 <Grid item xs={12} sm={6} md={2.4} key={kpi.id}>
                   <KpiStatCard
-                    label={kpi.label}
+                    label={label}
                     value={kpi.value}
                     tone={cfg.tone}
                     icon={cfg.icon}
@@ -474,7 +492,7 @@ export default function DashboardPage() {
           {data.divisionSummaries && data.divisionSummaries.length > 0 && (
             <Box mb={3}>
               <Typography sx={{ fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '0.75rem', mb: 1.5 }}>
-                Division Overview
+                {t('commandCenter.divisionOverview')}
               </Typography>
               <Grid container spacing={2}>
                 {data.divisionSummaries.map((d) => (
@@ -489,7 +507,7 @@ export default function DashboardPage() {
           {data.schemeSummaries && data.schemeSummaries.length > 0 && (
             <Box mb={3}>
               <Typography sx={{ fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '0.75rem', mb: 1.5 }}>
-                Scheme Summary
+                {t('commandCenter.schemeSummary')}
               </Typography>
               <Grid container spacing={2}>
                 {data.schemeSummaries.map((s) => (
@@ -503,11 +521,11 @@ export default function DashboardPage() {
 
           <Grid container spacing={2} mb={3}>
             <Grid item xs={12} md={4}>
-              <SurfaceCard title="Project Status" darkHeader>
+              <SurfaceCard title={t('commandCenter.charts.projectStatus')} darkHeader>
                 <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
-                      data={data.charts.projectStatus.length ? data.charts.projectStatus : [{ status: 'No data', count: 1 }]}
+                      data={data.charts.projectStatus.length ? data.charts.projectStatus : [{ status: noDataLabel, count: 1 }]}
                       dataKey="count"
                       nameKey="status"
                       cx="50%"
@@ -516,7 +534,7 @@ export default function DashboardPage() {
                       outerRadius={85}
                       paddingAngle={2}
                     >
-                      {(data.charts.projectStatus.length ? data.charts.projectStatus : [{ status: 'No data', count: 1 }]).map((_, i) => (
+                      {(data.charts.projectStatus.length ? data.charts.projectStatus : [{ status: noDataLabel, count: 1 }]).map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -527,11 +545,11 @@ export default function DashboardPage() {
               </SurfaceCard>
             </Grid>
             <Grid item xs={12} md={4}>
-              <SurfaceCard title="Assets by Status" darkHeader>
+              <SurfaceCard title={t('commandCenter.charts.assetsByStatus')} darkHeader>
                 <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
-                      data={data.charts.assetByStatus.length ? data.charts.assetByStatus : [{ status: 'No data', count: 1 }]}
+                      data={data.charts.assetByStatus.length ? data.charts.assetByStatus : [{ status: noDataLabel, count: 1 }]}
                       dataKey="count"
                       nameKey="status"
                       cx="50%"
@@ -539,7 +557,7 @@ export default function DashboardPage() {
                       outerRadius={85}
                       label={({ status, count }) => `${status}: ${count}`}
                     >
-                      {(data.charts.assetByStatus.length ? data.charts.assetByStatus : [{ status: 'No data', count: 1 }]).map((_, i) => (
+                      {(data.charts.assetByStatus.length ? data.charts.assetByStatus : [{ status: noDataLabel, count: 1 }]).map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -549,14 +567,14 @@ export default function DashboardPage() {
               </SurfaceCard>
             </Grid>
             <Grid item xs={12} md={4}>
-              <SurfaceCard title="Collection Trend" darkHeader>
+              <SurfaceCard title={t('commandCenter.charts.collectionTrend')} darkHeader>
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={data.charts.collectionTrend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} />
                     <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => formatInrCompact(v)} />
                     <Tooltip formatter={(v: number) => formatInrCompact(v)} />
-                    <Line type="monotone" dataKey="collection" name="Collection" stroke="#f97316" strokeWidth={2.5} dot={{ fill: '#f97316', r: 4 }} />
+                    <Line type="monotone" dataKey="collection" name={t('commandCenter.charts.collection')} stroke="#f97316" strokeWidth={2.5} dot={{ fill: '#f97316', r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </SurfaceCard>
@@ -565,7 +583,7 @@ export default function DashboardPage() {
 
           <Grid container spacing={2} mb={3}>
             <Grid item xs={12} md={8}>
-              <SurfaceCard title="Project Progress — Top Schemes">
+              <SurfaceCard title={t('commandCenter.charts.projectProgress')}>
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={data.charts.projectProgress.length ? data.charts.projectProgress : [{ name: '—', physical_progress: 0, financial_progress: 0 }]}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -573,17 +591,17 @@ export default function DashboardPage() {
                     <YAxis tick={{ fill: '#64748b' }} domain={[0, 100]} />
                     <Tooltip />
                     <Legend />
-                    <Bar dataKey="physical_progress" name="Physical %" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="financial_progress" name="Financial %" fill="#0d9488" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="physical_progress" name={t('commandCenter.charts.physical')} fill="#2563eb" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="financial_progress" name={t('commandCenter.charts.financial')} fill="#0d9488" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </SurfaceCard>
             </Grid>
             <Grid item xs={12} md={4}>
-              <SurfaceCard title="Pending Tasks" flush contentSx={{ p: 0 }}>
+              <SurfaceCard title={t('commandCenter.pendingTasks')} flush contentSx={{ p: 0 }}>
                 {data.pendingTasks.length === 0 ? (
                   <Box p={2.5}>
-                    <Typography variant="body2" color="text.secondary">No pending workflow tasks — all caught up.</Typography>
+                    <Typography variant="body2" color="text.secondary">{t('commandCenter.noPendingTasks')}</Typography>
                   </Box>
                 ) : (
                   <Stack divider={<Box sx={{ borderBottom: '1px solid #e2e8f0' }} />}>
@@ -593,7 +611,7 @@ export default function DashboardPage() {
                           {task.title}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {task.step_name} · {task.assigned_role.toUpperCase()} · {formatRelativeTime(task.created_at)}
+                          {task.step_name} · {task.assigned_role.toUpperCase()} · {formatRelativeTime(task.created_at, t)}
                         </Typography>
                       </Box>
                     ))}
@@ -601,17 +619,17 @@ export default function DashboardPage() {
                 )}
                 <Box px={2} py={1.5} bgcolor="#f8fafc" borderTop="1px solid #e2e8f0">
                   <Button component={RouterLink} to="/workflows" size="small" sx={{ textTransform: 'none', fontWeight: 600 }}>
-                    Open Workflow Inbox →
+                    {t('commandCenter.openWorkflowInbox')}
                   </Button>
                 </Box>
               </SurfaceCard>
             </Grid>
           </Grid>
 
-          <SurfaceCard title="Recent Activity" flush contentSx={{ p: 0 }} cardSx={{ mb: 3 }}>
+          <SurfaceCard title={t('commandCenter.recentActivity')} flush contentSx={{ p: 0 }} cardSx={{ mb: 3 }}>
             {data.recentActivity.length === 0 ? (
               <Box p={2.5}>
-                <Typography variant="body2" color="text.secondary">No recent activity recorded yet.</Typography>
+                <Typography variant="body2" color="text.secondary">{t('commandCenter.noRecentActivity')}</Typography>
               </Box>
             ) : (
               <Stack direction="row" sx={{ overflowX: 'auto', p: 1.5, gap: 1.5 }}>
@@ -637,7 +655,7 @@ export default function DashboardPage() {
                     <Typography variant="body2" fontWeight={600} sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {item.title}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">{formatRelativeTime(item.created_at)}</Typography>
+                    <Typography variant="caption" color="text.secondary">{formatRelativeTime(item.created_at, t)}</Typography>
                   </Box>
                 ))}
               </Stack>
@@ -646,19 +664,19 @@ export default function DashboardPage() {
 
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
-              <SurfaceCard title="Critical Assets" flush>
+              <SurfaceCard title={t('commandCenter.criticalAssets')} flush>
                 {data.criticalAssets.length === 0 ? (
                   <Box p={2.5}>
-                    <Typography variant="body2" color="text.secondary">No critical assets in current scope.</Typography>
+                    <Typography variant="body2" color="text.secondary">{t('commandCenter.noCriticalAssets')}</Typography>
                   </Box>
                 ) : (
                   <Table size="small" sx={dataTableSx()}>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Code</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell>Type</TableCell>
-                        <TableCell>Health</TableCell>
+                        <TableCell>{t('commandCenter.table.code')}</TableCell>
+                        <TableCell>{t('commandCenter.table.name')}</TableCell>
+                        <TableCell>{t('commandCenter.table.type')}</TableCell>
+                        <TableCell>{t('commandCenter.table.health')}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -678,18 +696,18 @@ export default function DashboardPage() {
               </SurfaceCard>
             </Grid>
             <Grid item xs={12} md={6}>
-              <SurfaceCard title="Recent IoT Alerts" flush>
+              <SurfaceCard title={t('commandCenter.iotAlerts')} flush>
                 {data.recentAlerts.length === 0 ? (
                   <Box p={2.5}>
-                    <Typography variant="body2" color="text.secondary">No unacknowledged IoT alerts.</Typography>
+                    <Typography variant="body2" color="text.secondary">{t('commandCenter.noIotAlerts')}</Typography>
                   </Box>
                 ) : (
                   <Table size="small" sx={dataTableSx()}>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Severity</TableCell>
-                        <TableCell>Device</TableCell>
-                        <TableCell>Message</TableCell>
+                        <TableCell>{t('commandCenter.table.severity')}</TableCell>
+                        <TableCell>{t('commandCenter.table.device')}</TableCell>
+                        <TableCell>{t('commandCenter.table.message')}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
