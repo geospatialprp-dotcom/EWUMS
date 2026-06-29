@@ -155,8 +155,7 @@ export function appBarUserBlockSx() {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: { xs: 1, md: 1.75 },
-    ml: 'auto',
+    gap: { xs: 1, md: 1.25 },
     flexShrink: 0,
   };
 }

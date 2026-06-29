@@ -156,9 +156,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       ]}>
         {!drawerCollapsed && (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: isMobile ? 1 : 0.5 }}>
-              <AppLogo height={isMobile ? 36 : 40} />
-            </Box>
+            {!isMobile && (
+              <Box sx={{ display: { md: 'flex' }, alignItems: 'center', gap: 1, mb: 0.75 }}>
+                <AppLogo height={40} />
+              </Box>
+            )}
             <Typography variant="overline" sx={appDrawerEyebrowSx()}>
               {APP_BRAND.sidebarEyebrow}
             </Typography>
@@ -262,9 +264,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               href={APP_BRAND.companyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}
+              sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', flexShrink: 0 }}
             >
-              <AppLogo height={isMobile ? 34 : 48} />
+              <AppLogo height={34} />
             </Box>
             <Typography
               variant="h6"
@@ -293,7 +295,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <Box sx={{ flex: 1, minWidth: 16, display: { xs: 'none', md: 'block' } }} />
 
-          <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, gap: { xs: 0.25, sm: 0.75, md: 1 } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, gap: { xs: 0.25, sm: 0.75, md: 1.25 }, flexWrap: 'nowrap' }}>
             <DivisionSwitcher />
             <LanguageSwitcher />
             <HelpPanel />
