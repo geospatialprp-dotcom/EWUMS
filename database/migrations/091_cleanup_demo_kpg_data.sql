@@ -1,5 +1,5 @@
 -- Migration 091: Remove ALL KPG / portal demo complaints and demo consumers.
--- Idempotent — safe to run multiple times.
+-- Idempotent — safe to run multiple times. Pair with 092 for legacy demo project removal.
 --
 -- Covers: CMP-KPG-%, CMP-2026-* (portal demo), FHTC-DEMO-001, FHTC-KPG-*, Demo Household Consumer.
 -- Migrations 087/088 are OPTIONAL demo seeds (kept in repo history only).
