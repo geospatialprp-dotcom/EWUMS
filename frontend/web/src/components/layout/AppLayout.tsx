@@ -37,6 +37,7 @@ import HelpPanel from './HelpPanel';
 import { useTranslation } from '../../context/LanguageContext';
 import {
   appBarBrandRowSx,
+  appBarLogoLinkSx,
   appBarSx,
   appBarTitleSx,
   appBarUserBlockSx,
@@ -44,7 +45,6 @@ import {
   appDrawerBrandHeightSx,
   appDrawerBrandSx,
   appDrawerBrandInnerSx,
-  appDrawerBrandLogoLinkSx,
   appDrawerBrandTextStackSx,
   appDrawerCompanyLinkSx,
   appDrawerEyebrowSx,
@@ -158,33 +158,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       ]}>
         {!drawerCollapsed && (
           <Box sx={appDrawerBrandInnerSx(drawerCollapsed, isMobile)}>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, minWidth: 0, flex: 1 }}>
+            <Box sx={appDrawerBrandTextStackSx(isMobile)}>
+              <Typography variant="overline" sx={appDrawerEyebrowSx()}>
+                {APP_BRAND.sidebarEyebrow}
+              </Typography>
+              <Typography variant={isMobile ? 'subtitle1' : 'subtitle2'} sx={appDrawerNameSx()}>
+                {APP_BRAND.name}
+              </Typography>
               <Box
                 component="a"
                 href={APP_BRAND.companyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label={`${APP_BRAND.companyName} website`}
-                sx={appDrawerBrandLogoLinkSx()}
+                sx={appDrawerCompanyLinkSx()}
               >
-                <AppLogo height={48} />
-              </Box>
-              <Box sx={appDrawerBrandTextStackSx(isMobile)}>
-                <Typography variant="overline" sx={appDrawerEyebrowSx()}>
-                  {APP_BRAND.sidebarEyebrow}
-                </Typography>
-                <Typography variant={isMobile ? 'subtitle1' : 'subtitle2'} sx={appDrawerNameSx()}>
-                  {APP_BRAND.name}
-                </Typography>
-                <Box
-                  component="a"
-                  href={APP_BRAND.companyUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  sx={appDrawerCompanyLinkSx()}
-                >
-                  {APP_BRAND.sidebarCompanyShort}
-                </Box>
+                {APP_BRAND.sidebarCompanyShort}
               </Box>
             </Box>
           </Box>
@@ -267,38 +255,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <MenuIcon />
           </IconButton>
 
-          <Box sx={{ ...appBarBrandRowSx(), maxWidth: { xs: 'calc(100% - 200px)', sm: 'calc(100% - 260px)', md: '42%' } }}>
+          <Box sx={appBarBrandRowSx()}>
             <Box
               component="a"
               href={APP_BRAND.companyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', flexShrink: 0, lineHeight: 0 }}
+              aria-label={`${APP_BRAND.companyName} website`}
+              sx={appBarLogoLinkSx()}
             >
-              <AppLogo height={isMobile ? 28 : 32} />
+              <AppLogo height={isMobile ? 34 : 46} />
             </Box>
-            <Typography
-              variant="h6"
-              noWrap={!isMobile}
-              sx={{
-                ...appBarTitleSx(),
-                ...(isMobile
-                  ? {
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      whiteSpace: 'normal',
-                    }
-                  : { whiteSpace: 'nowrap' }),
-              }}
-            >
-              <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>
-                {APP_BRAND.headerTitle}
-              </Box>
-              <Box component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>
-                {APP_BRAND.headerTitleShort}
-              </Box>
+            <Typography component="h1" variant="h6" sx={appBarTitleSx()}>
+              {APP_BRAND.headerTitle}
             </Typography>
           </Box>
 
@@ -316,7 +285,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             }}
           >
             <DivisionSwitcher />
-            <LanguageSwitcher />
+            <Box sx={{ display: { xs: 'none', sm: 'block' }, flexShrink: 0 }}>
+              <LanguageSwitcher />
+            </Box>
             <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
               <HelpPanel />
             </Box>

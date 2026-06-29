@@ -58,12 +58,10 @@ export function appDrawerBrandSx(collapsed = false, isMobile = false) {
   };
 }
 
-/** Inner row: logo + text stack beside collapse control. */
 export function appDrawerBrandInnerSx(collapsed = false, isMobile = false) {
   return {
     display: 'flex',
-    alignItems: isMobile ? 'flex-start' : 'center',
-    gap: isMobile ? 1.5 : 1.25,
+    alignItems: 'center',
     minWidth: 0,
     width: isMobile ? '100%' : undefined,
     flex: collapsed ? undefined : 1,
@@ -109,10 +107,10 @@ export function appDrawerBrandHeightSx(collapsed = false, isMobile = false) {
   }
   if (isMobile) {
     return {
-      minHeight: 104,
+      minHeight: 72,
       height: 'auto',
       maxHeight: 'none',
-      py: 2,
+      py: 1.5,
       overflow: 'visible',
     };
   }
@@ -258,11 +256,29 @@ export function appBarBrandRowSx() {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: { xs: 0.75, sm: 1 },
+    gap: { xs: 0.75, sm: 1, md: 1.25 },
     minWidth: 0,
     flex: { xs: '1 1 0', md: '0 1 auto' },
-    maxWidth: { md: '42%' },
-    overflow: { xs: 'visible', md: 'hidden' },
+    maxWidth: { md: '48%', lg: '54%' },
+    overflow: 'hidden',
+  };
+}
+
+/** PRP logo link in the top app bar — shown on all breakpoints. */
+export function appBarLogoLinkSx() {
+  return {
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    lineHeight: 0,
+    textDecoration: 'none',
+    transition: 'opacity 0.15s ease',
+    '&:hover': { opacity: 0.88 },
+    '&:focus-visible': {
+      outline: '2px solid #2563eb',
+      outlineOffset: 2,
+      borderRadius: 1,
+    },
   };
 }
 
@@ -271,9 +287,15 @@ export function appBarTitleSx() {
     fontWeight: 700,
     letterSpacing: '-0.01em',
     color: '#0f172a',
-    fontSize: { xs: '0.72rem', sm: '0.95rem', md: '1.125rem' },
-    lineHeight: { xs: 1.2, sm: 1.25 },
+    fontSize: { xs: '0.72rem', sm: '0.875rem', md: '1.0625rem', lg: '1.125rem' },
+    lineHeight: { xs: 1.2, sm: 1.25, md: 1.3 },
     minWidth: 0,
+    display: { xs: '-webkit-box', md: 'block' },
+    WebkitLineClamp: { xs: 2, md: 'unset' as const },
+    WebkitBoxOrient: { xs: 'vertical', md: 'unset' as const },
+    overflow: { xs: 'hidden', md: 'visible' },
+    whiteSpace: { xs: 'normal', md: 'nowrap' },
+    textOverflow: { xs: 'ellipsis', md: 'clip' },
   };
 }
 
