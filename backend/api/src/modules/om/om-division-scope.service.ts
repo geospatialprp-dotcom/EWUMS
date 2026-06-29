@@ -20,6 +20,37 @@ export class OmDivisionScopeService {
     return null;
   }
 
+  async resolveDefaultProjectId(user: JwtPayload, tenantId: string): Promise<string | null> {
+    return this.divisionAccess.resolveDefaultProjectId(user, tenantId);
+  }
+
+  /** Complaint list scope: match project_id or consumer-linked scheme in the user's division. */
+  async scopeComplaintProjectQb(
+    qb: SelectQueryBuilder<ObjectLiteral>,
+    user: JwtPayload,
+    tenantId: string,
+    alias: string,
+    resolvedProjectId: string | null,
+  ): Promise<void> {
+    if (resolvedProjectId) {
+      qb.andWhere(`${alias}.project_id = :scopedProjectId`, { scopedProjectId: resolvedProjectId });
+      return;
+    }
+    const ids = await this.getAccessibleProjectIds(user, tenantId);
+    if (ids === null) return;
+    if (ids.length === 0) {
+      qb.andWhere('1 = 0');
+      return;
+    }
+    qb.andWhere(
+      `(${alias}.project_id IN (:...scopedProjectIds) OR (${alias}.project_id IS NULL AND ${alias}.om_consumer_id IN (
+        SELECT oc.id FROM om_consumers oc
+        WHERE oc.tenant_id = :complaintScopeTenantId AND oc.project_id IN (:...scopedProjectIds)
+      )))`,
+      { scopedProjectIds: ids, complaintScopeTenantId: tenantId },
+    );
+  }
+
   async scopeProjectQb(
     qb: SelectQueryBuilder<ObjectLiteral>,
     user: JwtPayload,

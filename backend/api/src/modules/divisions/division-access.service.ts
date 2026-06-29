@@ -757,6 +757,19 @@ export class DivisionAccessService {
     return project;
   }
 
+  /** First scheme in the user's division (or tenant) when none is specified on write. */
+  async resolveDefaultProjectId(user: JwtPayload, tenantId: string): Promise<string | null> {
+    const ids = await this.getAccessibleProjectIds(user, tenantId);
+    if (ids === null) {
+      const rows = await this.projectRepo.query(
+        'SELECT id FROM projects WHERE tenant_id = $1 ORDER BY name ASC LIMIT 1',
+        [tenantId],
+      ) as Array<{ id: string }>;
+      return rows[0]?.id ?? null;
+    }
+    return ids[0] ?? null;
+  }
+
   async resolveAccessibleProjectId(
     user: JwtPayload,
     tenantId: string,

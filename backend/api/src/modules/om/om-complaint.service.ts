@@ -60,7 +60,7 @@ export class OmComplaintService {
       .orderBy('c.created_at', 'DESC')
       .take(200);
 
-    await this.scope.scopeProjectQb(qb, user, tenantId, 'c', resolvedProjectId);
+    await this.scope.scopeComplaintProjectQb(qb, user, tenantId, 'c', resolvedProjectId);
 
     if (filters.status) {
       if (filters.status === 'open') {
@@ -106,7 +106,6 @@ export class OmComplaintService {
   }
 
   async registerComplaint(user: JwtPayload, tenantId: string, reportedBy: string | null, dto: CreateOmComplaintDto) {
-    const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, dto.projectId, dto.projectCode);
     this.validateCoordinates(dto.latitude, dto.longitude);
 
     let omConsumerId = dto.omConsumerId ?? null;
@@ -114,6 +113,7 @@ export class OmComplaintService {
     let fhtcNumber = dto.fhtcNumber?.trim() ?? null;
     let mobile = dto.mobile?.trim() ?? null;
     let village = dto.village?.trim() ?? null;
+    let consumerProjectId: string | null = null;
 
     if (omConsumerId) {
       const consumer = await this.consumerRepo.findOne({ where: { id: omConsumerId, tenantId } });
@@ -122,6 +122,7 @@ export class OmComplaintService {
       fhtcNumber = fhtcNumber ?? consumer.fhtcNumber;
       mobile = mobile ?? consumer.mobile;
       village = village ?? consumer.village;
+      consumerProjectId = consumer.projectId ?? null;
     } else if (fhtcNumber) {
       const consumer = await this.consumerRepo.findOne({ where: { tenantId, fhtcNumber } });
       if (consumer) {
@@ -129,7 +130,20 @@ export class OmComplaintService {
         consumerRef = consumer.consumerCode;
         mobile = mobile ?? consumer.mobile;
         village = village ?? consumer.village;
+        consumerProjectId = consumer.projectId ?? null;
       }
+    }
+
+    let resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, dto.projectId, dto.projectCode);
+    if (!resolvedProjectId && consumerProjectId) {
+      await this.scope.assertProjectAccess(user, consumerProjectId, tenantId);
+      resolvedProjectId = consumerProjectId;
+    }
+    if (!resolvedProjectId) {
+      resolvedProjectId = await this.scope.resolveDefaultProjectId(user, tenantId);
+    }
+    if (!resolvedProjectId) {
+      throw new BadRequestException('Select a scheme for this complaint or link a registered consumer.');
     }
 
     const duplicate = await this.findOpenDuplicateComplaint(tenantId, {
@@ -281,7 +295,7 @@ export class OmComplaintService {
     const base = this.complaintRepo
       .createQueryBuilder('c')
       .where('c.tenant_id = :tenantId', { tenantId });
-    await this.scope.scopeProjectQb(base, user, tenantId, 'c', resolvedProjectId);
+    await this.scope.scopeComplaintProjectQb(base, user, tenantId, 'c', resolvedProjectId);
 
     const slaResolutionMins = 480;
 
