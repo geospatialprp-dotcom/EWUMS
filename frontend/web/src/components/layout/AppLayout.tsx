@@ -236,7 +236,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           transition: 'width 0.2s ease, margin 0.2s ease',
         }}
       >
-        <Toolbar sx={{ minHeight: { xs: 64, sm: 68 }, gap: { xs: 0.5, sm: 1 }, px: { xs: 1, sm: 2 }, py: { sm: 0.5 } }}>
+        <Toolbar
+          sx={{
+            minHeight: { xs: 64, sm: 68 },
+            gap: { xs: 0.5, sm: 1 },
+            px: { xs: 1, sm: 2 },
+            py: { sm: 0.5 },
+            overflow: 'hidden',
+          }}
+        >
           <IconButton
             edge="start"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -257,6 +265,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               ...appBarBrandRowSx(),
               flex: { xs: 1, md: '0 1 auto' },
               maxWidth: { md: '45%', lg: '52%' },
+              minWidth: 0,
             }}
           >
             <Box
@@ -295,7 +304,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <Box sx={{ flex: 1, minWidth: 16, display: { xs: 'none', md: 'block' } }} />
 
-          <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, gap: { xs: 0.25, sm: 0.75, md: 1.25 }, flexWrap: 'nowrap' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              flexShrink: 1,
+              minWidth: 0,
+              gap: { xs: 0.25, sm: 0.75, md: 1.25 },
+              flexWrap: 'nowrap',
+            }}
+          >
             <DivisionSwitcher />
             <LanguageSwitcher />
             <HelpPanel />
