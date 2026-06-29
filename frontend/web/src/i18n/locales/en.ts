@@ -560,6 +560,7 @@ export const en = {
     title: 'Notification Settings',
     subtitle: 'Read-only status of email, SMS, and WhatsApp alert channels configured via environment variables.',
     loadError: 'Could not load notification settings.',
+    logLoadError: 'Could not load recent alert log. Channel settings above are still available.',
     modeLabel: 'Delivery mode',
     modeLive: 'Live — messages are sent automatically via configured gateways.',
     modeHandoff: 'Handoff — device apps open for manual send (demo mode).',

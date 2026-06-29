@@ -33,24 +33,33 @@ export class AlertNotificationService {
   }
 
   async listRecent(tenantId: string, limit = 50) {
-    const rows = await this.alertRepo.find({
-      where: { tenantId },
-      order: { createdAt: 'DESC' },
-      take: limit,
-    });
-    return rows.map((r) => ({
-      id: r.id,
-      eventType: r.eventType,
-      channel: r.channel,
-      status: r.status,
-      recipient: r.recipient,
-      subject: r.subject,
-      message: r.message,
-      provider: r.provider,
-      errorReason: r.errorReason,
-      payload: r.payload,
-      createdAt: r.createdAt,
-    }));
+    try {
+      const rows = await this.alertRepo.find({
+        where: { tenantId },
+        order: { createdAt: 'DESC' },
+        take: limit,
+      });
+      return rows.map((r) => ({
+        id: r.id,
+        eventType: r.eventType,
+        channel: r.channel,
+        status: r.status,
+        recipient: r.recipient,
+        subject: r.subject,
+        message: r.message,
+        provider: r.provider,
+        errorReason: r.errorReason,
+        payload: r.payload,
+        createdAt: r.createdAt,
+      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('om_alert_notifications') && msg.includes('does not exist')) {
+        this.logger.warn('om_alert_notifications table missing — returning empty alert log');
+        return [];
+      }
+      throw err;
+    }
   }
 
   async sendAlert(input: SendAlertInput): Promise<Record<string, NotificationSendResult>> {

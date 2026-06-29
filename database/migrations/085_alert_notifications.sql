@@ -1,4 +1,5 @@
 -- Staff / system alert notification audit log (email, SMS, WhatsApp)
+-- Renumbered from 060_alert_notifications.sql (060 conflict with dpr_approval_workflow)
 
 CREATE TABLE IF NOT EXISTS om_alert_notifications (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

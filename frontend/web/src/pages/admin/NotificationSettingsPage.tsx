@@ -101,24 +101,30 @@ export default function NotificationSettingsPage() {
   const [log, setLog] = useState<AlertLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [logError, setLogError] = useState('');
 
   useEffect(() => {
     let active = true;
     (async () => {
       setLoading(true);
       setError('');
+      setLogError('');
       try {
-        const [configRes, logRes] = await Promise.all([
-          omApi.getNotificationConfig(),
-          omApi.getAlertLog(30),
-        ]);
+        const configRes = await omApi.getNotificationConfig();
         if (!active) return;
         setConfig(configRes.data);
-        setLog(logRes.data ?? []);
       } catch {
         if (active) setError(t('notificationSettings.loadError'));
       } finally {
         if (active) setLoading(false);
+      }
+
+      try {
+        const logRes = await omApi.getAlertLog(30);
+        if (!active) return;
+        setLog(logRes.data ?? []);
+      } catch {
+        if (active) setLogError(t('notificationSettings.logLoadError'));
       }
     })();
     return () => { active = false; };
@@ -216,6 +222,11 @@ export default function NotificationSettingsPage() {
             <Typography variant="subtitle1" fontWeight={800} px={2} pt={2}>
               {t('notificationSettings.recentLog')}
             </Typography>
+            {logError && (
+              <Alert severity="warning" sx={{ mx: 2, mt: 1.5 }}>
+                {logError}
+              </Alert>
+            )}
             {log.length === 0 ? (
               <Box px={2} py={4} textAlign="center">
                 <Typography variant="body2" color="text.secondary">
