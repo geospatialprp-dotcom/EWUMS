@@ -9,11 +9,12 @@ interface SurfaceCardProps {
   darkHeader?: boolean;
   flush?: boolean;
   contentSx?: Record<string, unknown>;
+  cardSx?: Record<string, unknown>;
 }
 
-export default function SurfaceCard({ title, header, children, darkHeader, flush, contentSx }: SurfaceCardProps) {
+export default function SurfaceCard({ title, header, children, darkHeader, flush, contentSx, cardSx }: SurfaceCardProps) {
   return (
-    <Card elevation={0} sx={surfaceCardSx()}>
+    <Card elevation={0} sx={{ ...surfaceCardSx(), ...cardSx }}>
       {(title || header) && (
         darkHeader ? (
           <Box sx={surfaceCardHeaderSx()}>

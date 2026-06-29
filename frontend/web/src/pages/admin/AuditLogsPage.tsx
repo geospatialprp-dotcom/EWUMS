@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 
-import { Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import {
+  Box, Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Typography, useMediaQuery, useTheme,
+} from '@mui/material';
 
 import { auditApi } from '../../services/api';
 
@@ -51,7 +54,42 @@ function formatUser(entry: AuditEntry): string {
   return entry.userId ?? '—';
 }
 
+function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor: (action: string) => string }) {
+  return (
+    <Box
+      sx={{
+        border: '1px solid #e2e8f0',
+        borderRadius: 1.5,
+        p: 1.5,
+        bgcolor: '#fff',
+      }}
+    >
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+        {new Date(log.createdAt).toLocaleString()}
+      </Typography>
+      <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
+        {formatUser(log)}
+      </Typography>
+      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.75 }}>
+        <Chip label={log.action} size="small" color={actionColor(log.action) as 'success'} />
+        <Typography variant="caption" color="text.secondary">
+          {log.resourceType ?? '—'}
+        </Typography>
+      </Stack>
+      <Typography variant="caption" fontFamily="monospace" display="block">
+        {log.ipAddress ?? '—'} · {log.location ?? '—'}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+        {JSON.stringify(log.details).slice(0, 120)}
+      </Typography>
+    </Box>
+  );
+}
+
 export default function AuditLogsPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -68,6 +106,9 @@ export default function AuditLogsPage() {
     return 'default';
   };
 
+  const tableCellSx = isMobile ? {} : stickyFirstColSx;
+  const tableHeadColSx = isMobile ? {} : stickyHeadColSx;
+
   return (
     <PageShell loading={loading} loadingLabel="Loading audit trail…">
       <PageHeader
@@ -76,67 +117,84 @@ export default function AuditLogsPage() {
         accent="slate"
       />
 
-      <SurfaceCard title="Activity Log" flush contentSx={{ overflow: 'visible' }}>
-        <TableContainer
-          sx={{
-            maxWidth: '100%',
-            overflowX: 'auto',
-            WebkitOverflowScrolling: 'touch',
-            overscrollBehaviorX: 'contain',
-          }}
-        >
-          <Table
-            size="small"
-            stickyHeader
+      <SurfaceCard
+        title="Activity Log"
+        flush
+        cardSx={{ overflow: 'visible' }}
+        contentSx={{ overflow: 'visible', minWidth: 0 }}
+      >
+        {isMobile ? (
+          <Stack spacing={1} sx={{ px: 1.5, py: 1.5 }}>
+            {logs.map((log) => (
+              <AuditLogMobileCard key={log.id} log={log} actionColor={actionColor} />
+            ))}
+          </Stack>
+        ) : (
+          <TableContainer
             sx={{
-              ...dataTableSx(),
-              minWidth: AUDIT_TABLE_MIN_WIDTH,
-              border: 'none',
-              overflow: 'visible',
+              width: '100%',
+              maxWidth: '100%',
+              overflowX: 'auto',
+              overflowY: 'visible',
+              WebkitOverflowScrolling: 'touch',
+              overscrollBehaviorX: 'contain',
+              touchAction: 'pan-x pan-y',
             }}
           >
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ ...stickyHeadColSx, minWidth: 148, whiteSpace: 'nowrap' }}>
-                  Timestamp
-                </TableCell>
-                <TableCell sx={{ minWidth: 160 }}>User</TableCell>
-                <TableCell sx={{ minWidth: 120 }}>Action</TableCell>
-                <TableCell sx={{ minWidth: 100 }}>Resource</TableCell>
-                <TableCell sx={{ minWidth: 120 }}>IP Address</TableCell>
-                <TableCell sx={{ minWidth: 100 }}>Location</TableCell>
-                <TableCell sx={{ minWidth: 180 }}>Details</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {logs.map((log) => (
-                <TableRow key={log.id} hover>
-                  <TableCell sx={{ ...stickyFirstColSx, whiteSpace: 'nowrap', minWidth: 148 }}>
-                    {new Date(log.createdAt).toLocaleString()}
+            <Table
+              size="small"
+              stickyHeader
+              sx={{
+                ...dataTableSx(),
+                minWidth: AUDIT_TABLE_MIN_WIDTH,
+                width: AUDIT_TABLE_MIN_WIDTH,
+                border: 'none',
+                overflow: 'visible',
+              }}
+            >
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ ...tableHeadColSx, minWidth: 148, whiteSpace: 'nowrap' }}>
+                    Timestamp
                   </TableCell>
-                  <TableCell sx={{ minWidth: 160 }}>
-                    <Typography variant="body2">{formatUser(log)}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ minWidth: 120 }}>
-                    <Chip label={log.action} size="small" color={actionColor(log.action) as 'success'} />
-                  </TableCell>
-                  <TableCell sx={{ minWidth: 100 }}>{log.resourceType ?? '—'}</TableCell>
-                  <TableCell sx={{ minWidth: 120 }}>
-                    <Typography variant="body2" fontFamily="monospace">
-                      {log.ipAddress ?? '—'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ minWidth: 100 }}>{log.location ?? '—'}</TableCell>
-                  <TableCell sx={{ minWidth: 180 }}>
-                    <Typography variant="caption" sx={{ whiteSpace: 'nowrap' }}>
-                      {JSON.stringify(log.details).slice(0, 80)}
-                    </Typography>
-                  </TableCell>
+                  <TableCell sx={{ minWidth: 160 }}>User</TableCell>
+                  <TableCell sx={{ minWidth: 120 }}>Action</TableCell>
+                  <TableCell sx={{ minWidth: 100 }}>Resource</TableCell>
+                  <TableCell sx={{ minWidth: 120 }}>IP Address</TableCell>
+                  <TableCell sx={{ minWidth: 100 }}>Location</TableCell>
+                  <TableCell sx={{ minWidth: 180 }}>Details</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {logs.map((log) => (
+                  <TableRow key={log.id} hover>
+                    <TableCell sx={{ ...tableCellSx, whiteSpace: 'nowrap', minWidth: 148 }}>
+                      {new Date(log.createdAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 160 }}>
+                      <Typography variant="body2">{formatUser(log)}</Typography>
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 120 }}>
+                      <Chip label={log.action} size="small" color={actionColor(log.action) as 'success'} />
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 100 }}>{log.resourceType ?? '—'}</TableCell>
+                    <TableCell sx={{ minWidth: 120 }}>
+                      <Typography variant="body2" fontFamily="monospace">
+                        {log.ipAddress ?? '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 100 }}>{log.location ?? '—'}</TableCell>
+                    <TableCell sx={{ minWidth: 180 }}>
+                      <Typography variant="caption" sx={{ whiteSpace: 'nowrap' }}>
+                        {JSON.stringify(log.details).slice(0, 80)}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </SurfaceCard>
     </PageShell>
   );

@@ -21,6 +21,7 @@ export function pageShellSx(fullHeight = false) {
   return {
     p: { xs: 1.5, sm: 2, md: 3 },
     bgcolor: '#f1f5f9',
+    minWidth: 0,
     minHeight: fullHeight ? { xs: 'calc(100vh - 56px)', sm: 'calc(100vh - 68px)' } : undefined,
     overflow: fullHeight ? 'auto' : undefined,
   };

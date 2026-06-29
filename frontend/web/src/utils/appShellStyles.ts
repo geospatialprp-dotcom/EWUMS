@@ -1,9 +1,12 @@
 export const DRAWER_WIDTH = 260;
 export const DRAWER_WIDTH_MINI = 72;
 
+/** Matches AppLayout Toolbar minHeight — keep drawer brand block in sync on md+. */
+export const APP_TOOLBAR_MIN_HEIGHT = { xs: 64, sm: 68 };
+
 /** App bar + main content vertical offset (matches AppLayout Toolbar minHeight). */
 export function appMainTopOffsetSx() {
-  return { mt: { xs: '64px', sm: '68px' } };
+  return { mt: { xs: `${APP_TOOLBAR_MIN_HEIGHT.xs}px`, sm: `${APP_TOOLBAR_MIN_HEIGHT.sm}px` } };
 }
 
 /** Full-height page content below the app bar. */
@@ -26,13 +29,12 @@ export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
 export function appDrawerBrandSx() {
   return {
     px: 2,
-    py: 1.5,
-    minHeight: 88,
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
     borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
     background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #334155 100%)',
+    boxSizing: 'border-box',
   };
 }
 

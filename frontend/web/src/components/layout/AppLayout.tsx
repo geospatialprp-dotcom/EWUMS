@@ -49,6 +49,7 @@ import {
   appNavItemSx,
   appNavSectionLabelSx,
   appTouchIconButtonSx,
+  APP_TOOLBAR_MIN_HEIGHT,
   DRAWER_WIDTH,
   DRAWER_WIDTH_MINI,
 } from '../../utils/appShellStyles';
@@ -149,30 +150,39 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <Box sx={[
         appDrawerBrandSx(),
         {
-          minHeight: drawerCollapsed ? 56 : 88,
+          minHeight: drawerCollapsed
+            ? 56
+            : { xs: 88, md: APP_TOOLBAR_MIN_HEIGHT.sm },
+          height: { md: drawerCollapsed ? 56 : APP_TOOLBAR_MIN_HEIGHT.sm },
           px: drawerCollapsed ? 1 : 2,
+          py: { xs: 1.5, md: 0 },
           ...(drawerCollapsed ? { alignItems: 'center' as const } : {}),
         },
       ]}>
         {!drawerCollapsed && (
-          <>
-            {!isMobile && (
-              <Box sx={{ display: { md: 'flex' }, alignItems: 'center', gap: 1, mb: 0.75 }}>
-                <AppLogo height={40} />
+          isMobile ? (
+            <>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+                <AppLogo height={36} />
               </Box>
-            )}
-            <Typography variant="overline" sx={appDrawerEyebrowSx()}>
-              {APP_BRAND.sidebarEyebrow}
-            </Typography>
-            <Typography variant="subtitle1" sx={appDrawerNameSx()}>
-              {APP_BRAND.name}
-            </Typography>
-            {isMobile && (
+              <Typography variant="overline" sx={appDrawerEyebrowSx()}>
+                {APP_BRAND.sidebarEyebrow}
+              </Typography>
+              <Typography variant="subtitle1" sx={appDrawerNameSx()}>
+                {APP_BRAND.name}
+              </Typography>
               <Typography variant="caption" sx={{ color: '#94a3b8', mt: 0.75, lineHeight: 1.35, display: 'block' }}>
                 {APP_BRAND.headerTitle}
               </Typography>
-            )}
-          </>
+            </>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.25, minWidth: 0 }}>
+              <AppLogo height={32} />
+              <Typography variant="overline" sx={appDrawerEyebrowSx()}>
+                {APP_BRAND.sidebarEyebrow}
+              </Typography>
+            </Box>
+          )
         )}
         {!isMobile && !isDesktop && (
           <IconButton
@@ -238,7 +248,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       >
         <Toolbar
           sx={{
-            minHeight: { xs: 64, sm: 68 },
+            minHeight: APP_TOOLBAR_MIN_HEIGHT,
             gap: { xs: 0.5, sm: 1 },
             px: { xs: 1, sm: 2 },
             py: { sm: 0.5 },
@@ -371,7 +381,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ...appMainTopOffsetSx(),
           minHeight: 0,
           minWidth: 0,
-          overflow: 'auto',
+          overflowY: 'auto',
+          overflowX: 'hidden',
           WebkitOverflowScrolling: 'touch',
         }}
       >
