@@ -43,6 +43,8 @@ import {
   appBarTitleSx,
   appBarUserBlockSx,
   appBarUserNameSx,
+  appHeaderActionItemSx,
+  appHeaderActionsSx,
   appDrawerBrandHeightSx,
   appDrawerBrandSx,
   appDrawerBrandInnerSx,
@@ -235,6 +237,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         sx={{
           ...appBarSx(),
           zIndex: (t) => t.zIndex.drawer + 1,
+          overflow: 'visible',
           width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` },
           ml: { xs: 0, md: `${drawerWidth}px` },
           transition: 'width 0.2s ease, margin 0.2s ease',
@@ -274,23 +277,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <Box sx={{ flex: { xs: '0 0 auto', md: 1 }, minWidth: { xs: 0, md: 16 } }} />
 
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              flexShrink: 0,
-              minWidth: 0,
-              gap: { xs: 0.25, sm: 0.5, md: 1 },
-              flexWrap: 'nowrap',
-              ml: 'auto',
-            }}
-          >
+          <Box sx={appHeaderActionsSx()}>
             <DivisionSwitcher />
-            <Box sx={{ display: { xs: 'none', sm: 'block' }, flexShrink: 0 }}>
+            <Box sx={{ ...appHeaderActionItemSx(), display: { xs: 'none', sm: 'flex' } }}>
               <LanguageSwitcher />
             </Box>
-            <NotificationBell />
-            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+            {user && (
+              <Box sx={appHeaderActionItemSx()}>
+                <NotificationBell />
+              </Box>
+            )}
+            <Box sx={{ ...appHeaderActionItemSx(), display: { xs: 'none', sm: 'flex' } }}>
               <HelpPanel />
             </Box>
 

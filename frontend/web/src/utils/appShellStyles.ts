@@ -258,9 +258,38 @@ export function appBarBrandRowSx() {
     alignItems: 'center',
     gap: { xs: 0.75, sm: 1, md: 1.25 },
     minWidth: 0,
-    flex: { xs: '1 1 0', md: '0 1 auto' },
-    maxWidth: { md: '48%', lg: '54%' },
+    flex: { xs: '1 1 auto', md: '0 1 auto' },
+    // Reserve space for menu + division + notification bell + account controls on small screens.
+    maxWidth: {
+      xs: 'calc(100% - 244px)',
+      sm: 'calc(100% - 304px)',
+      md: '48%',
+      lg: '54%',
+    },
     overflow: 'hidden',
+  };
+}
+
+/** Right-side header toolbar (language, bell, help, account). Never shrink or clip. */
+export function appHeaderActionsSx() {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+    flexWrap: 'nowrap' as const,
+    minWidth: 0,
+    gap: { xs: 0.25, sm: 0.5, md: 1 },
+    ml: 'auto',
+    position: 'relative' as const,
+    zIndex: 2,
+  };
+}
+
+export function appHeaderActionItemSx() {
+  return {
+    display: 'flex',
+    flexShrink: 0,
+    alignItems: 'center',
   };
 }
 

@@ -61,6 +61,7 @@ export const en = {
     success: 'Success',
     warning: 'Warning',
     info: 'Info',
+    notifications: 'Notifications',
     noData: 'No data available',
     requestFailed: 'Request failed.',
     workflowSteps: 'Workflow steps',

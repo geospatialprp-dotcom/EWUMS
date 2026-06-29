@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Component, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Badge,
@@ -18,6 +18,7 @@ import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
 import { workflowsApi, WorkflowInboxItem } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { useDivisionScopeKey } from '../../context/DivisionContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { appTouchIconButtonSx } from '../../utils/appShellStyles';
@@ -44,7 +45,42 @@ function formatModuleLabel(resourceType: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function NotificationBell() {
+type NotificationBellErrorBoundaryProps = {
+  children: ReactNode;
+  fallbackLabel: string;
+};
+
+type NotificationBellErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class NotificationBellErrorBoundary extends Component<
+  NotificationBellErrorBoundaryProps,
+  NotificationBellErrorBoundaryState
+> {
+  state: NotificationBellErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): NotificationBellErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <IconButton
+          aria-label={this.props.fallbackLabel}
+          disabled
+          sx={{ color: '#475569', flexShrink: 0, ...appTouchIconButtonSx() }}
+        >
+          <NotificationsOutlinedIcon fontSize="small" />
+        </IconButton>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function NotificationBellInner() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const divisionScopeKey = useDivisionScopeKey();
@@ -115,11 +151,12 @@ export default function NotificationBell() {
   return (
     <>
       <Tooltip title={t('notificationBell.title')}>
-        <IconButton
-          onClick={handleOpen}
-          aria-label={t('common.notifications')}
-          sx={{ color: '#475569', ...appTouchIconButtonSx() }}
-        >
+        <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0, lineHeight: 0 }}>
+          <IconButton
+            onClick={handleOpen}
+            aria-label={t('common.notifications')}
+            sx={{ color: '#475569', flexShrink: 0, ...appTouchIconButtonSx() }}
+          >
           <Badge
             badgeContent={count}
             color="error"
@@ -139,7 +176,8 @@ export default function NotificationBell() {
           >
             <NotificationsOutlinedIcon fontSize="small" />
           </Badge>
-        </IconButton>
+          </IconButton>
+        </Box>
       </Tooltip>
 
       <Popover
@@ -288,5 +326,18 @@ export default function NotificationBell() {
         </Box>
       </Popover>
     </>
+  );
+}
+
+export default function NotificationBell() {
+  const { user } = useAuth();
+  const { t } = useTranslation();
+
+  if (!user) return null;
+
+  return (
+    <NotificationBellErrorBoundary fallbackLabel={t('common.notifications')}>
+      <NotificationBellInner />
+    </NotificationBellErrorBoundary>
   );
 }

@@ -93,6 +93,7 @@ export const hi: {
     success: 'सफल',
     warning: 'चेतावनी',
     info: 'जानकारी',
+    notifications: 'सूचनाएँ',
     noData: 'कोई डेटा उपलब्ध नहीं',
     requestFailed: 'अनुरोध विफल।',
     workflowSteps: 'वर्कफ़्लो चरण',
