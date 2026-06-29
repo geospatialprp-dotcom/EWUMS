@@ -42,7 +42,7 @@ export const DPR_STATUS_LABELS: Record<DprProposalStatus, string> = {
   proposal_draft: 'Proposal Draft',
   proposal_submitted: 'Submitted to HQ',
   hq_review: 'HQ Review',
-  proposal_returned: 'Returned for Clarification',
+  proposal_returned: 'Returned to Division EE',
   proposal_rejected: 'Proposal Rejected',
   dpr_prep_approved: 'DPR Preparation Approved',
   dpr_preparation: 'DPR Preparation in Progress',

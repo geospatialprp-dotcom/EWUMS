@@ -77,6 +77,7 @@ type DashboardData = {
   sanctioned?: number;
   tacPending?: number;
   hqPending?: number;
+  returnedFromHq?: number;
   dprPreparationInProgress?: number;
   secretariatPending?: number;
   tacRound2Pending?: number;
@@ -331,6 +332,7 @@ export default function DprPlanningPage() {
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Total Proposals" value={dashboard.total ?? 0} tone="blue" /></Grid>
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="DPR Preparation" value={dashboard.dprPreparationInProgress ?? 0} tone="blue" /></Grid>
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="HQ Review Pending" value={dashboard.hqPending ?? 0} tone="amber" /></Grid>
+        <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Returned to Division" value={dashboard.returnedFromHq ?? 0} tone="amber" /></Grid>
         <Grid item xs={12}>
           <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ letterSpacing: '0.08em', textTransform: 'uppercase', mt: 0.5, display: 'block' }}>
             Technical & secretariat review
@@ -377,7 +379,10 @@ export default function DprPlanningPage() {
                   hover
                   onMouseEnter={() => setTrackerStage(row.currentStage)}
                   onMouseLeave={() => setTrackerStage(undefined)}
-                  sx={{ '&:hover': { bgcolor: '#f8fafc' } }}
+                  sx={{
+                    '&:hover': { bgcolor: '#f8fafc' },
+                    ...(row.status === 'proposal_returned' ? { bgcolor: '#fffbeb' } : {}),
+                  }}
                 >
                   <TableCell>
                     <Typography variant="body2" fontWeight={700} color="primary.main">{row.proposalNo}</Typography>
@@ -480,7 +485,7 @@ export default function DprPlanningPage() {
                     )}
                     {['proposal_draft', 'proposal_returned'].includes(row.status) && (
                       <Button size="small" startIcon={<EditNoteOutlinedIcon />} onClick={() => setStage1Open(row.id)}>
-                        Stage 1
+                        {row.status === 'proposal_returned' ? 'Revise & Resubmit' : 'Stage 1'}
                       </Button>
                     )}
                     <Button size="small" variant="outlined" onClick={() => setDocOpen(row)}>Documents</Button>

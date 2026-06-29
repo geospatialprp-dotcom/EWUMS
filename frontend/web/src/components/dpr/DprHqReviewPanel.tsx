@@ -241,7 +241,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
                   helperText={
                     action === 'approve'
                       ? 'Upon approval, a DPR Preparation Order will be issued and status changes to DPR Preparation Approved.'
-                      : 'Division EE will be notified to revise and resubmit.'
+                      : 'Division EE will see this proposal as returned and can revise and resubmit from Stage 1.'
                   }
                 />
               </>

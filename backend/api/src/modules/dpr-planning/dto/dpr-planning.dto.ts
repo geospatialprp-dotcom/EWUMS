@@ -127,8 +127,8 @@ export class ResubmitRevisedDprDto {
 }
 
 export class HqReviewDprProposalDto {
-  @IsIn(['approve', 'return', 'reject'])
-  action: 'approve' | 'return' | 'reject';
+  @IsIn(['approve', 'return', 'return_to_division', 'reject'])
+  action: 'approve' | 'return' | 'return_to_division' | 'reject';
 
   @IsOptional()
   @IsString()

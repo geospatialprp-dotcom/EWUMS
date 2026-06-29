@@ -18,7 +18,7 @@ export const DPR_PLANNING_STAGES = [
 export const DPR_ACTION_LABELS: Record<string, string> = {
   submit: 'Forward to HQ',
   approve: 'Approve',
-  return: 'Return for Clarification',
+  return: 'Return to Division EE',
   reject: 'Reject',
   request_corrections: 'Request Corrections',
   request_info: 'Request Additional Information',
@@ -113,7 +113,7 @@ export const DPR_HQ_VERIFICATION_ITEMS = [
 
 export const DPR_HQ_ACTION_LABELS: Record<string, string> = {
   approve: 'Approve DPR Preparation',
-  return: 'Return for Clarification',
+  return: 'Return to Division EE',
   reject: 'Reject Proposal',
 };
 

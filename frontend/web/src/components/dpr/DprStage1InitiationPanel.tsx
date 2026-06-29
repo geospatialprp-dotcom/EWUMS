@@ -13,6 +13,7 @@ import { dprPlanningApi } from '../../services/api';
 import { DPR_STAGE_1_DOCUMENT_TYPES } from '../../constants/dprPlanningWorkflow';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
+import BilingualTextDisplay from '../forms/BilingualTextDisplay';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
 import { parseBilingualText, serializeBilingualText, type BilingualText } from '../../utils/bilingualText';
 import { DprDialogHeader, dprDialogActionsSx, dprDialogContentSx, dprDialogPaperSx } from './dprUi';
@@ -49,6 +50,8 @@ type ProposalDetail = {
   longitude?: number | null;
   documentSlots?: DocSlot[];
   stage1Readiness?: Stage1Readiness;
+  hqRemarks?: string | null;
+  hqReviewedAt?: string | null;
 };
 
 function getApiError(err: unknown, fallback: string): string {
@@ -129,6 +132,7 @@ export default function DprStage1InitiationPanel({ open, proposalId, onClose, on
 
   const readiness = detail?.stage1Readiness;
   const editable = ['proposal_draft', 'proposal_returned'].includes(detail?.status ?? '');
+  const isReturned = detail?.status === 'proposal_returned';
 
   const saveDraft = async () => {
     if (!proposalId) return;
@@ -233,6 +237,24 @@ export default function DprStage1InitiationPanel({ open, proposalId, onClose, on
               {detail.title}
             </Typography>
             <Chip size="small" label={detail.statusLabel ?? detail.status} sx={{ mb: 2 }} />
+
+            {isReturned && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  HQ returned this proposal to your division for revision
+                </Typography>
+                {detail.hqRemarks ? (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                      HQ remarks{detail.hqReviewedAt ? ` (${new Date(detail.hqReviewedAt).toLocaleDateString('en-IN')})` : ''}:
+                    </Typography>
+                    <BilingualTextDisplay text={detail.hqRemarks} />
+                  </Box>
+                ) : (
+                  <Typography variant="body2">Revise the proposal and resubmit to HQ.</Typography>
+                )}
+              </Alert>
+            )}
 
             <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
               Proposal Details
@@ -375,7 +397,7 @@ export default function DprStage1InitiationPanel({ open, proposalId, onClose, on
             disabled={busy || !readiness?.canForwardToHq}
             onClick={forwardToHq}
           >
-            Forward to HQ for DPR Approval
+            {isReturned ? 'Resubmit to HQ' : 'Forward to HQ for DPR Approval'}
           </Button>
         )}
       </DialogActions>

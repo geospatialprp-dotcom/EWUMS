@@ -89,6 +89,7 @@ export class DprPlanningService {
     return {
       total: rows.length,
       hqPending: rows.filter((r) => ['hq_review', 'proposal_submitted'].includes(r.status)).length,
+      returnedFromHq: rows.filter((r) => r.status === 'proposal_returned').length,
       dprPreparationInProgress: rows.filter((r) => ['dpr_prep_approved', 'dpr_preparation'].includes(r.status)).length,
       sanctioned: rows.filter((r) => ['sanctioned', 'tender_prep_initiated', 'tender_processing', 'tender_published'].includes(r.status)).length,
       tacPending: rows.filter((r) => r.status.includes('tac') && !r.status.includes('cleared') && !r.status.includes('final') && !r.status.includes('concurrence')).length,
@@ -270,6 +271,8 @@ export class DprPlanningService {
     }
     this.assertCanReviewHq(roles);
 
+    const action = dto.action === 'return_to_division' ? 'return' : dto.action;
+
     const verification = {
       needAssessment: !!dto.needAssessment,
       budgetAvailability: !!dto.budgetAvailability,
@@ -289,7 +292,7 @@ export class DprPlanningService {
     let eventAction: string;
     let eventComments: string | undefined;
 
-    if (dto.action === 'approve') {
+    if (action === 'approve') {
       const missing = DPR_HQ_VERIFICATION_ITEMS.filter((item) => !verification[item.key]);
       if (missing.length) {
         throw new BadRequestException(
@@ -303,9 +306,9 @@ export class DprPlanningService {
       stage = 3;
       eventAction = 'hq_approve';
       eventComments = dto.remarks ?? `DPR Preparation Order ${orderNo} issued`;
-    } else if (dto.action === 'return') {
+    } else if (action === 'return') {
       if (!dto.remarks?.trim()) {
-        throw new BadRequestException('Remarks are required when returning proposal for clarification');
+        throw new BadRequestException('Remarks are required when returning proposal to Division EE');
       }
       toStatus = 'proposal_returned';
       stage = 1;
@@ -335,7 +338,7 @@ export class DprPlanningService {
       userId,
       actorRole,
       eventComments,
-      dto.action === 'approve' ? { dprPrepOrderNo: saved.dprPrepOrderNo } : undefined,
+      action === 'approve' ? { dprPrepOrderNo: saved.dprPrepOrderNo } : undefined,
     );
     return this.toRecord(tenantId, saved, true);
   }
