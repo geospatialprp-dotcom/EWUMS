@@ -5,7 +5,6 @@ import {
   Stepper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography,
   useMediaQuery, useTheme,
 } from '@mui/material';
-import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
 import PendingActionsOutlinedIcon from '@mui/icons-material/PendingActionsOutlined';
@@ -25,9 +24,7 @@ import {
   COMPLAINT_SLA_RESOLUTION_MINS,
   OM_COMPLAINT_CHANNELS,
   OM_COMPLAINT_STATUS_LABELS,
-  OM_COMPLAINT_TYPES,
   OM_COMPLAINT_WORKFLOW,
-  channelChipColor,
   normalizeStatus,
   statusChipColor,
   type OmComplaintStatus,
@@ -36,7 +33,6 @@ import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import { formatCoordinatePair } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions, divisionScopeSubtitle } from '../../utils/divisionAccess';
-import { canPerformOperational } from '../../utils/operationalAccess';
 
 type ComplaintRow = {
   id: string;
@@ -70,8 +66,6 @@ type ComplaintRow = {
 
 type ProjectOption = { id: string; name: string; projectCode: string; divisionId?: string | null };
 type UserOption = { id: string; email: string; firstName?: string; lastName?: string };
-type ConsumerOption = { id: string; consumerCode: string; fhtcNumber: string; consumerName?: string | null };
-
 type StatusFilter = 'all' | 'open' | 'in_progress' | 'closed';
 
 function getApiError(err: unknown, fallback: string): string {
@@ -147,8 +141,7 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const canViewAll = useCanViewAllDivisions();
-  const { user, hasPermission } = useAuth();
-  const canRegisterComplaint = canPerformOperational(user?.roles, hasPermission, 'om:create');
+  const { user } = useAuth();
   const { activeDivision, scopeKey } = useDivisionScope();
   const { t } = useTranslation();
 
@@ -158,29 +151,14 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [projectsReady, setProjectsReady] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [consumers, setConsumers] = useState<ConsumerOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [summary, setSummary] = useState<Record<string, number | null>>({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const [createOpen, setCreateOpen] = useState(false);
   const [workflowOpen, setWorkflowOpen] = useState<ComplaintRow | null>(null);
   const [assigneesLoading, setAssigneesLoading] = useState(false);
-
-  const [createForm, setCreateForm] = useState({
-    complaintType: OM_COMPLAINT_TYPES[0].code,
-    channel: 'web_portal' as string,
-    description: '',
-    omConsumerId: '',
-    fhtcNumber: '',
-    mobile: '',
-    village: '',
-    priority: 'medium',
-    latitude: '',
-    longitude: '',
-  });
 
   const [advanceForm, setAdvanceForm] = useState({
     assignedTo: '',
@@ -256,49 +234,6 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
       loadAssignees(selectedProject.projectCode).then(setUsers);
     }
   }, [selectedProject, loadAssignees]);
-
-  useEffect(() => {
-    if (selectedProject?.projectCode) {
-      omApi.listConsumers({ projectCode: selectedProject.projectCode })
-        .then((res) => setConsumers(res.data ?? []))
-        .catch(() => setConsumers([]));
-    }
-  }, [selectedProject]);
-
-  const handleCreate = () => {
-    setBusy(true);
-    omApi.registerComplaint({
-      complaintType: createForm.complaintType,
-      channel: createForm.channel,
-      description: createForm.description.trim() || undefined,
-      projectCode: selectedProject?.projectCode,
-      omConsumerId: createForm.omConsumerId || undefined,
-      fhtcNumber: createForm.fhtcNumber.trim() || undefined,
-      mobile: createForm.mobile.trim() || undefined,
-      village: createForm.village.trim() || undefined,
-      priority: createForm.priority,
-      latitude: createForm.latitude ? Number(createForm.latitude) : undefined,
-      longitude: createForm.longitude ? Number(createForm.longitude) : undefined,
-    })
-      .then(() => {
-        setCreateOpen(false);
-        setCreateForm({
-          complaintType: OM_COMPLAINT_TYPES[0].code,
-          channel: 'web_portal',
-          description: '',
-          omConsumerId: '',
-          fhtcNumber: '',
-          mobile: '',
-          village: '',
-          priority: 'medium',
-          latitude: '',
-          longitude: '',
-        });
-        load();
-      })
-      .catch((err) => setError(getApiError(err, t('complaints.errors.registerFailed'))))
-      .finally(() => setBusy(false));
-  };
 
   const openWorkflow = async (row: ComplaintRow) => {
     setWorkflowOpen(row);
@@ -601,17 +536,6 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
                   <MenuItem value="closed">{t('complaints.filters.closed')}</MenuItem>
                 </Select>
               </FormControl>
-              {canRegisterComplaint && (
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<AddOutlinedIcon />}
-                  onClick={() => { setError(''); setCreateOpen(true); }}
-                  sx={{ bgcolor: '#f97316', '&:hover': { bgcolor: '#ea580c' } }}
-                >
-                  {t('complaints.register')}
-                </Button>
-              )}
             </Box>
           </Box>
         )}
@@ -702,103 +626,6 @@ export default function ConsumerComplaintsWorkspace({ embedded = false }: Consum
           </TableContainer>
         )}
       </SurfaceCard>
-
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: omDialogPaperSx }}>
-        <OmDialogHeader stage={10} title={t('complaints.registerTitle')} busy={busy} />
-        <DialogContent sx={omDialogContentSx}>
-          <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>{t('complaints.form.type')}</InputLabel>
-                <Select
-                  label={t('complaints.form.type')}
-                  value={createForm.complaintType}
-                  onChange={(e) => setCreateForm({ ...createForm, complaintType: e.target.value })}
-                >
-                  {OM_COMPLAINT_TYPES.map((typ) => (
-                    <MenuItem key={typ.code} value={typ.code}>{typ.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>{t('complaints.form.channel')}</InputLabel>
-                <Select
-                  label={t('complaints.form.channel')}
-                  value={createForm.channel}
-                  onChange={(e) => setCreateForm({ ...createForm, channel: e.target.value })}
-                >
-                  {OM_COMPLAINT_CHANNELS.map((c) => (
-                    <MenuItem key={c.code} value={c.code}>{c.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth size="small">
-                <InputLabel>{t('complaints.form.linkedConsumer')}</InputLabel>
-                <Select
-                  label={t('complaints.form.linkedConsumer')}
-                  value={createForm.omConsumerId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    const c = consumers.find((x) => x.id === id);
-                    setCreateForm({
-                      ...createForm,
-                      omConsumerId: id,
-                      fhtcNumber: c?.fhtcNumber ?? createForm.fhtcNumber,
-                    });
-                  }}
-                >
-                  <MenuItem value="">{t('complaints.form.noConsumer')}</MenuItem>
-                  {consumers.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.consumerCode} — {c.fhtcNumber}
-                      {c.consumerName ? ` (${c.consumerName})` : ''}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth size="small" label={t('complaints.form.fhtc')} value={createForm.fhtcNumber} onChange={(e) => setCreateForm({ ...createForm, fhtcNumber: e.target.value })} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth size="small" label={t('complaints.form.mobile')} value={createForm.mobile} onChange={(e) => setCreateForm({ ...createForm, mobile: e.target.value })} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth size="small" label={t('complaints.form.village')} value={createForm.village} onChange={(e) => setCreateForm({ ...createForm, village: e.target.value })} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>{t('complaints.form.priority')}</InputLabel>
-                <Select label={t('complaints.form.priority')} value={createForm.priority} onChange={(e) => setCreateForm({ ...createForm, priority: e.target.value })}>
-                  <MenuItem value="low">{t('complaints.priority.low')}</MenuItem>
-                  <MenuItem value="medium">{t('complaints.priority.medium')}</MenuItem>
-                  <MenuItem value="high">{t('complaints.priority.high')}</MenuItem>
-                  <MenuItem value="critical">{t('complaints.priority.critical')}</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth size="small" label={t('complaints.form.latitude')} type="number" value={createForm.latitude} onChange={(e) => setCreateForm({ ...createForm, latitude: e.target.value })} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth size="small" label={t('complaints.form.longitude')} type="number" value={createForm.longitude} onChange={(e) => setCreateForm({ ...createForm, longitude: e.target.value })} />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth size="small" label={t('complaints.form.description')} multiline rows={3} value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={omDialogActionsSx}>
-          <Button onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={busy} sx={{ bgcolor: '#f97316', '&:hover': { bgcolor: '#ea580c' } }}>
-            {t('complaints.registerSubmit')}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       <Dialog open={!!workflowOpen} onClose={() => setWorkflowOpen(null)} maxWidth="md" fullWidth PaperProps={{ sx: omDialogPaperSx }}>
         <OmDialogHeader stage={10} title={t('complaints.workflowTitle')} subtitle={workflowOpen?.complaintNo} busy={busy} />
