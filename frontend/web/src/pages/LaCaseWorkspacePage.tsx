@@ -10,6 +10,7 @@ import RouteOutlinedIcon from '@mui/icons-material/RouteOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
+import VerifiedOutlinedIcon from '@mui/icons-material/VerifiedOutlined';
 import type { FeatureCollection } from 'geojson';
 import axios from 'axios';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
@@ -69,6 +70,7 @@ export default function LaCaseWorkspacePage() {
   const [importedPipelineFileName, setImportedPipelineFileName] = useState<string | null>(null);
   const [caseGis, setCaseGis] = useState<LaGisDashboardData | null>(null);
   const [routingCriteria, setRoutingCriteria] = useState<Array<{ code: string; label: string; defaultWeight: number }>>([]);
+  const [verifyingParcelId, setVerifyingParcelId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     if (!caseId) return;
@@ -142,6 +144,36 @@ export default function LaCaseWorkspacePage() {
       .finally(() => setBusy(false));
   };
 
+  const verifyParcelSurvey = (parcelId: string) => {
+    setVerifyingParcelId(parcelId);
+    setError('');
+    landAcquisitionApi.updateParcel(parcelId, { status: 'surveyed' })
+      .then((res) => {
+        setDetail(res.data as Record<string, unknown>);
+        setSuccess('Parcel survey verified — khasra and owner confirmed on field records');
+      })
+      .catch((err) => setError(getApiError(err, 'Survey verification failed')))
+      .finally(() => setVerifyingParcelId(null));
+  };
+
+  const verifyAllPendingSurveys = () => {
+    const list = (detail?.parcels as Array<Record<string, unknown>>) ?? [];
+    const pending = list.filter((p) => String(p.status ?? '') === 'identified');
+    if (!pending.length) return;
+    setBusy(true);
+    setError('');
+    Promise.all(
+      pending.map((p) => landAcquisitionApi.updateParcel(String(p.id), { status: 'surveyed' })),
+    )
+      .then((results) => {
+        const last = results[results.length - 1]?.data as Record<string, unknown>;
+        if (last) setDetail(last);
+        setSuccess(`Survey verified for ${pending.length} parcel(s)`);
+      })
+      .catch((err) => setError(getApiError(err, 'Bulk survey verification failed')))
+      .finally(() => setBusy(false));
+  };
+
   if (!caseId) return null;
 
   const parcels = (detail?.parcels as Array<Record<string, unknown>>) ?? [];
@@ -157,6 +189,7 @@ export default function LaCaseWorkspacePage() {
   const layerReadiness = (detail?.layerReadiness as LaLayerReadinessRow[]) ?? [];
   const nextAction = detail?.nextAction as { label?: string } | null;
   const parcelCount = parcels.length || Number(detail?.totalParcels ?? 0);
+  const pendingSurveyCount = parcels.filter((p) => String(p.status ?? '') === 'identified').length;
   const alignmentCount = ((detail?.alignments as unknown[]) ?? []).length;
   const alignments = (detail?.alignments as Array<{ lengthM?: number }>) ?? [];
   const alignmentLengthM = alignments.reduce((sum, a) => sum + Number(a.lengthM ?? 0), 0);
@@ -425,7 +458,32 @@ export default function LaCaseWorkspacePage() {
 
           {tab === 1 && (
             <SurfaceCard title="Affected Land Parcels — Automatic Detection">
-              <LaParcelsTable parcels={parcels} />
+              {pendingSurveyCount > 0 && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Typography variant="body2" gutterBottom>
+                    <strong>{pendingSurveyCount} parcel(s)</strong> are GIS-identified only. Confirm khasra, village,
+                    owner, and affected area on field survey records, then click <strong>Verify Survey</strong>.
+                  </Typography>
+                  {canUpdate && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<VerifiedOutlinedIcon />}
+                      sx={{ mt: 0.5 }}
+                      disabled={busy}
+                      onClick={verifyAllPendingSurveys}
+                    >
+                      Verify all pending ({pendingSurveyCount})
+                    </Button>
+                  )}
+                </Alert>
+              )}
+              <LaParcelsTable
+                parcels={parcels}
+                canUpdate={canUpdate}
+                verifyingParcelId={verifyingParcelId}
+                onVerifySurvey={canUpdate ? verifyParcelSurvey : undefined}
+              />
             </SurfaceCard>
           )}
 
