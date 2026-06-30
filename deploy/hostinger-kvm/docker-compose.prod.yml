@@ -89,6 +89,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
+    volumes:
+      # Use migrations from git checkout so `git pull` + migrate works without image rebuild
+      - ../../database:/repo/database:ro
     command: ["node", "scripts/apply-sql-migrations.js"]
     depends_on:
       postgres:
