@@ -48,6 +48,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=768
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_HOST: redis

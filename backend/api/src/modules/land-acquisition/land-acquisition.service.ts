@@ -690,7 +690,6 @@ export class LandAcquisitionService {
     const projectId = await this.resolveCaseProjectId(tenantId, user, laCase);
 
     const rowWidth = dto.rowWidthM ?? 6;
-    await this.alignmentRepo.delete({ tenantId, laCaseId: caseId });
 
     const codes = dto.featureClassCode
       ? [dto.featureClassCode]
@@ -700,10 +699,12 @@ export class LandAcquisitionService {
       .createQueryBuilder('fc')
       .where('fc.tenant_id = :tenantId', { tenantId })
       .andWhere('fc.project_id = :projectId', { projectId })
-      .andWhere('(fc.code IN (:...codes) OR fc.geometry_type = :lineType)', {
+      .andWhere('(fc.code IN (:...codes) OR fc.geometry_type IN (:...lineTypes))', {
         codes,
-        lineType: 'LineString',
+        lineTypes: ['LineString', 'MultiLineString', 'Any'],
       })
+      .orderBy("CASE WHEN fc.code = 'la_alignment' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('fc.sort_order', 'ASC')
       .getMany();
 
     if (!featureClasses.length) {
@@ -712,47 +713,83 @@ export class LandAcquisitionService {
       );
     }
 
-    let traced = 0;
-    for (const fc of featureClasses) {
-      const rows = await this.dataSource.query(
-        `SELECT pf.id, pf.attributes,
-                ST_AsGeoJSON(pf.geometry)::json AS geometry
-         FROM project_features pf
-         WHERE pf.tenant_id = $1 AND pf.project_id = $2 AND pf.feature_class_id = $3
-           AND pf.geometry IS NOT NULL
-           AND GeometryType(pf.geometry) IN ('LINESTRING', 'MULTILINESTRING')`,
-        [tenantId, projectId, fc.id],
-      ) as Array<{ id: string; attributes: Record<string, unknown>; geometry: object }>;
+    type AlignmentLineSource = {
+      featureId: string | null;
+      component: string;
+      attributes: Record<string, unknown>;
+      geometry: object;
+    };
+    const lineSources: AlignmentLineSource[] = [];
 
+    for (const fc of featureClasses) {
+      const rows = await this.autoRouteService.queryAlignmentLineFeatures(tenantId, projectId, fc.id);
       for (const row of rows) {
-        await this.dataSource.query(
-          `INSERT INTO la_alignment_segments
-            (tenant_id, la_case_id, project_id, feature_id, component, asset_type,
-             chainage_from, chainage_to, row_width_m, geometry, corridor_geometry, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-             ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($10), 4326)),
-             ST_Buffer(ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($10), 4326))::geography, $11)::geometry,
-             'traced')`,
-          [
-            tenantId,
-            caseId,
-            projectId,
-            row.id,
-            fc.code,
-            fc.code,
-            row.attributes?.chainage_from ?? row.attributes?.chainageFrom ?? null,
-            row.attributes?.chainage_to ?? row.attributes?.chainageTo ?? null,
-            rowWidth,
-            JSON.stringify(row.geometry),
-            rowWidth,
-          ],
-        );
-        traced += 1;
+        lineSources.push({
+          featureId: row.id,
+          component: fc.code,
+          attributes: row.attributes ?? {},
+          geometry: row.geometry,
+        });
       }
     }
 
-    if (!traced) {
-      throw new BadRequestException('No LineString features found in alignment feature classes');
+    if (!lineSources.length) {
+      const autoRouteLines = await this.autoRouteService.queryProjectAutoRouteLines(tenantId, projectId);
+      for (const row of autoRouteLines) {
+        lineSources.push({
+          featureId: row.id,
+          component: row.featureClassCode,
+          attributes: row.attributes ?? {},
+          geometry: row.geometry,
+        });
+      }
+    }
+
+    if (!lineSources.length) {
+      const segmentLines = await this.autoRouteService.queryAlignmentSegmentLines(tenantId, caseId);
+      for (const row of segmentLines) {
+        lineSources.push({
+          featureId: row.featureId,
+          component: row.component ?? 'la_alignment',
+          attributes: {},
+          geometry: row.geometry,
+        });
+      }
+    }
+
+    if (!lineSources.length) {
+      throw new BadRequestException(
+        'No LineString features found in alignment feature classes. Use Auto Route → Apply & Trace to save the pipeline centerline to la_alignment first.',
+      );
+    }
+
+    await this.alignmentRepo.delete({ tenantId, laCaseId: caseId });
+
+    let traced = 0;
+    for (const src of lineSources) {
+      await this.dataSource.query(
+        `INSERT INTO la_alignment_segments
+          (tenant_id, la_case_id, project_id, feature_id, component, asset_type,
+           chainage_from, chainage_to, row_width_m, geometry, corridor_geometry, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+           ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($10), 4326)),
+           ST_Buffer(ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($10), 4326))::geography, $11)::geometry,
+           'traced')`,
+        [
+          tenantId,
+          caseId,
+          projectId,
+          src.featureId,
+          src.component,
+          src.component,
+          src.attributes?.chainage_from ?? src.attributes?.chainageFrom ?? null,
+          src.attributes?.chainage_to ?? src.attributes?.chainageTo ?? null,
+          rowWidth,
+          JSON.stringify(src.geometry),
+          rowWidth,
+        ],
+      );
+      traced += 1;
     }
 
     laCase.status = 'gis_trace';
@@ -1265,26 +1302,23 @@ export class LandAcquisitionService {
 
     let start: [number, number] = [dto.start.lon, dto.start.lat];
     let end: [number, number] = [dto.end.lon, dto.end.lat];
-    if (dto.snapToImportedNetwork !== false && networkLines.length) {
-      const merged = await this.autoRouteService.mergeLineStrings(networkLines);
-      if (merged) {
-        if (dto.useImportedAsCorridor !== false) {
-          const extent = await this.autoRouteService.extractNetworkExtentEndpoints(merged);
-          if (extent) {
-            start = extent.start;
-            end = extent.end;
-          }
-        } else {
-          const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, merged);
-          start = snapped.start;
-          end = snapped.end;
-        }
-      }
-    }
-
     const mergedImported = networkLines.length
       ? await this.autoRouteService.mergeLineStrings(networkLines)
       : null;
+
+    if (dto.snapToImportedNetwork !== false && mergedImported) {
+      if (dto.useImportedAsCorridor !== false) {
+        const extent = await this.autoRouteService.extractNetworkExtentEndpoints(mergedImported);
+        if (extent) {
+          start = extent.start;
+          end = extent.end;
+        }
+      } else {
+        const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, mergedImported);
+        start = snapped.start;
+        end = snapped.end;
+      }
+    }
 
     const route = mergedImported && dto.useImportedAsCorridor !== false
       ? await this.autoRouteService.buildImportedNetworkRoute(
@@ -1343,26 +1377,23 @@ export class LandAcquisitionService {
 
     let start: [number, number] = [dto.start.lon, dto.start.lat];
     let end: [number, number] = [dto.end.lon, dto.end.lat];
-    if (dto.snapToImportedNetwork !== false && networkLines.length) {
-      const merged = await this.autoRouteService.mergeLineStrings(networkLines);
-      if (merged) {
-        if (dto.useImportedAsCorridor !== false) {
-          const extent = await this.autoRouteService.extractNetworkExtentEndpoints(merged);
-          if (extent) {
-            start = extent.start;
-            end = extent.end;
-          }
-        } else {
-          const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, merged);
-          start = snapped.start;
-          end = snapped.end;
-        }
-      }
-    }
-
     const mergedImported = networkLines.length
       ? await this.autoRouteService.mergeLineStrings(networkLines)
       : null;
+
+    if (dto.snapToImportedNetwork !== false && mergedImported) {
+      if (dto.useImportedAsCorridor !== false) {
+        const extent = await this.autoRouteService.extractNetworkExtentEndpoints(mergedImported);
+        if (extent) {
+          start = extent.start;
+          end = extent.end;
+        }
+      } else {
+        const snapped = await this.autoRouteService.snapEndpointsToLine(start, end, mergedImported);
+        start = snapped.start;
+        end = snapped.end;
+      }
+    }
 
     const route = dto.geometry
       ? await this.autoRouteService.buildImportedNetworkRoute(

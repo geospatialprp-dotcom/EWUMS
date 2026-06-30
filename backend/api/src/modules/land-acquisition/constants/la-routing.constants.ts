@@ -110,8 +110,17 @@ export type LaRoutingCriteriaCode = typeof LA_ROUTING_CRITERIA[number]['code'];
 export const LA_ROUTING_DEFAULTS = {
   gridCellSizeM: 50,
   maxGridCells: 8000,
+  /** Tighter cap when routing along an imported network (avoids OOM on wide bboxes). */
+  maxGridCellsImportedNetwork: 4000,
   paddingM: 400,
   roadSnapDistanceM: 25,
+  /** PostGIS / Node guard for heavy union + trace operations. */
+  gisQueryTimeoutMs: 120_000,
+  /** Imported SHP / GeoJSON limits — 17 segments is fine; cap prevents abuse. */
+  maxImportedSegments: 128,
+  maxVerticesPerLine: 8_000,
+  /** ST_Union chunk size — avoids single-query OOM on multi-segment networks. */
+  mergeChunkSize: 8,
 } as const;
 
 /** Base penalty multipliers (scaled by criteria weights 0–2) */

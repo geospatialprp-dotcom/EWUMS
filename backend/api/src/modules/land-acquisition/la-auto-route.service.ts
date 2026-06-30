@@ -108,11 +108,60 @@ export class LaAutoRouteService {
     sql: string,
     params: unknown[] = [],
   ): Promise<T> {
+    const timeoutMs = LA_ROUTING_DEFAULTS.gisQueryTimeoutMs;
+    return this.withGisTimeout(context, async () => {
+      try {
+        return await this.dataSource.transaction(async (manager) => {
+          await manager.query(`SET LOCAL statement_timeout = '${timeoutMs}ms'`);
+          return await manager.query(sql, params) as T;
+        });
+      } catch (error) {
+        throw this.toGisHttpException(context, error);
+      }
+    }, timeoutMs + 5_000);
+  }
+
+  private async withGisTimeout<T>(
+    context: string,
+    fn: () => Promise<T>,
+    timeoutMs: number,
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await this.dataSource.query(sql, params) as T;
-    } catch (error) {
-      throw this.toGisHttpException(context, error);
+      return await Promise.race([
+        fn(),
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new InternalServerErrorException(
+              `${context}: GIS operation timed out after ${Math.round(timeoutMs / 1000)}s`,
+            )),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
+  }
+
+  private validateImportedLines(
+    lines: Array<{ type: 'LineString'; coordinates: [number, number][] }>,
+  ): Array<{ type: 'LineString'; coordinates: [number, number][] }> {
+    const maxSegments = LA_ROUTING_DEFAULTS.maxImportedSegments;
+    const maxVertices = LA_ROUTING_DEFAULTS.maxVerticesPerLine;
+    if (lines.length > maxSegments) {
+      throw new BadRequestException(
+        `Imported network has ${lines.length} segments (max ${maxSegments}). Split the upload or simplify the source SHP.`,
+      );
+    }
+    return lines.map((line, index) => {
+      if (line.coordinates.length > maxVertices) {
+        throw new BadRequestException(
+          `Imported segment ${index + 1} has ${line.coordinates.length} vertices (max ${maxVertices}). Simplify the geometry before import.`,
+        );
+      }
+      return line;
+    });
   }
 
   private toGisHttpException(context: string, error: unknown): BadRequestException | InternalServerErrorException {
@@ -309,9 +358,12 @@ export class LaAutoRouteService {
   async generateRoute(input: AutoRouteInput): Promise<AutoRouteResult> {
     const cellSize = input.gridCellSizeM ?? LA_ROUTING_DEFAULTS.gridCellSizeM;
     const weights = normalizeRoutingWeights(input.weights);
+    const maxCells = input.networkCorridors?.length
+      ? LA_ROUTING_DEFAULTS.maxGridCellsImportedNetwork
+      : LA_ROUTING_DEFAULTS.maxGridCells;
 
     const [startUtm, endUtm] = await this.toUtmPoints(input.start, input.end);
-    const grid = this.buildGrid(startUtm, endUtm, cellSize);
+    const grid = this.buildGrid(startUtm, endUtm, cellSize, maxCells);
     const costs = await this.computeCellCosts(input.tenantId, input.projectId, grid, weights);
     const costMap = new Map<number, CostRow>();
     for (const row of costs) costMap.set(row.idx, row);
@@ -670,6 +722,7 @@ export class LaAutoRouteService {
       { x: bbox.minX, y: bbox.minY },
       { x: bbox.maxX, y: bbox.maxY },
       cellSize,
+      LA_ROUTING_DEFAULTS.maxGridCellsImportedNetwork,
     );
     const costs = await this.computeCellCosts(tenantId, projectId, grid, normalized);
     const costMap = new Map<number, CostRow>();
@@ -837,16 +890,21 @@ export class LaAutoRouteService {
 
     if (!lines.length) return lines;
 
+    const validated = this.validateImportedLines(lines);
+
     try {
       const rows = await this.gisQuery<Array<{ geom: { type: string; coordinates: [number, number][] } | null }>>(
         'Merge imported pipeline segments',
         `SELECT ST_AsGeoJSON((ST_Dump(geom)).geom)::json AS geom
          FROM (
-           SELECT ST_LineMerge(ST_Union(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326)))) AS geom
-           FROM jsonb_array_elements($1::jsonb) elem
+           SELECT ST_LineMerge(ST_Union(ST_SimplifyPreserveTopology(ST_MakeValid(geom), 0.00001))) AS geom
+           FROM (
+             SELECT ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326) AS geom
+             FROM jsonb_array_elements($1::jsonb) elem
+           ) parts
          ) merged
          WHERE geom IS NOT NULL`,
-        [JSON.stringify(lines)],
+        [JSON.stringify(validated)],
       );
 
       const dumped = rows
@@ -855,10 +913,38 @@ export class LaAutoRouteService {
           !!geom && geom.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2
         ));
 
-      return dumped.length ? dumped : lines;
+      return dumped.length ? dumped : validated;
     } catch {
-      return lines;
+      return validated;
     }
+  }
+
+  private async unionLineChunk(
+    lines: Array<{ type: 'LineString'; coordinates: [number, number][] }>,
+  ): Promise<{ type: 'LineString'; coordinates: [number, number][] } | null> {
+    if (!lines.length) return null;
+    if (lines.length === 1) return lines[0];
+    const rows = await this.gisQuery<Array<{ geom: { type: string; coordinates: [number, number][] } | null }>>(
+      'Union pipeline segment chunk',
+      `SELECT ST_AsGeoJSON(
+         ST_LineMerge(ST_Union(ST_SimplifyPreserveTopology(ST_MakeValid(geom), 0.00001)))
+       )::json AS geom
+       FROM (
+         SELECT ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326) AS geom
+         FROM jsonb_array_elements($1::jsonb) elem
+       ) parts`,
+      [JSON.stringify(lines)],
+    );
+    const geom = rows[0]?.geom;
+    if (geom?.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2) {
+      return { type: 'LineString', coordinates: geom.coordinates as [number, number][] };
+    }
+    if (geom?.type === 'MultiLineString' && Array.isArray(geom.coordinates)) {
+      const parts = geom.coordinates as unknown as [number, number][][];
+      const longest = parts.reduce((best, part) => (part.length > best.length ? part : best), parts[0]);
+      if (longest?.length >= 2) return { type: 'LineString', coordinates: longest };
+    }
+    return lines[0];
   }
 
   async mergeLineStrings(
@@ -872,15 +958,34 @@ export class LaAutoRouteService {
     lines: Array<{ type: 'LineString'; coordinates: [number, number][] }>,
   ): Promise<RouteGeometry | null> {
     if (!lines.length) return null;
+    const validated = this.validateImportedLines(lines);
+
     try {
+      let queue = [...validated];
+      const chunkSize = LA_ROUTING_DEFAULTS.mergeChunkSize;
+      while (queue.length > 1) {
+        const next: Array<{ type: 'LineString'; coordinates: [number, number][] }> = [];
+        for (let i = 0; i < queue.length; i += chunkSize) {
+          const chunk = queue.slice(i, i + chunkSize);
+          const merged = await this.unionLineChunk(chunk);
+          if (merged) next.push(merged);
+        }
+        if (!next.length) break;
+        queue = next;
+      }
+
+      if (queue.length === 1) {
+        return queue[0];
+      }
+
       const rows = await this.gisQuery<Array<{ geom: { type: string; coordinates: unknown } | null }>>(
         'Merge pipeline network geometry',
-        `SELECT ST_AsGeoJSON(ST_LineMerge(ST_Union(ST_MakeValid(geom))))::json AS geom
+        `SELECT ST_AsGeoJSON(ST_LineMerge(ST_Union(ST_SimplifyPreserveTopology(ST_MakeValid(geom), 0.00001))))::json AS geom
          FROM (
            SELECT ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326) AS geom
            FROM jsonb_array_elements($1::jsonb) elem
          ) t`,
-        [JSON.stringify(lines)],
+        [JSON.stringify(validated)],
       );
       const geom = rows[0]?.geom;
       if (geom?.coordinates && (geom.type === 'LineString' || geom.type === 'MultiLineString')) {
@@ -889,10 +994,10 @@ export class LaAutoRouteService {
     } catch {
       // Fall through — disconnected segments are returned as MultiLineString below.
     }
-    if (lines.length === 1) return lines[0];
+    if (validated.length === 1) return validated[0];
     return {
       type: 'MultiLineString',
-      coordinates: lines.map((line) => line.coordinates),
+      coordinates: validated.map((line) => line.coordinates),
     };
   }
 
@@ -948,23 +1053,33 @@ export class LaAutoRouteService {
   async extractNetworkExtentEndpoints(
     geometry: RouteGeometry,
   ): Promise<{ start: [number, number]; end: [number, number] } | null> {
-    const rows = await this.dataSource.query(
+    const rows = await this.gisQuery<Array<{ start_lon: number; start_lat: number; end_lon: number; end_lat: number }>>(
+      'Extract network extent endpoints',
       `WITH dumped AS (
          SELECT (ST_Dump(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))).geom AS geom
        ),
+       ranked AS (
+         SELECT geom, ST_Length(geom::geography) AS len
+         FROM dumped
+         WHERE GeometryType(geom) = 'LINESTRING' AND ST_NPoints(geom) >= 2
+         ORDER BY len DESC
+         LIMIT 32
+       ),
        endpoints AS (
-         SELECT ST_StartPoint(geom) AS pt FROM dumped
+         SELECT ST_StartPoint(geom) AS pt FROM ranked
          UNION ALL
-         SELECT ST_EndPoint(geom) AS pt FROM dumped
+         SELECT ST_EndPoint(geom) AS pt FROM ranked
+       ),
+       distinct_pts AS (
+         SELECT DISTINCT ON (ST_AsText(pt)) pt FROM endpoints
        ),
        pairs AS (
          SELECT
            a.pt AS start_pt,
            b.pt AS end_pt,
            ST_Distance(a.pt::geography, b.pt::geography) AS dist
-         FROM endpoints a
-         CROSS JOIN endpoints b
-         WHERE a.pt <> b.pt
+         FROM distinct_pts a
+         JOIN distinct_pts b ON a.pt < b.pt
        )
        SELECT
          ST_X(start_pt) AS start_lon,
@@ -975,7 +1090,7 @@ export class LaAutoRouteService {
        ORDER BY dist DESC
        LIMIT 1`,
       [JSON.stringify(geometry)],
-    ) as Array<{ start_lon: number; start_lat: number; end_lon: number; end_lat: number }>;
+    );
     const r = rows[0];
     if (!r) return null;
     return {
@@ -985,12 +1100,18 @@ export class LaAutoRouteService {
   }
 
   async ensureAlignmentFeatureClass(tenantId: string, projectId: string): Promise<ProjectFeatureClass> {
+    const laAlignment = await this.fcRepo.findOne({
+      where: { tenantId, projectId, code: 'la_alignment' },
+    });
+    if (laAlignment) return laAlignment;
+
     const existing = await this.fcRepo
       .createQueryBuilder('fc')
       .where('fc.tenant_id = :tenantId', { tenantId })
       .andWhere('fc.project_id = :projectId', { projectId })
       .andWhere('fc.code IN (:...codes)', { codes: [...LA_ALIGNMENT_FEATURE_CODES] })
-      .orderBy('fc.sort_order', 'ASC')
+      .orderBy("CASE WHEN fc.code = 'la_alignment' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('fc.sort_order', 'ASC')
       .getOne();
     if (existing) return existing;
 
@@ -1000,7 +1121,7 @@ export class LaAutoRouteService {
       code: 'la_alignment',
       name: 'LA Pipeline Alignment',
       description: 'Pipeline / transmission alignment for land acquisition',
-      geometryType: 'Any',
+      geometryType: 'LineString',
       attributeSchema: [
         { name: 'source', label: 'Source', type: 'text' },
         { name: 'chainage_from', label: 'Chainage From (m)', type: 'number' },
@@ -1011,14 +1132,83 @@ export class LaAutoRouteService {
     return this.fcRepo.save(created);
   }
 
-  async saveRouteFeature(
+  /** LineString parts from alignment feature classes (LineString or MultiLineString via ST_Dump). */
+  async queryAlignmentLineFeatures(
     tenantId: string,
     projectId: string,
     featureClassId: string,
+  ): Promise<Array<{ id: string; attributes: Record<string, unknown>; geometry: object }>> {
+    return this.gisQuery(
+      'Query alignment line features',
+      `SELECT pf.id, pf.attributes,
+              ST_AsGeoJSON(line_part.geom)::json AS geometry
+       FROM project_features pf
+       CROSS JOIN LATERAL (
+         SELECT (ST_Dump(ST_LineMerge(ST_Force2D(pf.geometry)))).geom AS geom
+       ) AS line_part
+       WHERE pf.tenant_id = $1 AND pf.project_id = $2 AND pf.feature_class_id = $3
+         AND pf.geometry IS NOT NULL
+         AND ST_GeometryType(line_part.geom) LIKE 'ST_LineString%'
+         AND ST_NPoints(line_part.geom) >= 2`,
+      [tenantId, projectId, featureClassId],
+    );
+  }
+
+  /** Fallback: line parts already traced on this case. */
+  async queryAlignmentSegmentLines(
+    tenantId: string,
+    caseId: string,
+  ): Promise<Array<{ featureId: string | null; component: string; geometry: object }>> {
+    return this.gisQuery(
+      'Query traced alignment segment lines',
+      `SELECT seg.feature_id AS "featureId", seg.component,
+              ST_AsGeoJSON(line_part.geom)::json AS geometry
+       FROM la_alignment_segments seg
+       CROSS JOIN LATERAL (
+         SELECT (ST_Dump(ST_LineMerge(ST_Force2D(seg.geometry)))).geom AS geom
+       ) AS line_part
+       WHERE seg.tenant_id = $1 AND seg.la_case_id = $2
+         AND seg.geometry IS NOT NULL
+         AND ST_GeometryType(line_part.geom) LIKE 'ST_LineString%'
+         AND ST_NPoints(line_part.geom) >= 2`,
+      [tenantId, caseId],
+    );
+  }
+
+  /** Last resort: auto-routed lines saved outside la_alignment code. */
+  async queryProjectAutoRouteLines(
+    tenantId: string,
+    projectId: string,
+  ): Promise<Array<{ id: string; attributes: Record<string, unknown>; geometry: object; featureClassCode: string }>> {
+    return this.gisQuery(
+      'Query project auto-route line features',
+      `SELECT pf.id, pf.attributes, fc.code AS "featureClassCode",
+              ST_AsGeoJSON(line_part.geom)::json AS geometry
+       FROM project_features pf
+       JOIN project_feature_classes fc ON fc.id = pf.feature_class_id
+       CROSS JOIN LATERAL (
+         SELECT (ST_Dump(ST_LineMerge(ST_Force2D(pf.geometry)))).geom AS geom
+       ) AS line_part
+       WHERE pf.tenant_id = $1 AND pf.project_id = $2
+         AND pf.geometry IS NOT NULL
+         AND COALESCE(pf.attributes->>'source', '') = 'auto_route'
+         AND ST_GeometryType(line_part.geom) LIKE 'ST_LineString%'
+         AND ST_NPoints(line_part.geom) >= 2
+       ORDER BY CASE WHEN fc.code = 'la_alignment' THEN 0 ELSE 1 END, pf.created_at DESC`,
+      [tenantId, projectId],
+    );
+  }
+
+  async saveRouteFeature(
+    tenantId: string,
+    projectId: string,
+    _featureClassId: string,
     userId: string,
     geometry: RouteGeometry,
     replaceAutoGenerated = true,
   ): Promise<string> {
+    const alignmentClass = await this.ensureAlignmentFeatureClass(tenantId, projectId);
+    const targetClassId = alignmentClass.id;
     const normalized = await this.normalizeRouteGeometry(geometry);
     const lineParts = await this.dumpRouteLineStrings(normalized);
 
@@ -1030,7 +1220,7 @@ export class LaAutoRouteService {
          WHERE pf.feature_class_id = fc.id
            AND pf.tenant_id = $1 AND pf.project_id = $2 AND fc.id = $3
            AND COALESCE(pf.attributes->>'source', '') = 'auto_route'`,
-        [tenantId, projectId, featureClassId],
+        [tenantId, projectId, targetClassId],
       );
     }
 
@@ -1045,7 +1235,7 @@ export class LaAutoRouteService {
         [
           tenantId,
           projectId,
-          featureClassId,
+          targetClassId,
           JSON.stringify(part),
           JSON.stringify({ source: 'auto_route', chainage_from: 0, chainage_to: null }),
           userId,
@@ -1073,7 +1263,12 @@ export class LaAutoRouteService {
     return [{ x: Number(r.sx), y: Number(r.sy) }, { x: Number(r.ex), y: Number(r.ey) }];
   }
 
-  private buildGrid(start: UtmPoint, end: UtmPoint, cellSize: number): GridCell[] {
+  private buildGrid(
+    start: UtmPoint,
+    end: UtmPoint,
+    cellSize: number,
+    maxCells: number = LA_ROUTING_DEFAULTS.maxGridCells,
+  ): GridCell[] {
     const padding = LA_ROUTING_DEFAULTS.paddingM;
     const minX = Math.min(start.x, end.x) - padding;
     const maxX = Math.max(start.x, end.x) + padding;
@@ -1082,7 +1277,7 @@ export class LaAutoRouteService {
 
     let cols = Math.ceil((maxX - minX) / cellSize);
     let rows = Math.ceil((maxY - minY) / cellSize);
-    while (cols * rows > LA_ROUTING_DEFAULTS.maxGridCells) {
+    while (cols * rows > maxCells) {
       cellSize *= 1.25;
       cols = Math.ceil((maxX - minX) / cellSize);
       rows = Math.ceil((maxY - minY) / cellSize);
