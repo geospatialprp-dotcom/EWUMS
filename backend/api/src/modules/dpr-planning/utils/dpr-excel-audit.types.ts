@@ -49,6 +49,8 @@ export type DprExcelAuditSummary = {
   formulasUnverified: number;
   calculationsVerified: number;
   totalErrors: number;
+  /** Distinct calculation sheets with at least one error */
+  errorSheetCount: number;
   errorPercentage: number;
   validationStatus: 'Pass' | 'Fail' | 'Warning';
   errors: DprAuditError[];
@@ -56,6 +58,8 @@ export type DprExcelAuditSummary = {
   errorsBySeverity: { critical: number; major: number; minor: number };
   firstErrorPageNo: number | null;
   firstErrorCellRef: string | null;
+  /** Compact one-line summary for UI: "BOQ validation PASSED" or "N errors in M sheets" */
+  summaryMessage: string;
 };
 
 export type DprExcelAuditReport = BoqValidationReport & {

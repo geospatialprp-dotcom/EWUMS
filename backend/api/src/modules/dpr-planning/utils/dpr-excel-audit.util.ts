@@ -837,6 +837,7 @@ export function buildExcelAudit(
   const ranked = rankErrors(dedupeErrors(errors));
   const totalChecks = calculationsVerified + formulasVerified + formulasUnverified;
   const totalErrors = ranked.length;
+  const errorSheetCount = new Set(ranked.map((e) => e.sheetName).filter(Boolean)).size;
   const errorsBySeverity = {
     critical: ranked.filter((e) => e.severity === 'critical').length,
     major: ranked.filter((e) => e.severity === 'major').length,
@@ -849,6 +850,10 @@ export function buildExcelAudit(
       ? 'Warning'
       : 'Fail';
 
+  const summaryMessage = totalErrors === 0
+    ? 'BOQ validation PASSED'
+    : `${totalErrors} error${totalErrors === 1 ? '' : 's'} in ${errorSheetCount} sheet${errorSheetCount === 1 ? '' : 's'}`;
+
   return {
     visibleSheetsChecked: visible.length,
     hiddenSheetsSkipped: hidden.length,
@@ -857,6 +862,7 @@ export function buildExcelAudit(
     formulasUnverified,
     calculationsVerified,
     totalErrors,
+    errorSheetCount,
     errorPercentage,
     validationStatus,
     errors: ranked.slice(0, MAX_STORED_ERRORS),
@@ -864,6 +870,7 @@ export function buildExcelAudit(
     errorsBySeverity,
     firstErrorPageNo: ranked[0]?.pageNo ?? baseReport.firstCalculationPageNo,
     firstErrorCellRef: ranked[0]?.cellRef ?? null,
+    summaryMessage,
   };
 }
 
@@ -875,7 +882,15 @@ export function attachExcelAudit(
 ): DprExcelAuditReport {
   try {
     const audit = buildExcelAudit(workbook, visible, hidden, report.pages, report.crossChecks, report);
-    return { ...report, audit };
+    return {
+      ...report,
+      summary: {
+        ...report.summary,
+        message: audit.summaryMessage,
+        issues: audit.totalErrors === 0 ? [] : [audit.summaryMessage],
+      },
+      audit,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Audit engine error';
     return {
@@ -888,8 +903,10 @@ export function attachExcelAudit(
         formulasUnverified: 0,
         calculationsVerified: 0,
         totalErrors: 0,
+        errorSheetCount: 0,
         errorPercentage: 0,
         validationStatus: report.status === 'passed' ? 'Pass' : report.status === 'warning' ? 'Warning' : 'Fail',
+        summaryMessage: report.summary.message,
         errors: [{
           sheetName: 'System',
           pageNo: 0,

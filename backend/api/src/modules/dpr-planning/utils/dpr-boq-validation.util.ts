@@ -706,14 +706,44 @@ function extractSheetKeyTotals(_sheet: XLSX.WorkSheet, _workbook: XLSX.WorkBook,
   return extractLabeledTotals(rows);
 }
 
+function slimLineIssues(line: BoqLineValidation): BoqLineValidation {
+  const issues = (line.issues ?? []).filter((i) => i.status !== 'pass');
+  return issues.length > 0 ? { ...line, issues } : line;
+}
+
 function slimLines(lines: BoqLineValidation[]): BoqLineValidation[] {
   if (!STORE_PROBLEM_LINES_ONLY) return lines;
-  return lines.filter((l) => l.status === 'fail' || l.status === 'warning');
+  return lines
+    .filter((l) => l.status === 'fail' || l.status === 'warning')
+    .map(slimLineIssues);
+}
+
+function slimTotalChecks(checks: BoqTotalRowCheck[]): BoqTotalRowCheck[] {
+  if (!STORE_PROBLEM_LINES_ONLY) return checks;
+  return checks
+    .filter((t) => !t.match || t.horizontalMatch === false)
+    .map((t) => ({
+      ...t,
+      columnChecks: (t.columnChecks ?? []).filter((c) => !c.match),
+    }));
 }
 
 function slimPage(page: BoqPageValidation): BoqPageValidation {
   if (!STORE_PROBLEM_LINES_ONLY) return page;
-  return { ...page, lines: slimLines(page.lines) };
+  const lines = slimLines(page.lines);
+  const totalChecks = slimTotalChecks(page.totalChecks);
+  return {
+    ...page,
+    lines,
+    totalChecks,
+    issues: page.hasIssues ? page.issues : [],
+    keyTotals: page.hasIssues ? page.keyTotals : [],
+  };
+}
+
+function slimCrossChecks(checks: BoqCrossCheck[]): BoqCrossCheck[] {
+  if (!STORE_PROBLEM_LINES_ONLY) return checks;
+  return checks.filter((c) => !c.match);
 }
 
 function pickDeclaredTotal(totalChecks: BoqTotalRowCheck[], keyTotals: BoqKeyTotal[], lineSum: number): number | null {
@@ -1360,22 +1390,17 @@ export function validateBoqExcelBuffer(buffer: Buffer): DprExcelAuditReport {
   const grandTotalMatch = crossChecks.length > 0 ? crossChecks[0].match : null;
 
   const problemPages = calcPages.filter((p) => p.hasIssues);
-  const totalErrors = calcPages.flatMap((p) => p.totalChecks.filter((t) => !t.match));
-  const issues: string[] = [];
-  if (problemPages.length > 0) {
-    issues.push(`${problemPages.length} calculation sheet(s) have errors — see highlighted pages below`);
-  }
-  if (failedItems > 0) {
-    issues.push(calcPages.some((p) => p.layoutFormat === 'tharali')
-      ? `${failedItems} line(s) failed ordered row checks (Description → Qty → Rate → Qty×Rate=Total Amount → DSR+UJN+SOR(PWD)+NSI=Total Amount → cross-check)`
-      : `${failedItems} line(s) failed ordered row checks (Description → Qty → Rate → Qty×Rate=Amount)`);
-  }
-  if (totalErrors.length > 0) issues.push(`${totalErrors.length} Total / Gross Total row mismatch(es)`);
-  if (crossChecks.some((c) => !c.match)) issues.push('GAC / BC / Abstract / BOQ Gross Totals do not match');
+  const slimmedCrossChecks = slimCrossChecks(crossChecks);
 
   let status: BoqValidationReport['status'] = 'passed';
   if (problemPages.some((p) => p.status === 'failed') || crossChecks.some((c) => !c.match)) status = 'failed';
   else if (problemPages.length > 0 || warningItems > 0) status = 'warning';
+
+  const summaryMessage = status === 'passed'
+    ? 'BOQ validation PASSED'
+    : status === 'warning'
+      ? 'BOQ validation passed with warnings — see errors below'
+      : 'BOQ validation failed — fix errors below and re-upload';
 
   const baseReport: BoqValidationReport = {
     status,
@@ -1389,13 +1414,11 @@ export function validateBoqExcelBuffer(buffer: Buffer): DprExcelAuditReport {
     firstCalculationPageNo,
     pages,
     lines: slimLines(allLines),
-    crossChecks,
+    crossChecks: slimmedCrossChecks,
     summary: {
-      message: status !== 'failed'
-        ? (status === 'warning' ? 'BOQ passed with warnings — review calculation sheets' : 'All calculation sheets passed — ready for TAC')
-        : 'BOQ failed — fix Total / Gross Total and line errors on highlighted calculation sheets',
+      message: summaryMessage,
       readyForTac: status !== 'failed',
-      issues,
+      issues: status === 'passed' ? [] : [summaryMessage],
     },
   };
 
