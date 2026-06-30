@@ -33,15 +33,29 @@ export type BoqPageData = {
   totalChecks?: Array<{
     label: string;
     rowNo: number;
+    rowType?: 'subtotal' | 'total_cost' | 'grand_total' | 'other';
+    checkStep?: 6 | 7;
     declaredAmount: number;
     computedAmount: number;
     match: boolean;
     message?: string;
+    columnChecks?: Array<{
+      column: string;
+      columnLabel: string;
+      declaredAmount: number;
+      computedAmount: number;
+      match: boolean;
+      message?: string;
+    }>;
+    horizontalMatch?: boolean | null;
+    horizontalDeclared?: number;
+    horizontalComputed?: number;
   }>;
   keyTotals?: Array<{ label: string; amount: number; rowNo?: number; source?: string }>;
   lines?: Array<{
     lineNo: number;
     description: string;
+    unit?: string;
     qty: number;
     rate: number;
     declaredAmount: number;
@@ -171,8 +185,10 @@ function checkTypeLabel(errorType: string, checkOrder?: number) {
   if (errorType === 'Qty × Rate ≠ UJN' || errorType === 'Qty × Rate ≠ Total Amount') return `${prefix}Qty×Rate = Total Amount`;
   if (errorType === 'Component sum ≠ Total Amount') return `${prefix}DSR+UJN+SOR(PWD)+NSI = Total Amount`;
   if (errorType === 'Qty×Rate ≠ component sum') return `${prefix}Qty×Rate vs component sum`;
+  if (errorType === 'Sub Total mismatch') return `${prefix}Sub Total (vertical per column)`;
+  if (errorType === 'Total Cost mismatch') return `${prefix}Total Cost (vertical per column)`;
+  if (errorType === 'Vertical subtotal mismatch') return `${prefix}Sub Total (vertical per column)`;
   if (errorType === 'Qty × Rate ≠ Amount') return `${prefix}Qty×Rate = Amount`;
-  if (errorType === 'Vertical subtotal mismatch') return `${prefix}Vertical subtotal`;
   if (/mismatch$/i.test(errorType)) return `${prefix}${errorType}`;
   return `${prefix}${errorType}`;
 }
@@ -364,8 +380,8 @@ export default function BoqValidationReportView({
     return (
       <Alert severity="info">
         Click <strong>Upload BOQ Excel</strong> above and select your DPR estimate workbook (.xlsx).
-        The system auto-checks every visible sheet — horizontal row math (Qty×Rate=Total Amount, DSR+UJN+SOR(PWD)+NSI=Total Amount, cross-check),
-        vertical subtotals, Abstract gross total, and formulas (Tharali/UJS layout supported).
+        The system auto-checks every visible sheet — horizontal row math (Qty×Rate=Total Amount, DSR+UJN+SOR(PWD)+NSI=Total Amount; Unit column validated separately, not summed),
+        Step 6 Sub Total and Step 7 Total Cost (vertical per column), Abstract gross total, and formulas (Tharali/UJS layout supported).
       </Alert>
     );
   }
@@ -458,30 +474,59 @@ export default function BoqValidationReportView({
               {(page.totalChecks ?? []).length > 0 && (
                 <Box mb={1.5}>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                    Total / Gross Total checks (Excel vs calculated)
+                    Step 6 Sub Total / Step 7 Total Cost checks (Excel vs calculated, per column)
                   </Typography>
                   <Table size="small" sx={dataTableSx}>
                     <TableHead>
                       <TableRow>
+                        <TableCell>Step</TableCell>
                         <TableCell>Label</TableCell>
                         <TableCell>Row</TableCell>
+                        <TableCell>Column</TableCell>
                         <TableCell align="right">Excel</TableCell>
                         <TableCell align="right">Calculated</TableCell>
                         <TableCell>Status</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {(page.totalChecks ?? []).map((t) => (
-                        <TableRow key={`${t.label}-${t.rowNo}`} sx={{ bgcolor: !t.match ? 'rgba(211,47,47,0.08)' : undefined }}>
-                          <TableCell>{t.label}</TableCell>
-                          <TableCell>{t.rowNo}</TableCell>
-                          <TableCell align="right">{fmt(t.declaredAmount)}</TableCell>
-                          <TableCell align="right">{fmt(t.computedAmount)}</TableCell>
-                          <TableCell>
-                            <Chip size="small" color={t.match ? 'success' : 'error'} label={t.match ? 'OK' : 'ERROR'} />
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {(page.totalChecks ?? []).flatMap((t) => {
+                        const step = t.checkStep ?? (t.rowType === 'subtotal' ? 6 : 7);
+                        const rows = (t.columnChecks?.length ? t.columnChecks : [{
+                          column: 'total',
+                          columnLabel: 'Total',
+                          declaredAmount: t.declaredAmount,
+                          computedAmount: t.computedAmount,
+                          match: t.match,
+                        }]).map((col) => (
+                          <TableRow key={`${t.label}-${t.rowNo}-${col.column}`}
+                            sx={{ bgcolor: !col.match ? 'rgba(211,47,47,0.08)' : undefined }}>
+                            <TableCell>Step {step}</TableCell>
+                            <TableCell>{t.label}</TableCell>
+                            <TableCell>{t.rowNo}</TableCell>
+                            <TableCell>{col.columnLabel}</TableCell>
+                            <TableCell align="right">{fmt(col.declaredAmount)}</TableCell>
+                            <TableCell align="right">{fmt(col.computedAmount)}</TableCell>
+                            <TableCell>
+                              <Chip size="small" color={col.match ? 'success' : 'error'} label={col.match ? 'OK' : 'ERROR'} />
+                            </TableCell>
+                          </TableRow>
+                        ));
+                        if (t.horizontalMatch === false) {
+                          rows.push(
+                            <TableRow key={`${t.label}-${t.rowNo}-horizontal`}
+                              sx={{ bgcolor: 'rgba(211,47,47,0.08)' }}>
+                              <TableCell>Step {step}</TableCell>
+                              <TableCell>{t.label}</TableCell>
+                              <TableCell>{t.rowNo}</TableCell>
+                              <TableCell>DSR+UJN+SOR+NSI → Total</TableCell>
+                              <TableCell align="right">{fmt(t.horizontalDeclared)}</TableCell>
+                              <TableCell align="right">{fmt(t.horizontalComputed)}</TableCell>
+                              <TableCell><Chip size="small" color="error" label="ERROR" /></TableCell>
+                            </TableRow>,
+                          );
+                        }
+                        return rows;
+                      })}
                     </TableBody>
                   </Table>
                 </Box>
@@ -494,6 +539,7 @@ export default function BoqValidationReportView({
                       <TableCell>Line #</TableCell>
                       <TableCell>Description</TableCell>
                       <TableCell align="right">Qty</TableCell>
+                      <TableCell>Unit</TableCell>
                       <TableCell align="right">Rate</TableCell>
                       {page.layoutFormat === 'tharali' && (
                         <>
@@ -513,6 +559,7 @@ export default function BoqValidationReportView({
                         <TableCell>{line.lineNo}</TableCell>
                         <TableCell sx={{ maxWidth: 220 }}>{line.description}</TableCell>
                         <TableCell align="right">{line.qty}</TableCell>
+                        <TableCell>{line.unit || '—'}</TableCell>
                         <TableCell align="right">{line.rate}</TableCell>
                         {page.layoutFormat === 'tharali' && (
                           <>
@@ -633,7 +680,7 @@ export default function BoqValidationReportView({
           )}
           {tharaliPages.length > 0 && (
             <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
-              Tharali/UJS layout on {tharaliPages.length} sheet(s) — per row: Description → Qty → Rate → Step 4 Qty×Rate=Total Amount → Step 5 DSR+UJN+SOR(PWD)+NSI=Total Amount → Step 6 cross-check.
+              Tharali/UJS layout on {tharaliPages.length} sheet(s) — per row: Description → Qty → Unit → Rate → Step 4 Qty×Rate=Total Amount → Step 5 DSR+UJN+SOR(PWD)+NSI=Total Amount. Step 6 Sub Total and Step 7 Total Cost validate vertical sums per amount column only (DSR, UJN, SOR, NSI, Total Amount — Unit excluded).
             </Alert>
           )}
 
@@ -693,7 +740,7 @@ export default function BoqValidationReportView({
       {calcPages.length > 0 && (
         <>
           <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
-            Calculation sheets — auto-opened; Total / Gross Total errors highlighted
+            Calculation sheets — auto-opened; Step 6 Sub Total / Step 7 Total Cost errors highlighted
           </Typography>
           {calcPages.map((page) => renderPage(page, false))}
         </>
