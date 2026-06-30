@@ -69,5 +69,6 @@ export function nonAmountColumnIndices(map: BoqUnitHeaderMap): Set<number> {
 
 export function isUnitHeaderKey(key: string, raw: string): boolean {
   return key === 'unit' || key === 'units' || key === 'uom' || key === 'um'
+    || key === 'per_unit' || raw === 'per unit'
     || (key.includes('unit') && !key.includes('amount') && !key.includes('community'));
 }

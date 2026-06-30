@@ -254,14 +254,10 @@ function testCwraUnmappedAmtColumnStep6(): void {
 
   const TOTAL = UJN + NSI;
 
-  const header: Record<string, number> = { ...THARALI_HEADER };
-
-
+  const header: Record<string, number> = { ...THARALI_HEADER, amount: 10 };
 
   const rows: (string | number)[][] = [
-
     ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount', 'Amt'],
-
     [1, 'Lump sum item A', 'LS', 0, 0, 0, 0, 0, 0, 0, 500_000],
 
     [2, 'Lump sum item B', 'LS', 0, 0, 0, 0, 0, 0, 0, 451_892],
@@ -612,7 +608,62 @@ function testSoTraUjnTolerance1296vs1300(): void {
 
 
 
+/** Abstract Of Cost — exact Tharali column layout (S.N. | SOR CODE | Description | Qty | Rate | Per unit | DSR | UJN | SOR | NSI | Total). */
+const THARALI_ABSTRACT_HEADER: Record<string, number> = {
+  serial: 0,
+  sor_code: 1,
+  description: 2,
+  qty: 3,
+  rate: 4,
+  unit: 5,
+  dsr: 6,
+  ujn: 7,
+  sor_pwd: 8,
+  nsi: 9,
+  total_amount: 10,
+};
+
+/** Treatment Works Abstract rows 1–3 + Sub Total row 4 — direct column mapping, no lump-sum fallbacks. */
+function testAbstractTreatmentWorksRows1to4(): void {
+  const DSR = 606242 + 93312 + 2005410;
+  const UJN = 1296;
+  const SOR = 75906;
+  const NSI = 16774;
+  const TOTAL = 700218 + 93312 + 2005410;
+
+  const rows: (string | number)[][] = [
+    ['S.N.', 'SOR CODE', 'Description', 'Quantity', 'Rate', 'Per unit', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+    [1, 'A1', 'Treatment item 1', 2, 350109, 'Job', 606242, UJN, SOR, NSI, 700218],
+    [2, 'A2', 'Treatment item 2', 6, 15552, 'cum', 93312, 0, 0, 0, 93312],
+    [3, 'A3', 'Treatment item 3', 2, 1002705, 'Job', 2005410, 0, 0, 0, 2005410],
+    [4, '', 'Sub Total', '', '', '', DSR, UJN, SOR, NSI, TOTAL],
+  ];
+
+  const checks = validateTotalRows(rows, THARALI_ABSTRACT_HEADER, 1, TOTAL);
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 5);
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 5');
+  assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
+
+  const dsrCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'DSR');
+  assert(dsrCol?.computedAmount === DSR, `DSR calculated must be ${DSR}, got ${dsrCol?.computedAmount}`);
+
+  const ujnCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'UJN');
+  assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
+
+  const sorCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'SOR(PWD)');
+  assert(sorCol?.computedAmount === SOR, `SOR(PWD) calculated must be ${SOR}, got ${sorCol?.computedAmount}`);
+
+  const nsiCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'NSI');
+  assert(nsiCol?.computedAmount === NSI, `NSI calculated must be ${NSI}, got ${nsiCol?.computedAmount}`);
+
+  const totalCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'Total Amount');
+  assert(totalCol?.computedAmount === TOTAL, `Total Amount calculated must be ${TOTAL}, got ${totalCol?.computedAmount}`);
+
+  assert(subTotal!.horizontalMatch === true, 'Sub Total horizontal DSR+UJN+SOR+NSI must equal Total Amount');
+}
+
 function runAll(): void {
+  testAbstractTreatmentWorksRows1to4();
 
   testSoTraStep7TotalCostRow11();
 
