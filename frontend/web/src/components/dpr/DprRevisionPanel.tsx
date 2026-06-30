@@ -16,6 +16,7 @@ import { dprPlanningApi } from '../../services/api';
 import { DPR_STAGE_3_DOCUMENT_TYPES, DPR_TAC_ACTION_LABELS } from '../../constants/dprPlanningWorkflow';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { DprDialogHeader, dprDialogActionsSx, dprDialogContentSx, dprDialogPaperSx } from './dprUi';
+import BoqValidationReportView, { type BoqValidationData } from './BoqValidationReportView';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
 import { hasBilingualContent, serializeBilingualText, type BilingualText } from '../../utils/bilingualText';
@@ -35,6 +36,7 @@ type Stage5Readiness = {
   missingDocuments?: string[];
   hasCompletePdf?: boolean;
   hasBoqExcel?: boolean;
+  boqValidationPassed?: boolean;
   tacObservations?: TacObservation[];
   latestTacRemarks?: string | null;
 };
@@ -89,6 +91,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
   const [observationResponse, setObservationResponse] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [resubmitComments, setResubmitComments] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [pendingDocType, setPendingDocType] = useState('');
+  const [boqValidation, setBoqValidation] = useState<BoqValidationData | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const boqRef = useRef<HTMLInputElement>(null);
@@ -118,9 +121,25 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
   }, [open, proposalId, load]);
 
   const readiness = detail?.stage5Readiness;
+
+  const loadBoqValidation = useCallback(async () => {
+    if (!proposalId) return;
+    try {
+      const res = await dprPlanningApi.getBoqValidation(proposalId);
+      setBoqValidation((res.data as BoqValidationData) ?? null);
+    } catch {
+      setBoqValidation(null);
+    }
+  }, [proposalId]);
+
+  useEffect(() => {
+    if (open && proposalId && readiness?.hasBoqExcel) loadBoqValidation();
+  }, [open, proposalId, readiness?.hasBoqExcel, loadBoqValidation]);
+
   const canUpload = readiness?.canUpload === true;
   const canBegin = readiness?.canBeginRevision === true;
   const canResubmit = readiness?.canResubmitToTac === true;
+  const boqValidationFailed = readiness?.hasBoqExcel && !readiness?.boqValidationPassed;
 
   const historyByType = new Map(
     (detail?.documentVersionHistory ?? [])
@@ -185,8 +204,12 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
     if (boqRef.current) boqRef.current.value = '';
     if (!file || !proposalId) return;
     setUploadingBoq(true);
+    setBoqValidation(null);
     try {
-      await dprPlanningApi.uploadTacBoqExcel(proposalId, file);
+      const res = await dprPlanningApi.uploadTacBoqExcel(proposalId, file);
+      const payload = res.data as { validation?: BoqValidationData };
+      if (payload.validation) setBoqValidation(payload.validation);
+      else await loadBoqValidation();
       await load();
       onUpdated();
     } catch (err) {
@@ -379,12 +402,28 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
                   <Button variant="outlined" startIcon={<CloudUploadOutlinedIcon />}
                     disabled={uploadingBoq || uploadingPdf}
                     onClick={() => { if (boqRef.current) boqRef.current.value = ''; boqRef.current?.click(); }}>
-                    {readiness?.hasBoqExcel ? 'Replace BOQ Excel' : 'Upload BOQ Excel (optional)'}
+                    {readiness?.hasBoqExcel ? 'Replace BOQ Excel' : 'Upload BOQ Excel'}
                   </Button>
                   {readiness?.hasCompletePdf && (
                     <Chip size="small" color="success" icon={<CheckCircleOutlineIcon />} label="Revised PDF ready" />
                   )}
                 </Box>
+
+                {(uploadingBoq || readiness?.hasBoqExcel) && (
+                  <Box sx={{ mb: 2 }}>
+                    <BoqValidationReportView
+                      validation={boqValidation}
+                      validating={uploadingBoq}
+                      proposalId={proposalId}
+                    />
+                  </Box>
+                )}
+
+                {boqValidationFailed && !uploadingBoq && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    BOQ validation must pass before resubmitting to TAC.
+                  </Alert>
+                )}
 
                 {canResubmit && (
                   <>
@@ -417,6 +456,12 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
                     {!readiness?.hasCompletePdf && (
                       <Typography variant="caption" display="block">• Upload Revised Complete DPR PDF</Typography>
                     )}
+                    {!readiness?.hasBoqExcel && (
+                      <Typography variant="caption" display="block">• Upload BOQ Excel (required — auto-validated)</Typography>
+                    )}
+                    {readiness?.hasBoqExcel && !readiness?.boqValidationPassed && (
+                      <Typography variant="caption" display="block">• Fix BOQ validation errors and re-upload Excel</Typography>
+                    )}
                   </Alert>
                 )}
               </>
@@ -428,7 +473,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
         <Button onClick={onClose}>Close</Button>
         {canResubmit && (
           <Button variant="contained" color="primary" startIcon={<SendOutlinedIcon />}
-            disabled={busy || !hasBilingualContent(observationResponse)} onClick={resubmit}>
+            disabled={busy || !hasBilingualContent(observationResponse) || boqValidationFailed} onClick={resubmit}>
             Resubmit Revised DPR to TAC
           </Button>
         )}

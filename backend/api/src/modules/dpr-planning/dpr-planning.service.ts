@@ -355,6 +355,7 @@ export class DprPlanningService {
       throw new BadRequestException('Completed DPR must be submitted before forwarding to TAC Section');
     }
     this.assertCanForwardToTac(roles);
+    await this.assertTacPackageReady(tenantId, proposal);
 
     const fromStatus = proposal.status;
     proposal.status = 'tac_round1_review';
@@ -1495,7 +1496,7 @@ export class DprPlanningService {
     await this.assertStage3Ready(tenantId, proposal);
     await this.assertTacPackageReady(tenantId, proposal);
 
-    const mode = 'pdf_only' as const;
+    const mode = 'excel_auto' as const;
 
     const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
     const existingTac = (existingHq.tacPackage ?? {}) as Record<string, unknown>;
@@ -1511,7 +1512,7 @@ export class DprPlanningService {
       proposal.hqRemarks = dto.comments.trim();
     }
 
-    const directToTac = mode === 'pdf_only';
+    const directToTac = true;
     proposal.status = directToTac ? 'tac_round1_review' : 'dpr_submitted';
     proposal.currentStage = 4;
     if (directToTac && dto.comments?.trim()) {
@@ -1530,7 +1531,7 @@ export class DprPlanningService {
       userId,
       actorRole,
       dto.comments ?? (directToTac
-        ? 'DPR submitted to TAC for PDF manual review'
+        ? 'DPR submitted to TAC after BOQ auto-validation'
         : 'Completed DPR submitted to HQ for TAC review'),
     );
     return this.toRecord(tenantId, saved, true, roles);
@@ -1655,13 +1656,12 @@ export class DprPlanningService {
 
     const savedFile = saveDprProposalFile(proposalId, file);
 
-    const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
-    const existingTac = (existingHq.tacPackage ?? {}) as Record<string, unknown>;
-    proposal.hqVerification = {
-      ...existingHq,
-      tacPackage: { ...existingTac, validationMode: 'pdf_only' },
-    };
-    await this.proposalRepo.save(proposal);
+    let validationReport: ReturnType<typeof validateBoqExcelBuffer>;
+    try {
+      validationReport = validateBoqExcelBuffer(file.buffer);
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : 'BOQ Excel validation failed');
+    }
 
     const doc = await this.saveDocumentVersion(
       tenantId,
@@ -1670,8 +1670,34 @@ export class DprPlanningService {
       'boq_tac_excel',
       savedFile.fileName,
       savedFile.fileUrl,
-      remarks ?? 'BOQ Excel uploaded for TAC reference (PDF manual review)',
+      remarks ?? `BOQ auto-check: ${validationReport.status}`,
     );
+
+    const validationRow = await this.persistBoqValidation(
+      tenantId,
+      proposalId,
+      doc.id,
+      savedFile.fileName,
+      validationReport,
+    );
+
+    const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const existingTac = (existingHq.tacPackage ?? {}) as Record<string, unknown>;
+    proposal.hqVerification = {
+      ...existingHq,
+      tacPackage: {
+        ...existingTac,
+        validationMode: 'excel_auto',
+        boqValidation: {
+          status: validationReport.status,
+          readyForTac: validationReport.summary.readyForTac,
+          validatedAt: (validationRow.validatedAt ?? new Date()).toISOString(),
+          documentId: doc.id,
+        },
+      },
+    };
+    await this.proposalRepo.save(proposal);
+
     await this.logEvent(
       tenantId,
       proposalId,
@@ -1682,9 +1708,16 @@ export class DprPlanningService {
       userId,
       null,
       'boq_tac_excel',
-      { documentId: doc.id },
+      {
+        documentId: doc.id,
+        boqValidationStatus: validationReport.status,
+        boqValidationPassed: validationReport.summary.readyForTac,
+      },
     );
-    return { document: doc, validation: null, skippedValidation: true };
+    return {
+      document: doc,
+      validation: this.toBoqValidationRecord(validationRow, validationReport),
+    };
   }
 
   async uploadCompleteDprPdf(
@@ -1866,6 +1899,39 @@ export class DprPlanningService {
     };
   }
 
+  private async persistBoqValidation(
+    tenantId: string,
+    proposalId: string,
+    documentId: string,
+    fileName: string,
+    report: ReturnType<typeof validateBoqExcelBuffer>,
+  ): Promise<DprBoqValidation> {
+    const row = this.boqValidationRepo.create({
+      tenantId,
+      proposalId,
+      documentId,
+      fileName,
+      status: report.status,
+      totalItems: report.totalItems,
+      passedItems: report.passedItems,
+      failedItems: report.failedItems,
+      warningItems: report.warningItems,
+      computedGrandTotal: report.computedGrandTotal,
+      declaredGrandTotal: report.declaredGrandTotal,
+      grandTotalMatch: report.grandTotalMatch,
+      validationReport: {
+        pages: report.pages,
+        lines: report.lines,
+        crossChecks: report.crossChecks,
+        firstCalculationPageNo: report.firstCalculationPageNo,
+        audit: report.audit,
+      } as unknown as Record<string, unknown>[],
+      summary: report.summary as Record<string, unknown>,
+      validatedAt: new Date(),
+    });
+    return this.boqValidationRepo.save(row);
+  }
+
   private getTacValidationMode(proposal: DprProposal): 'excel_auto' | 'pdf_only' {
     const mode = this.getTacPackageState(proposal).validationMode;
     return mode === 'excel_auto' ? 'excel_auto' : 'pdf_only';
@@ -1889,7 +1955,29 @@ export class DprPlanningService {
     const docs = await this.docRepo.find({ where: { tenantId, proposalId: proposal.id } });
     const uploaded = new Set(docs.map((d) => d.documentType));
     if (!uploaded.has('dpr_complete_pdf')) {
-      throw new BadRequestException('Complete DPR PDF is required for TAC submission (PDF manual review)');
+      throw new BadRequestException('Complete DPR PDF is required for TAC submission');
+    }
+    if (!uploaded.has('boq_tac_excel')) {
+      throw new BadRequestException(
+        'Complete BOQ Excel is required — upload the workbook and resolve all validation errors before TAC submission',
+      );
+    }
+
+    const boqRow = await this.boqValidationRepo.findOne({
+      where: { tenantId, proposalId: proposal.id },
+      order: { validatedAt: 'DESC' },
+    });
+    if (!boqRow) {
+      throw new BadRequestException('BOQ Excel must pass auto-validation — re-upload the workbook');
+    }
+    const summary = boqRow.summary as { readyForTac?: boolean; issues?: string[] } | null;
+    if (boqRow.status === 'failed' || summary?.readyForTac === false) {
+      const issues = summary?.issues ?? [];
+      throw new BadRequestException(
+        issues.length
+          ? `BOQ validation failed — fix errors before TAC submission: ${issues.slice(0, 3).join('; ')}`
+          : 'BOQ validation failed — fix Qty×Rate, subtotal and grand total errors before TAC submission',
+      );
     }
   }
 
@@ -2258,7 +2346,7 @@ export class DprPlanningService {
       documentVersionHistory: this.buildDocumentVersionHistory(documents),
       stage1Readiness: await this.buildStage1Readiness(row, documents),
       stage3Readiness: await this.buildStage3Readiness(tenantId, row, documents, roles, laReadiness),
-      stage5Readiness: this.buildStage5Readiness(row, documents, roles),
+      stage5Readiness: await this.buildStage5Readiness(tenantId, row, documents, roles),
       stage6Readiness: this.buildStage6Readiness(row, documents, roles),
       stage7Readiness: this.buildStage7Readiness(row, documents, roles),
       stage8Readiness: this.buildStage8Readiness(row, documents, roles, sanction, laReadiness),
@@ -2374,8 +2462,7 @@ export class DprPlanningService {
       ? hasCompletePdf
       : !!tacState.pdfValidation?.summary?.readyForTac && tacState.pdfValidation?.status !== 'failed';
 
-    // PDF manual review: only Complete DPR PDF required for TAC submit (BOQ Excel optional, validated later)
-    const tacPackageComplete = hasCompletePdf;
+    const tacPackageComplete = hasCompletePdf && hasBoqExcel && boqValidationPassed;
 
     const la = laReadiness ?? await this.landAcquisitionService.getReadinessForProposal(tenantId, proposal.id);
     const canSubmitLa = la.canSubmitDprStage3;
@@ -2844,7 +2931,8 @@ export class DprPlanningService {
       || (DPR_ROUND2_COMPLIANCE_STATUSES as readonly string[]).includes(status);
   }
 
-  private buildStage5Readiness(
+  private async buildStage5Readiness(
+    tenantId: string,
     proposal: DprProposal,
     documents: DprProposalDocument[],
     roles: string[] = [],
@@ -2858,6 +2946,15 @@ export class DprPlanningService {
       .filter((t) => !uploadedTypes.has(t))
       .map((t) => DPR_DOCUMENT_TYPES.find((d) => d.type === t)?.label ?? t);
     const hasCompletePdf = uploadedTypes.has('dpr_complete_pdf');
+    const hasBoqExcel = uploadedTypes.has('boq_tac_excel');
+    let boqValidationPassed = false;
+    if (hasBoqExcel) {
+      const boqRow = await this.boqValidationRepo.findOne({
+        where: { tenantId, proposalId: proposal.id },
+        order: { validatedAt: 'DESC' },
+      });
+      boqValidationPassed = boqRow != null && boqRow.status !== 'failed';
+    }
     const tacData = ((proposal.hqVerification ?? {}) as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
     const observations = (Array.isArray(tacData.observations) ? tacData.observations : []) as Array<{
       at?: string;
@@ -2875,10 +2972,13 @@ export class DprPlanningService {
       canResubmitToTac: DPR_REVISION_STATUSES.includes(proposal.status as typeof DPR_REVISION_STATUSES[number])
         && missingDocuments.length === 0
         && hasCompletePdf
+        && hasBoqExcel
+        && boqValidationPassed
         && canPrepare,
       missingDocuments,
       hasCompletePdf,
-      hasBoqExcel: uploadedTypes.has('boq_tac_excel'),
+      hasBoqExcel,
+      boqValidationPassed,
       tacObservations,
       latestTacRemarks: proposal.tacRound1Remarks ?? null,
       revisionResponses: ((proposal.hqVerification as { dprRevision?: { responses?: unknown[] } })?.dprRevision?.responses ?? []),

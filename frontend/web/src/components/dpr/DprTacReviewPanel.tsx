@@ -53,6 +53,7 @@ type ProposalDetail = {
   statusLabel?: string;
   tacRound1Remarks?: string | null;
   tacReview?: TacReviewState;
+  boqValidation?: { status?: string; summary?: { readyForTac?: boolean; message?: string } } | null;
   events?: WorkflowEvent[];
   documentSlots?: Array<{
     documentType: string;
@@ -263,7 +264,12 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
 
             {canForward && (
               <Alert severity="warning" icon={<ForwardToInboxOutlinedIcon />} sx={{ mb: 2 }}>
-                HQ: Confirm and forward the completed DPR to TAC Section to begin Round 1 review.
+                HQ: Confirm BOQ auto-validation passed, then forward the completed DPR to TAC Section.
+                {detail.boqValidation?.status === 'failed' && (
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    BOQ validation failed — division must fix Excel errors before forwarding.
+                  </Typography>
+                )}
               </Alert>
             )}
 
@@ -288,6 +294,11 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
                   onClick={() => download(boqDoc.id, boqDoc.fileName ?? 'boq-tac.xlsx')}>
                   BOQ Excel (reference)
                 </Button>
+              )}
+              {detail.boqValidation && (
+                <Chip size="small"
+                  color={detail.boqValidation.status === 'passed' ? 'success' : detail.boqValidation.status === 'warning' ? 'warning' : 'error'}
+                  label={`BOQ check: ${detail.boqValidation.status?.toUpperCase() ?? '—'}`} />
               )}
               <Button size="small" variant="outlined" startIcon={<DescriptionOutlinedIcon />}
                 onClick={downloadComplianceReport}>
@@ -449,7 +460,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
         <Button onClick={onClose}>Close</Button>
         {canForward && (
           <Button variant="contained" startIcon={<ForwardToInboxOutlinedIcon />}
-            disabled={busy} onClick={submitForward}>
+            disabled={busy || detail?.boqValidation?.status === 'failed'} onClick={submitForward}>
             Forward to TAC Section
           </Button>
         )}

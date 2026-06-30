@@ -110,6 +110,13 @@ function parseNumber(value: unknown): number {
   return Number.isFinite(num) ? num : 0;
 }
 
+function isNumericCell(value: unknown): boolean {
+  if (typeof value === 'number' && Number.isFinite(value)) return true;
+  const cleaned = String(value ?? '').replace(/[,₹\s]/g, '').trim();
+  if (!cleaned) return false;
+  return Number.isFinite(Number(cleaned));
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -329,6 +336,8 @@ function validateLineValues(
   declaredAmount: number,
   itemCode?: string,
   sheetRow?: number,
+  rawQty?: unknown,
+  rawRate?: unknown,
 ): BoqLineValidation {
   const roundedQty = round2(qty);
   const roundedRate = round2(rate);
@@ -340,7 +349,19 @@ function validateLineValues(
   let status: BoqLineValidation['status'] = 'pass';
   let message: string | undefined;
 
-  if (roundedQty <= 0 && roundedRate <= 0 && roundedDeclared <= 0) {
+  if (!description.trim() || description.trim().length < 3) {
+    status = 'fail';
+    message = 'Item description is required';
+  } else if (String(rawQty ?? '').trim() && !isNumericCell(rawQty)) {
+    status = 'fail';
+    message = 'Quantity must be numeric';
+  } else if (String(rawRate ?? '').trim() && !isNumericCell(rawRate)) {
+    status = 'fail';
+    message = 'Rate must be numeric';
+  } else if (roundedQty > 0 && !unit.trim()) {
+    status = 'fail';
+    message = 'Unit is required when quantity is present';
+  } else if (roundedQty <= 0 && roundedRate <= 0 && roundedDeclared <= 0) {
     status = 'warning';
     message = 'Zero quantity, rate and amount';
   } else if (roundedQty > 0 && roundedRate > 0 && absDiff > AMOUNT_TOLERANCE) {
@@ -399,7 +420,9 @@ function parseLinesFromSheetRows(
     if (qty <= 0 && rate <= 0 && amount <= 0) continue;
 
     lineNo += 1;
-    lines.push(validateLineValues(lineNo, description, unit, qty, rate, amount, undefined, i + 1));
+    const rawQty = headerMap.qty !== undefined ? cells[headerMap.qty] : '';
+    const rawRate = headerMap.rate !== undefined ? cells[headerMap.rate] : '';
+    lines.push(validateLineValues(lineNo, description, unit, qty, rate, amount, undefined, i + 1, rawQty, rawRate));
   }
 
   return lines;

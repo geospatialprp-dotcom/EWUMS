@@ -47,6 +47,22 @@ function cellRef(col: number, row: number): string {
   return XLSX.utils.encode_cell({ r: row, c: col });
 }
 
+function columnLabel(col: number, headerMap?: Record<string, number>, field?: string): string {
+  if (field && headerMap?.[field] !== undefined) {
+    return field.charAt(0).toUpperCase() + field.slice(1);
+  }
+  return XLSX.utils.encode_col(col);
+}
+
+function refColumn(cellRefStr: string): string {
+  if (!cellRefStr) return '';
+  try {
+    return XLSX.utils.encode_col(XLSX.utils.decode_cell(cellRefStr).c);
+  } catch {
+    return '';
+  }
+}
+
 function amountColRef(page: BoqPageValidation, rowNo: number): string {
   const col = page.headerMap?.amount;
   if (col === undefined || !rowNo) return '';
@@ -267,8 +283,11 @@ function auditDataQuality(
     const rowNo = i + 1;
 
     if ((qty > 0 || rate > 0 || amount > 0) && (!desc || desc.length < 2)) {
+      const descCol = headerMap.description;
       errors.push({
-        sheetName: page.sheetName, pageNo: page.pageNo, rowNo, cellRef: '',
+        sheetName: page.sheetName, pageNo: page.pageNo, rowNo,
+        column: descCol !== undefined ? columnLabel(descCol, headerMap, 'description') : 'Description',
+        cellRef: descCol !== undefined ? cellRef(descCol, i) : '',
         errorType: 'Blank mandatory cell', category: 'data', severity: 'minor',
         expectedValue: 'Description / Particulars', actualValue: '(blank)',
         difference: null,
@@ -278,8 +297,10 @@ function auditDataQuality(
 
     if (qty < 0 || rate < 0) {
       const col = qty < 0 ? headerMap.qty : headerMap.rate;
+      const field = qty < 0 ? 'qty' : 'rate';
       errors.push({
         sheetName: page.sheetName, pageNo: page.pageNo, rowNo,
+        column: col !== undefined ? columnLabel(col, headerMap, field) : field,
         cellRef: col !== undefined ? cellRef(col, i) : '',
         errorType: 'Invalid negative value', category: 'data', severity: 'major',
         expectedValue: '>= 0', actualValue: qty < 0 ? qty : rate,
@@ -374,11 +395,15 @@ function lineToAuditError(page: BoqPageValidation, line: BoqPageValidation['line
   const qtyRef = line.sheetRow && page.headerMap?.qty !== undefined
     ? cellRef(page.headerMap.qty, line.sheetRow - 1) : '';
   const cellRefStr = amountRef || qtyRef;
+  const column = amountRef
+    ? (page.headerMap?.amount !== undefined ? columnLabel(page.headerMap.amount, page.headerMap, 'amount') : refColumn(amountRef))
+    : (page.headerMap?.qty !== undefined ? columnLabel(page.headerMap.qty, page.headerMap, 'qty') : refColumn(qtyRef));
 
   return {
     sheetName: page.sheetName,
     pageNo: page.pageNo,
     rowNo: line.sheetRow ?? line.lineNo,
+    column,
     cellRef: cellRefStr,
     errorType: line.status === 'fail' ? 'Qty × Rate mismatch' : 'Data warning',
     category: line.status === 'fail' ? 'horizontal' : 'data',
@@ -391,11 +416,15 @@ function lineToAuditError(page: BoqPageValidation, line: BoqPageValidation['line
 }
 
 function totalCheckToError(page: BoqPageValidation, check: BoqTotalRowCheck): DprAuditError {
+  const addr = amountColRef(page, check.rowNo);
   return {
     sheetName: page.sheetName,
     pageNo: page.pageNo,
     rowNo: check.rowNo,
-    cellRef: amountColRef(page, check.rowNo),
+    column: page.headerMap?.amount !== undefined
+      ? columnLabel(page.headerMap.amount, page.headerMap, 'amount')
+      : refColumn(addr),
+    cellRef: addr,
     errorType: `${check.label} mismatch`,
     category: /gross|grand|abstract|gac|bc/i.test(check.label) ? 'dpr_estimate' : 'vertical',
     severity: /gross|grand|abstract|gac|bc/i.test(check.label) ? 'critical' : 'major',

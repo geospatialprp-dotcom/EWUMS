@@ -13,6 +13,8 @@ export type DprAuditError = {
   sheetName: string;
   pageNo: number;
   rowNo: number;
+  /** Excel column letter (e.g. D) or heading label when cell ref unavailable */
+  column?: string;
   cellRef: string;
   errorType: string;
   category: DprAuditCategory;

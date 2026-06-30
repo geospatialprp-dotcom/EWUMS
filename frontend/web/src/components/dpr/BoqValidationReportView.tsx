@@ -65,6 +65,7 @@ export type DprAuditError = {
   sheetName: string;
   pageNo: number;
   rowNo: number;
+  column?: string;
   cellRef: string;
   errorType: string;
   category: string;
@@ -245,8 +246,8 @@ export default function BoqValidationReportView({
   if (!validation) {
     return (
       <Alert severity="info">
-        Click <strong>Choose BOQ Excel to Re-validate</strong> above, select your DPR estimate workbook (.xlsx),
-        and the system will auto-check visible sheets (Qty×Rate, totals, formulas, GAC/BC/Abstract).
+        Click <strong>Upload BOQ Excel</strong> above and select your DPR estimate workbook (.xlsx).
+        The system auto-checks every visible sheet (description, unit, Qty×Rate, subtotals, grand totals, formulas).
       </Alert>
     );
   }
@@ -500,7 +501,8 @@ export default function BoqValidationReportView({
               <TableHead>
                 <TableRow>
                   <TableCell>Sheet</TableCell>
-                  <TableCell>Page/Row</TableCell>
+                  <TableCell>Row</TableCell>
+                  <TableCell>Column</TableCell>
                   <TableCell>Cell</TableCell>
                   <TableCell>Error Type</TableCell>
                   <TableCell>Category</TableCell>
@@ -521,7 +523,8 @@ export default function BoqValidationReportView({
                       bgcolor: e.severity === 'critical' ? 'rgba(211,47,47,0.08)' : e.severity === 'major' ? 'rgba(237,108,2,0.06)' : undefined,
                     }}>
                     <TableCell>{e.sheetName}</TableCell>
-                    <TableCell>{e.pageNo ? `${e.pageNo}/${e.rowNo}` : e.rowNo || '—'}</TableCell>
+                    <TableCell>{e.rowNo || '—'}</TableCell>
+                    <TableCell>{e.column || '—'}</TableCell>
                     <TableCell>{e.cellRef || '—'}</TableCell>
                     <TableCell>{e.errorType}</TableCell>
                     <TableCell>{e.category}</TableCell>

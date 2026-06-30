@@ -19,6 +19,7 @@ import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { DprDialogHeader, dprDialogActionsSx, dprDialogContentSx, dprDialogPaperSx } from './dprUi';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
 import DprLaReadinessChip from '../la/DprLaReadinessChip';
+import BoqValidationReportView, { type BoqValidationData } from './BoqValidationReportView';
 import type { LaReadiness } from '../../constants/laAcquisition';
 import BilingualTextDisplay from '../forms/BilingualTextDisplay';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
@@ -71,6 +72,7 @@ type ProposalDetail = {
   statusLabel?: string;
   dprPrepOrderNo?: string | null;
   stage3HqRemarks?: string | null;
+  boqValidation?: BoqValidationData | null;
   stage3Readiness?: Stage3Readiness & { laReadiness?: LaReadiness; laMissingActions?: string[] };
   laReadiness?: LaReadiness;
   documentVersionHistory?: Array<{
@@ -114,6 +116,7 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [pdfAttachedInSession, setPdfAttachedInSession] = useState(false);
   const [boqAttachedInSession, setBoqAttachedInSession] = useState(false);
+  const [boqValidation, setBoqValidation] = useState<BoqValidationData | null>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const boqRef = useRef<HTMLInputElement>(null);
   const dialogContentRef = useRef<HTMLDivElement>(null);
@@ -143,8 +146,25 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
       setLoadingProposal(false);
       setPdfAttachedInSession(false);
       setBoqAttachedInSession(false);
+      setBoqValidation(null);
     }
   }, [open, proposalId, load]);
+
+  const loadBoqValidation = useCallback(async () => {
+    if (!proposalId) return;
+    try {
+      const res = await dprPlanningApi.getBoqValidation(proposalId);
+      setBoqValidation((res.data as BoqValidationData) ?? null);
+    } catch {
+      setBoqValidation(null);
+    }
+  }, [proposalId]);
+
+  useEffect(() => {
+    if (open && proposalId && (detail?.stage3Readiness?.tacPackage?.hasBoqExcel || detail?.boqValidation)) {
+      loadBoqValidation();
+    }
+  }, [open, proposalId, detail?.stage3Readiness?.tacPackage?.hasBoqExcel, detail?.boqValidation?.validatedAt, loadBoqValidation]);
 
   useEffect(() => {
     if (detail?.stage3HqRemarks != null) {
@@ -156,6 +176,8 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
   const isReviewMode = readiness?.viewMode === 'review' || readiness?.canReviewOnly;
   const canUpload = readiness?.canUpload === true;
   const canSubmit = readiness?.canSubmitToHq === true;
+  const boqValidationPassed = readiness?.tacPackage?.boqValidationPassed === true;
+  const boqValidationFailed = readiness?.tacPackage?.hasBoqExcel && !boqValidationPassed;
   const canSaveRemarks = readiness?.canSaveRemarks === true;
   const historyByType = new Map(
     (detail?.documentVersionHistory ?? [])
@@ -217,8 +239,12 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
     if (!file || !proposalId) return;
     setUploadingBoq(true);
     setError('');
+    setBoqValidation(null);
     try {
-      await dprPlanningApi.uploadTacBoqExcel(proposalId, file);
+      const res = await dprPlanningApi.uploadTacBoqExcel(proposalId, file);
+      const payload = res.data as { validation?: BoqValidationData };
+      if (payload.validation) setBoqValidation(payload.validation);
+      else await loadBoqValidation();
       await load();
       setBoqAttachedInSession(true);
       onUpdated();
@@ -449,7 +475,8 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
               TAC Submission Package
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Upload Complete DPR PDF to proceed to TAC (manual review). BOQ Excel is optional reference for TAC.
+              Upload Complete DPR PDF and BOQ Excel for TAC. The system auto-validates every calculation sheet
+              (description, unit, Qty×Rate, subtotals, grand totals) and blocks submission until all errors are fixed.
             </Typography>
 
             {(uploadingPdf || uploadingBoq) && <LinearProgress sx={{ mb: 2 }} />}
@@ -467,7 +494,7 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
                   <Button variant="outlined" startIcon={<CloudUploadOutlinedIcon />}
                     disabled={uploadingBoq || uploadingPdf}
                     onClick={openBoqPicker}>
-                    {readiness?.tacPackage?.hasBoqExcel ? 'Replace BOQ Excel' : 'Upload BOQ Excel (optional)'}
+                    {readiness?.tacPackage?.hasBoqExcel ? 'Replace BOQ Excel' : 'Upload BOQ Excel'}
                   </Button>
                 </>
               )}
@@ -480,9 +507,32 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
                     <Chip size="small" color="success" icon={<CheckCircleOutlineIcon />} label="DPR PDF ready for TAC" />
                   )}
                   {boqAttachedInSession && (
-                    <Chip size="small" color="success" variant="outlined" icon={<CheckCircleOutlineIcon />} label="BOQ Excel attached" />
+                    <Chip size="small"
+                      color={boqValidation?.status === 'failed' ? 'error' : boqValidation?.status === 'warning' ? 'warning' : 'success'}
+                      variant="outlined" icon={<CheckCircleOutlineIcon />}
+                      label={boqValidation?.status === 'failed' ? 'BOQ validation failed' : 'BOQ Excel validated'} />
                   )}
                 </Box>
+              </Alert>
+            )}
+
+            {(uploadingBoq || readiness?.tacPackage?.hasBoqExcel) && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                  BOQ Auto-Validation Report
+                </Typography>
+                <BoqValidationReportView
+                  validation={boqValidation}
+                  validating={uploadingBoq}
+                  validatingLabel="Validating BOQ Excel — checking all sheets, Qty×Rate, totals and formulas…"
+                  proposalId={proposalId}
+                />
+              </Box>
+            )}
+
+            {boqValidationFailed && !uploadingBoq && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                BOQ validation must pass before submitting to TAC. Fix highlighted errors and re-upload the Excel workbook.
               </Alert>
             )}
 
@@ -498,6 +548,12 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
                 {!readiness.tacPackage?.hasCompletePdf && (
                   <Typography variant="caption" display="block">• Upload Complete DPR PDF (required for TAC)</Typography>
                 )}
+                {!readiness.tacPackage?.hasBoqExcel && (
+                  <Typography variant="caption" display="block">• Upload Complete BOQ Excel (required — auto-validated)</Typography>
+                )}
+                {readiness.tacPackage?.hasBoqExcel && !readiness.tacPackage?.boqValidationPassed && (
+                  <Typography variant="caption" display="block">• Fix BOQ validation errors and re-upload Excel</Typography>
+                )}
               </Alert>
             )}
 
@@ -511,7 +567,7 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
                     value={submitComments}
                     onChange={setSubmitComments}
                     minRows={2}
-                    helperText="Requires all 8 deliverables and Complete DPR PDF. Submits directly to TAC for PDF manual review."
+                    helperText="Requires all 8 deliverables, Complete DPR PDF, and passing BOQ Excel auto-validation."
                   />
                 </Box>
                 {submitError && (
@@ -552,8 +608,9 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
         )}
         {canSubmit && (
           <Button variant="contained" color="primary" type="button" startIcon={<SendOutlinedIcon />}
-            disabled={busy || loadingProposal || uploadingPdf || uploadingBoq} onClick={submitDpr}>
-            Submit to TAC (PDF Review)
+            disabled={busy || loadingProposal || uploadingPdf || uploadingBoq || boqValidationFailed}
+            onClick={submitDpr}>
+            Submit to TAC
           </Button>
         )}
       </DialogActions>
