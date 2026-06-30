@@ -353,6 +353,41 @@ function testAbstractTreatmentWorksRows1to4(): void {
   assert(subTotal!.horizontalMatch === true, 'Sub Total horizontal DSR+UJN+SOR+NSI must equal Total Amount');
 }
 
+/** so & Tra page 2 — real labels: row 7 Sub total from 1 to 5, items 9–10, Total Cost row 11. */
+function testSoTraPage2SubTotalFrom1to5AndTotalCostRow11(): void {
+  const DSR_SUB = 2704964;
+  const UJN = 1296;
+  const SOR_SUB = 75906;
+  const NSI = 16774;
+  const SUB_TOTAL = 2798940;
+  const SOR_EXTRA = 180593.27 + 120395.71;
+  const DSR_TOTAL = DSR_SUB;
+  const SOR_TOTAL = SOR_SUB + SOR_EXTRA;
+  const TOTAL_COST = SUB_TOTAL + SOR_EXTRA;
+
+  const rows: (string | number)[][] = [
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+    [7, 'Sub total from 1 to 5', '', '', '', DSR_SUB, UJN, SOR_SUB, NSI, SUB_TOTAL],
+    [8, 'Protection works @ 10% of above items from sl. No. 1 to 4 and cartage as per details attached', '', '', '', 0, 0, 0, 0, 0],
+    [9, 'RR 1:6', 'Cum', 34.4115, 5248.05, 0, 0, 180593.27, 0, 180593.27],
+    [10, 'RR dry', 'Cum', 41.0123, 2935.6, 0, 0, 120395.71, 0, 120395.71],
+    [11, 'Total cost of works:- Rs.', '', '', '', DSR_TOTAL, UJN, SOR_TOTAL, NSI, TOTAL_COST],
+  ];
+
+  const checks = validateTotalRows(rows, THARALI_HEADER, 1, TOTAL_COST);
+  // Row 7 is premature Sub Total (items 9–10 below) — Step 6 fires only when section closes; Step 7 is the check.
+  const totalCost = checks.find((c) => c.checkStep === 7 && c.rowNo === 6);
+  assert(!!totalCost, 'Expected Step 7 Total Cost at row 11');
+  assert(totalCost!.match === true, `Total Cost row 11 should pass; got: ${totalCost!.message}`);
+
+  const dsrCol = totalCost!.columnChecks?.find((c) => c.columnLabel === 'DSR');
+  assert((dsrCol?.computedAmount ?? 0) > 0, 'Step 7 DSR must not be zero');
+  assert(dsrCol?.computedAmount === DSR_TOTAL, `DSR must be ${DSR_TOTAL}, got ${dsrCol?.computedAmount}`);
+
+  const sorCol = totalCost!.columnChecks?.find((c) => c.columnLabel === 'SOR(PWD)');
+  assert(sorCol?.computedAmount === SOR_TOTAL, `SOR must be ${SOR_TOTAL}, got ${sorCol?.computedAmount}`);
+}
+
 /** so & Tra page 2 — rows 7 + 10 items, row 9 description-only skip → Sub Total row 11. */
 function testSoTraPage2Rows7_9_10to11(): void {
   const DSR7 = 500000;
@@ -411,6 +446,7 @@ function testPrematureSubtotalOnlyStep7NotZero(): void {
 
 function runAll(): void {
   testAbstractTreatmentWorksRows1to4();
+  testSoTraPage2SubTotalFrom1to5AndTotalCostRow11();
   testSoTraPage2Rows7_9_10to11();
   testSoTraStep7TotalCostRow11();
   testSoTraUjnTolerance1296vs1300();

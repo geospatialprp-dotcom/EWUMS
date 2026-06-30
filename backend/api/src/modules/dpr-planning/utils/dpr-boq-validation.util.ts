@@ -191,7 +191,12 @@ const TOTAL_LABEL_PATTERNS: Array<{ key: string; pattern: RegExp; priority: numb
 ];
 
 export function isSubTotalLabel(text: string): boolean {
-  return /^sub[\s-]*total\s*$/i.test(String(text ?? '').trim());
+  const t = String(text ?? '').trim();
+  if (!t) return false;
+  // "Sub Total", "Sub total from 1 to 5", "Subtotal of items" — not narrative item descriptions.
+  if (!/^sub[\s-]*totals?(\b|\s)/i.test(t)) return false;
+  if (/^(protection|works|item|extra|after|before|including|complete)/i.test(t)) return false;
+  return true;
 }
 
 export function isSectionTotalLabel(text: string): boolean {
