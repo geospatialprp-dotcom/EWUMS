@@ -23,6 +23,10 @@ export const DPR_PDF_ANNOTATION_TYPES = [
   'arrow',
   'stamp',
   'signature',
+  'ai_critical',
+  'ai_major',
+  'ai_minor',
+  'ai_info',
 ] as const;
 
 export type DprPdfAnnotationType = (typeof DPR_PDF_ANNOTATION_TYPES)[number];

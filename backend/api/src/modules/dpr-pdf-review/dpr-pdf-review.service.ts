@@ -6,13 +6,14 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createReadStream } from 'fs';
+import { createReadStream, readFileSync } from 'fs';
 import type { Response } from 'express';
 import { QueryFailedError, Repository } from 'typeorm';
 import { AuditService } from '../../common/services/audit.service';
 import { DprPlanningService } from '../dpr-planning/dpr-planning.service';
 import { DprProposalDocument } from '../dpr-planning/entities/dpr-planning-support.entity';
 import { resolveReviewerScope } from './constants/dpr-pdf-review.constants';
+import { aiSeverityToAnnotationType } from './constants/dpr-pdf-ai-review.constants';
 import {
   CreateDprPdfAnnotationDto,
   CreateDprPdfCommentDto,
@@ -25,6 +26,10 @@ import {
   DprPdfReview,
   DprPdfVersion,
 } from './entities/dpr-pdf-review.entity';
+import {
+  getAiSeverityColor,
+  runDprPdfAiReview,
+} from './utils/dpr-pdf-ai-review.util';
 
 @Injectable()
 export class DprPdfReviewService {
@@ -329,6 +334,109 @@ export class DprPdfReviewService {
         createdAt: v.createdAt,
       })),
     };
+  }
+
+  async runAiReview(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    documentId: string,
+  ) {
+    const review = await this.ensureReviewSession(
+      tenantId,
+      userId,
+      roles,
+      proposalId,
+      documentId,
+    );
+    const { absolutePath } = await this.dprPlanning.getDocumentFile(
+      tenantId,
+      proposalId,
+      documentId,
+    );
+    const buffer = readFileSync(absolutePath);
+    const result = await runDprPdfAiReview(buffer);
+
+    await this.deleteAiAnnotations(tenantId, review.id);
+
+    const createdAnnotations: DprPdfAnnotation[] = [];
+    for (const finding of result.findings) {
+      const annotation = this.annotationRepo.create({
+        tenantId,
+        reviewId: review.id,
+        proposalId,
+        documentId,
+        pageNumber: finding.pageNumber,
+        annotationType: aiSeverityToAnnotationType(finding.severity),
+        geometry: {
+          rect: finding.rect,
+          normalized: true,
+          ruleId: finding.ruleId,
+          category: finding.category,
+        },
+        color: getAiSeverityColor(finding.severity),
+        content: `${finding.title}\n${finding.message}`,
+        createdBy: userId,
+      });
+      createdAnnotations.push(annotation);
+    }
+    const saved = createdAnnotations.length
+      ? await this.annotationRepo.save(createdAnnotations)
+      : [];
+
+    let summaryComment: DprPdfComment | null = null;
+    if (result.summary.total > 0) {
+      const body =
+        `AI Review completed: ${result.summary.total} finding(s) — ` +
+        `${result.summary.critical} critical, ${result.summary.major} major, ` +
+        `${result.summary.minor} minor, ${result.summary.info} info.`;
+      summaryComment = await this.commentRepo.save(
+        this.commentRepo.create({
+          tenantId,
+          reviewId: review.id,
+          proposalId,
+          annotationId: null,
+          pageNumber: null,
+          body,
+          parentId: null,
+          createdBy: userId,
+        }),
+      );
+    }
+
+    await this.audit.log(
+      tenantId,
+      userId,
+      'dpr_pdf_ai_review.completed',
+      'dpr_pdf_review',
+      review.id,
+      {
+        proposalId,
+        documentId,
+        findings: result.summary.total,
+        critical: result.summary.critical,
+      },
+    );
+
+    return {
+      pageCount: result.pageCount,
+      summary: result.summary,
+      findings: result.findings,
+      annotations: saved.map((a) => this.mapAnnotation(a)),
+      summaryComment: summaryComment ? this.mapComment(summaryComment) : null,
+    };
+  }
+
+  private async deleteAiAnnotations(tenantId: string, reviewId: string) {
+    try {
+      const aiTypes = ['ai_critical', 'ai_major', 'ai_minor', 'ai_info'];
+      for (const t of aiTypes) {
+        await this.annotationRepo.delete({ tenantId, reviewId, annotationType: t });
+      }
+    } catch (err) {
+      this.rethrowPdfReviewDbError(err);
+    }
   }
 
   private async ensureReviewSession(

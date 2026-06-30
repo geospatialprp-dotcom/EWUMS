@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Dialog, DialogContent, Divider, IconButton, LinearProgress,
-  List, ListItem, ListItemText, TextField, ToggleButton, ToggleButtonGroup, Typography,
+  Alert, Box, Button, Chip, Dialog, DialogContent, Divider, IconButton, LinearProgress,
+  List, ListItem, ListItemButton, ListItemText, TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -10,6 +10,7 @@ import DrawOutlinedIcon from '@mui/icons-material/DrawOutlined';
 import HighlightOutlinedIcon from '@mui/icons-material/HighlightOutlined';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import CommentOutlinedIcon from '@mui/icons-material/CommentOutlined';
+import AutoFixHighOutlinedIcon from '@mui/icons-material/AutoFixHighOutlined';
 import * as pdfjsLib from 'pdfjs-dist';
 import axios from 'axios';
 import { dprPdfReviewApi, dprPlanningApi } from '../../services/api';
@@ -20,6 +21,21 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
 
 type AnnotationTool = 'freehand' | 'highlight' | 'sticky_note';
+
+const AI_SEVERITY_COLORS: Record<string, string> = {
+  ai_critical: '#d32f2f',
+  ai_major: '#f57c00',
+  ai_minor: '#fbc02d',
+  ai_info: '#1976d2',
+};
+
+type AiReviewSummary = {
+  total: number;
+  critical: number;
+  major: number;
+  minor: number;
+  info: number;
+};
 
 type PdfAnnotation = {
   id: string;
@@ -145,6 +161,8 @@ export default function DprPdfReviewViewer({
   const [comments, setComments] = useState<PdfComment[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [reviewStatus, setReviewStatus] = useState('open');
+  const [aiReviewLoading, setAiReviewLoading] = useState(false);
+  const [aiSummary, setAiSummary] = useState<AiReviewSummary | null>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const drawingRef = useRef<{ active: boolean; points: Point[]; start?: Point }>({
     active: false,
@@ -152,6 +170,8 @@ export default function DprPdfReviewViewer({
   });
 
   const pageAnnotations = annotations.filter((a) => a.pageNumber === pageNumber);
+  const aiAnnotations = annotations.filter((a) => a.annotationType.startsWith('ai_'));
+  const pageAiFindings = aiAnnotations.filter((a) => a.pageNumber === pageNumber);
 
   const loadSession = useCallback(async () => {
     setLoading(true);
@@ -167,6 +187,20 @@ export default function DprPdfReviewViewer({
       ]);
       setAnnotations(annRes.data ?? []);
       setComments(comRes.data ?? []);
+      const aiAnns = (annRes.data ?? []) as PdfAnnotation[];
+      const aiCount = aiAnns.filter((a) => a.annotationType.startsWith('ai_')).length;
+      if (aiCount > 0) {
+        const counts = { total: aiCount, critical: 0, major: 0, minor: 0, info: 0 };
+        for (const a of aiAnns) {
+          if (a.annotationType === 'ai_critical') counts.critical += 1;
+          else if (a.annotationType === 'ai_major') counts.major += 1;
+          else if (a.annotationType === 'ai_minor') counts.minor += 1;
+          else if (a.annotationType === 'ai_info') counts.info += 1;
+        }
+        setAiSummary(counts);
+      } else {
+        setAiSummary(null);
+      }
       const buffer = await blob.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
       pdfDocRef.current = pdf;
@@ -188,6 +222,7 @@ export default function DprPdfReviewViewer({
       setComments([]);
       setPageCount(0);
       setPageNumber(1);
+      setAiSummary(null);
       setError('');
     }
   }, [open, loadSession]);
@@ -217,16 +252,45 @@ export default function DprPdfReviewViewer({
     }
   }, [open, renderPage]);
 
+  const resolveRect = (
+    ann: PdfAnnotation,
+    overlayW: number,
+    overlayH: number,
+  ): { x: number; y: number; w: number; h: number } | null => {
+    const r = ann.geometry.rect as { x: number; y: number; w: number; h: number } | undefined;
+    if (!r) return null;
+    if (ann.geometry.normalized) {
+      return { x: r.x * overlayW, y: r.y * overlayH, w: r.w * overlayW, h: r.h * overlayH };
+    }
+    return r;
+  };
+
   const drawAnnotationsOnOverlay = (overlay: HTMLCanvasElement, items: PdfAnnotation[]) => {
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, overlay.width, overlay.height);
     for (const ann of items) {
-      ctx.strokeStyle = ann.color;
-      ctx.fillStyle = ann.color;
+      const isAi = ann.annotationType.startsWith('ai_');
+      ctx.strokeStyle = isAi ? (AI_SEVERITY_COLORS[ann.annotationType] ?? ann.color) : ann.color;
+      ctx.fillStyle = isAi ? (AI_SEVERITY_COLORS[ann.annotationType] ?? ann.color) : ann.color;
       ctx.lineWidth = ann.annotationType === 'highlight' ? 12 : 2;
-      ctx.globalAlpha = ann.annotationType === 'highlight' ? 0.35 : 1;
-      if (ann.annotationType === 'freehand' && Array.isArray(ann.geometry.points)) {
+      ctx.globalAlpha = ann.annotationType === 'highlight' ? 0.35 : isAi ? 0.25 : 1;
+
+      if (isAi) {
+        const rect = resolveRect(ann, overlay.width, overlay.height);
+        if (rect) {
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+          ctx.globalAlpha = 1;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+          if (ann.content) {
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 11px sans-serif';
+            const title = ann.content.split('\n')[0]?.slice(0, 50) ?? '';
+            ctx.fillText(title, rect.x + 4, rect.y + 14, rect.w - 8);
+          }
+        }
+      } else if (ann.annotationType === 'freehand' && Array.isArray(ann.geometry.points)) {
         const pts = ann.geometry.points as Point[];
         if (pts.length < 2) continue;
         ctx.beginPath();
@@ -347,6 +411,25 @@ export default function DprPdfReviewViewer({
     }
   };
 
+  const handleRunAiReview = async () => {
+    setAiReviewLoading(true);
+    setError('');
+    try {
+      const { data } = await dprPdfReviewApi.runAiReview(proposalId, documentId);
+      const newAnns = (data.annotations ?? []) as PdfAnnotation[];
+      const manual = annotations.filter((a) => !a.annotationType.startsWith('ai_'));
+      setAnnotations([...manual, ...newAnns]);
+      setAiSummary(data.summary ?? null);
+      if (data.summaryComment) {
+        setComments((prev) => [...prev, data.summaryComment as PdfComment]);
+      }
+    } catch (err) {
+      setError(getApiError(err, 'AI review failed'));
+    } finally {
+      setAiReviewLoading(false);
+    }
+  };
+
   const submitComment = async () => {
     const body = commentDraft.trim();
     if (!body) return;
@@ -374,7 +457,19 @@ export default function DprPdfReviewViewer({
             Status: {reviewStatus} · Page {pageNumber}/{pageCount || '—'}
           </Typography>
           {!readOnly && (
-            <ToggleButtonGroup
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                color="secondary"
+                startIcon={<AutoFixHighOutlinedIcon />}
+                onClick={handleRunAiReview}
+                disabled={aiReviewLoading || loading}
+                sx={{ mr: 1, color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
+              >
+                Run AI Review
+              </Button>
+              <ToggleButtonGroup
               size="small"
               exclusive
               value={tool}
@@ -385,6 +480,7 @@ export default function DprPdfReviewViewer({
               <ToggleButton value="highlight"><HighlightOutlinedIcon fontSize="small" /></ToggleButton>
               <ToggleButton value="sticky_note"><StickyNote2OutlinedIcon fontSize="small" /></ToggleButton>
             </ToggleButtonGroup>
+            </>
           )}
           <IconButton color="inherit" onClick={() => setPageNumber((p) => Math.max(1, p - 1))} disabled={pageNumber <= 1}>
             <ChevronLeftIcon />
@@ -396,6 +492,7 @@ export default function DprPdfReviewViewer({
         </Box>
 
         {loading && <LinearProgress />}
+        {aiReviewLoading && <LinearProgress color="secondary" />}
         {error && (
           <Alert severity="error" sx={{ m: 1 }} onClose={() => setError('')}>{error}</Alert>
         )}
@@ -426,10 +523,91 @@ export default function DprPdfReviewViewer({
                 <CommentOutlinedIcon fontSize="small" /> Review Panel
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Phase 1 — comments &amp; annotations on page {pageNumber}
+                Comments, annotations &amp; AI review — page {pageNumber}
               </Typography>
+              {aiSummary && (
+                <Box display="flex" flexWrap="wrap" gap={0.5} mt={1}>
+                  <Chip size="small" label={`${aiSummary.total} AI findings`} />
+                  {aiSummary.critical > 0 && (
+                    <Chip size="small" label={`${aiSummary.critical} critical`} sx={{ bgcolor: '#d32f2f', color: '#fff' }} />
+                  )}
+                  {aiSummary.major > 0 && (
+                    <Chip size="small" label={`${aiSummary.major} major`} sx={{ bgcolor: '#f57c00', color: '#fff' }} />
+                  )}
+                  {aiSummary.minor > 0 && (
+                    <Chip size="small" label={`${aiSummary.minor} minor`} sx={{ bgcolor: '#fbc02d', color: '#000' }} />
+                  )}
+                  {aiSummary.info > 0 && (
+                    <Chip size="small" label={`${aiSummary.info} info`} sx={{ bgcolor: '#1976d2', color: '#fff' }} />
+                  )}
+                </Box>
+              )}
             </Box>
             <Divider />
+            {pageAiFindings.length > 0 && (
+              <>
+                <Box px={2} py={1}>
+                  <Typography variant="caption" fontWeight={600} color="text.secondary">
+                    AI findings on this page ({pageAiFindings.length})
+                  </Typography>
+                </Box>
+                <List dense disablePadding>
+                  {pageAiFindings.map((f) => (
+                    <ListItem key={f.id} disablePadding>
+                      <ListItemButton onClick={() => setPageNumber(f.pageNumber)} dense>
+                        <Chip
+                          size="small"
+                          label={f.annotationType.replace('ai_', '')}
+                          sx={{
+                            mr: 1,
+                            bgcolor: AI_SEVERITY_COLORS[f.annotationType] ?? f.color,
+                            color: f.annotationType === 'ai_minor' ? '#000' : '#fff',
+                            textTransform: 'capitalize',
+                            minWidth: 64,
+                          }}
+                        />
+                        <ListItemText
+                          primary={(f.content ?? '').split('\n')[0]}
+                          secondary={(f.content ?? '').split('\n').slice(1).join(' ')}
+                          primaryTypographyProps={{ variant: 'body2', noWrap: true }}
+                          secondaryTypographyProps={{ variant: 'caption', noWrap: true }}
+                        />
+                      </ListItemButton>
+                    </ListItem>
+                  ))}
+                </List>
+                <Divider />
+              </>
+            )}
+            {aiAnnotations.length > pageAiFindings.length && (
+              <>
+                <Box px={2} py={1}>
+                  <Typography variant="caption" fontWeight={600} color="text.secondary">
+                    All AI findings ({aiAnnotations.length})
+                  </Typography>
+                </Box>
+                <List dense disablePadding sx={{ maxHeight: 160, overflow: 'auto' }}>
+                  {aiAnnotations
+                    .filter((f) => f.pageNumber !== pageNumber)
+                    .map((f) => (
+                      <ListItem key={`all-${f.id}`} disablePadding>
+                        <ListItemButton onClick={() => setPageNumber(f.pageNumber)} dense>
+                          <Chip
+                            size="small"
+                            label={`p${f.pageNumber}`}
+                            sx={{ mr: 1, minWidth: 36 }}
+                          />
+                          <ListItemText
+                            primary={(f.content ?? '').split('\n')[0]}
+                            primaryTypographyProps={{ variant: 'caption', noWrap: true }}
+                          />
+                        </ListItemButton>
+                      </ListItem>
+                    ))}
+                </List>
+                <Divider />
+              </>
+            )}
             <List dense sx={{ flex: 1, overflow: 'auto' }}>
               {comments.length === 0 && (
                 <ListItem><ListItemText primary="No comments yet" secondary="Add a discussion note below" /></ListItem>

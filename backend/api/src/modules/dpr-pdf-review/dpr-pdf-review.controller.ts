@@ -163,4 +163,21 @@ export class DprPdfReviewController {
       query.documentId,
     );
   }
+
+  @Post('proposals/:id/ai-review')
+  @RequirePermissions('dpr_pdf_review:annotate')
+  @ApiOperation({ summary: 'Run AI QA review on DPR PDF and create severity markups' })
+  runAiReview(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') proposalId: string,
+    @Query() query: DocumentIdQueryDto,
+  ) {
+    return this.service.runAiReview(
+      user.tenantId,
+      user.sub,
+      user.roles ?? [],
+      proposalId,
+      query.documentId,
+    );
+  }
 }

@@ -950,6 +950,8 @@ export const dprPdfReviewApi = {
     api.post(`/dpr-pdf-review/proposals/${proposalId}/comments`, data),
   listVersions: (proposalId: string, documentId: string) =>
     api.get(`/dpr-pdf-review/proposals/${proposalId}/versions`, { params: { documentId } }),
+  runAiReview: (proposalId: string, documentId: string) =>
+    api.post(`/dpr-pdf-review/proposals/${proposalId}/ai-review`, null, { params: { documentId } }),
 };
 
 export const landAcquisitionApi = {
