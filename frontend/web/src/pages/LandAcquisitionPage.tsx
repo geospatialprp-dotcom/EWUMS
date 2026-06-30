@@ -9,7 +9,7 @@ import LandscapeOutlinedIcon from '@mui/icons-material/LandscapeOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { landAcquisitionApi, projectsApi } from '../services/api';
+import { landAcquisitionApi, projectsApi, dprPlanningApi } from '../services/api';
 import PageShell from '../components/layout/PageShell';
 import PageHeader from '../components/layout/PageHeader';
 import { dataTableSx } from '../utils/pagePresentationStyles';
@@ -76,6 +76,7 @@ export default function LandAcquisitionPage() {
     dprProposalId: '',
     projectId: '',
   });
+  const [linkedProposal, setLinkedProposal] = useState<{ title: string; proposalNo: string } | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; name: string; code?: string }>>([]);
 
   useEffect(() => {
@@ -86,7 +87,19 @@ export default function LandAcquisitionPage() {
           setProjects(list.map((p: { id: string; name: string; code?: string }) => p));
         })
         .catch(() => setProjects([]));
+      return;
     }
+    dprPlanningApi.getProposal(linkedProposalId)
+      .then((res) => {
+        const p = res.data as { title?: string; proposalNo?: string };
+        const title = p.title?.trim() ?? '';
+        const proposalNo = p.proposalNo?.trim() ?? '';
+        setLinkedProposal(title || proposalNo ? { title, proposalNo } : null);
+        if (title) {
+          setForm((f) => ({ ...f, title: f.title.trim() ? f.title : title }));
+        }
+      })
+      .catch(() => setLinkedProposal(null));
   }, [linkedProposalId]);
 
   useEffect(() => {
@@ -148,7 +161,8 @@ export default function LandAcquisitionPage() {
       .then((res) => {
         const created = res.data as CaseRow;
         setCreateOpen(false);
-        navigate(`/land-acquisition/${created.id}`);
+        const params = proposalId ? '?workspaceLinked=1' : '';
+        navigate(`/land-acquisition/${created.id}${params}`);
       })
       .catch((err) => setError(getApiError(err, 'Failed to create LA case')))
       .finally(() => setBusy(false));
@@ -251,7 +265,19 @@ export default function LandAcquisitionPage() {
           <Typography variant="h6" gutterBottom>New Land Acquisition Case</Typography>
           {linkedProposalId ? (
             <Alert severity="info" sx={{ mb: 2 }}>
-              Linked to DPR proposal{prefilledTitle ? `: ${prefilledTitle}` : ''}. TAC and sanction gates will use this LA case.
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                Creating LA from DPR proposal
+                {linkedProposal?.proposalNo ? ` ${linkedProposal.proposalNo}` : ''}
+              </Typography>
+              <Typography variant="body2">
+                A DPR GIS workspace will be created and linked automatically. LA layers are scaffolded so you can
+                import pipeline SHP and run Auto Trace without a full feature catalog.
+              </Typography>
+              {(linkedProposal?.title || prefilledTitle) && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                  Scheme: {linkedProposal?.title || prefilledTitle}
+                </Typography>
+              )}
             </Alert>
           ) : createFor ? (
             <Alert severity="warning" sx={{ mb: 2 }}>

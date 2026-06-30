@@ -81,9 +81,16 @@ export default function DprLaReadinessChip({
           )}
         </>
       ) : (
-        <Typography variant="body2" color="text.secondary" gutterBottom>
-          No land acquisition case linked to this DPR proposal. Create one to trace pipeline alignment and identify affected parcels.
-        </Typography>
+        <>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            No land acquisition case linked to this DPR proposal yet. At <strong>DPR Stage 3</strong>, create LA here
+            to open a GIS workspace, trace pipeline alignment, and identify affected parcels before TAC submission.
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+            After a construction project exists, you can also create LA from Land Acquisition and link the live project
+            instead of the DPR GIS workspace.
+          </Typography>
+        </>
       )}
       <Box mt={1} display="flex" gap={1} flexWrap="wrap" alignItems="center">
         {la.caseId ? (
@@ -101,7 +108,7 @@ export default function DprLaReadinessChip({
             variant="contained"
             onClick={() => openLaPath(buildLaCreateUrl(proposalId, proposalTitle))}
           >
-            Create LA Case
+            Create LA Case (opens GIS workspace for pipeline trace)
           </Button>
         ) : (
           <Typography variant="caption" color="text.secondary">

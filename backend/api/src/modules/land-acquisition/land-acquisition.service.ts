@@ -415,6 +415,9 @@ export class LandAcquisitionService {
           await this.caseRepo.save(existing);
         }
       }
+      if (existing.projectId) {
+        await this.projectsService.ensureLaGisLayersScaffolded(tenantId, existing.projectId);
+      }
       return this.getCase(tenantId, user, existing.id);
     }
 
@@ -431,6 +434,9 @@ export class LandAcquisitionService {
       createdBy: user.sub,
     });
     const saved = await this.caseRepo.save(row);
+    if (projectId) {
+      await this.projectsService.ensureLaGisLayersScaffolded(tenantId, projectId);
+    }
     await this.logEvent(tenantId, saved.id, 'pipeline_designed', 'case_created', user.sub, 'Land acquisition case opened');
     return this.getCase(tenantId, user, saved.id);
   }

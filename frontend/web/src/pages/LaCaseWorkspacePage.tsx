@@ -12,7 +12,7 @@ import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
 import type { FeatureCollection } from 'geojson';
 import axios from 'axios';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import { landAcquisitionApi } from '../services/api';
 import PageShell from '../components/layout/PageShell';
 import SurfaceCard from '../components/layout/SurfaceCard';
@@ -49,6 +49,8 @@ function getApiError(err: unknown, fallback: string): string {
 
 export default function LaCaseWorkspacePage() {
   const { caseId } = useParams<{ caseId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [showWorkspaceLinkedBanner, setShowWorkspaceLinkedBanner] = useState(false);
   const { user, hasPermission } = useAuth();
   const roles = user?.roles ?? [];
   const canUpdate = canPerformOperational(roles, hasPermission, 'la_case:update');
@@ -93,6 +95,15 @@ export default function LaCaseWorkspacePage() {
   }, [caseId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (searchParams.get('workspaceLinked') === '1') {
+      setShowWorkspaceLinkedBanner(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('workspaceLinked');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   /** Trigger backend auto-provision via routing-schemes, then refresh if workspace was linked */
   useEffect(() => {
@@ -197,6 +208,19 @@ export default function LaCaseWorkspacePage() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+      {showWorkspaceLinkedBanner && detail?.projectId && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setShowWorkspaceLinkedBanner(false)}>
+          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+            DPR GIS workspace linked
+          </Typography>
+          <Typography variant="body2">
+            {detail.isDprGisWorkspace
+              ? `GIS workspace "${String(detail.projectName ?? 'DPR scheme')}" is ready. Import pipeline SHP in Auto Route, then Trace Alignment to identify affected parcels.`
+              : `Project "${String(detail.projectName ?? 'linked project')}" is linked. Use Auto Route or Trace Alignment to begin pipeline analysis.`}
+            {detail.dprProposalNo ? ` Linked to DPR ${String(detail.dprProposalNo)}.` : ''}
+          </Typography>
+        </Alert>
+      )}
       {busy && <LinearProgress sx={{ mb: 2 }} />}
 
       {detail && (
