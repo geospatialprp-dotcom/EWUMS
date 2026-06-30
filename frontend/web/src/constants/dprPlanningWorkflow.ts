@@ -161,7 +161,7 @@ export function canForwardDprToTac(roles: string[]): boolean {
 }
 
 export function canPerformTacReview(roles: string[]): boolean {
-  return hasDprRole(roles, DPR_TAC_REVIEWER_ROLES);
+  return roles.includes('super_admin') || hasDprRole(roles, DPR_HQ_REVIEWER_ROLES);
 }
 
 export function canForwardToSecretariat(roles: string[]): boolean {

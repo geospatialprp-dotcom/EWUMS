@@ -3226,7 +3226,7 @@ export class DprPlanningService {
   }
 
   private canReviewTac(roles: string[]) {
-    return roles.some((r) => ['se', 'ce'].includes(r));
+    return this.isHqReviewer(roles);
   }
 
   private assertCanForwardToTac(roles: string[]) {
@@ -3237,7 +3237,7 @@ export class DprPlanningService {
 
   private assertCanReviewTac(roles: string[]) {
     if (!this.canReviewTac(roles)) {
-      throw new ForbiddenException('Only TAC officials (SE, CE) can perform Round 1 technical review');
+      throw new ForbiddenException('Only HQ officials (SE, CE, CGM, MD) or Super Admin can perform Round 1 TAC review');
     }
   }
 

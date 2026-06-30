@@ -237,7 +237,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
       <DprDialogHeader
         stage={4}
-        title="TAC Review — First Round"
+        title={isTracking && !canReview ? 'TAC Status — Division Tracking' : 'TAC Review — First Round (HQ)'}
         proposalNo={detail?.proposalNo}
         statusLabel={detail?.statusLabel ?? detail?.status}
         busy={busy}
@@ -277,8 +277,15 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
             )}
 
             {isTracking && !canReview && (
-              <Alert severity="success" sx={{ mb: 2 }}>
-                DPR is with TAC for Round 1 review. Division can track status, documents, and observations below.
+              <Alert severity="info" sx={{ mb: 2 }}>
+                DPR is with HQ/TAC for Round 1 review. Division can track status and download documents below.
+                PDF redline review and TAC approval are performed by HQ officials (SE, CE, CGM, MD) or Super Admin.
+              </Alert>
+            )}
+
+            {canReview && (
+              <Alert severity="info" icon={<RateReviewOutlinedIcon />} sx={{ mb: 2 }}>
+                HQ / Super Admin: Review the DPR PDF online, complete the checklist, and record the TAC decision.
               </Alert>
             )}
 
@@ -286,17 +293,17 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
               TAC Submission Package
             </Typography>
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
+              {pdfDoc && canReview && (
+                <Button size="small" variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
+                  onClick={() => setPdfViewerOpen(true)}>
+                  Review PDF Online
+                </Button>
+              )}
               {pdfDoc && (
-                <>
-                  <Button size="small" variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
-                    onClick={() => setPdfViewerOpen(true)}>
-                    Review PDF Online
-                  </Button>
-                  <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
-                    onClick={() => download(pdfDoc.id, pdfDoc.fileName ?? 'dpr-complete.pdf')}>
-                    Download DPR PDF
-                  </Button>
-                </>
+                <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
+                  onClick={() => download(pdfDoc.id, pdfDoc.fileName ?? 'dpr-complete.pdf')}>
+                  Download DPR PDF
+                </Button>
               )}
               {boqDoc && (
                 <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}

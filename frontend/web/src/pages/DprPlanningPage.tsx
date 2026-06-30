@@ -468,6 +468,16 @@ export default function DprPlanningPage() {
                         TAC Review — Round 1
                       </Button>
                     )}
+                    {row.status === 'tac_round1_review' && !canTacReview && (
+                      <Button size="small" variant="outlined" startIcon={<FactCheckOutlinedIcon />} onClick={() => setTacReviewOpen(row.id)}>
+                        Track TAC Status
+                      </Button>
+                    )}
+                    {['tac_corrections_required', 'dpr_revision'].includes(row.status) && !canTacReview && (
+                      <Button size="small" variant="outlined" startIcon={<FactCheckOutlinedIcon />} onClick={() => setTacReviewOpen(row.id)}>
+                        Track TAC Status
+                      </Button>
+                    )}
                     {['tac_corrections_required', 'dpr_revision', 'tac_round1_cleared'].includes(row.status) && canTacReview && (
                       <Button size="small" startIcon={<FactCheckOutlinedIcon />} onClick={() => setTacReviewOpen(row.id)}>
                         TAC Status
@@ -577,8 +587,12 @@ export default function DprPlanningPage() {
         onClose={() => setStage3Open(null)}
         onUpdated={load}
         onSubmittedToTac={(id) => {
-          setSuccess('DPR submitted to TAC for PDF manual review.');
-          setTacReviewOpen(id);
+          setSuccess(
+            canTacReview
+              ? 'DPR submitted — open TAC Review to perform HQ Round 1 review.'
+              : 'DPR submitted to HQ/TAC for review. You can track status from Track TAC Status.',
+          );
+          if (canTacReview) setTacReviewOpen(id);
         }}
       />
 
@@ -588,8 +602,12 @@ export default function DprPlanningPage() {
         onClose={() => setRevisionOpen(null)}
         onUpdated={load}
         onResubmitted={(id) => {
-          setSuccess('Revised DPR resubmitted to TAC for re-review.');
-          setTacReviewOpen(id);
+          setSuccess(
+            canTacReview
+              ? 'Revised DPR resubmitted — open TAC Review for HQ re-review.'
+              : 'Revised DPR resubmitted to HQ/TAC. Track status from Track TAC Status.',
+          );
+          if (canTacReview) setTacReviewOpen(id);
         }}
       />
 
