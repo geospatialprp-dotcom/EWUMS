@@ -1,6 +1,12 @@
 import * as XLSX from 'xlsx';
 import { ImportBoqItemDto } from '../dto/construction.dto';
 import { resolveFhtcItemComponent } from './boq-fhtc.util';
+import {
+  extractBoqUnit,
+  isUnitHeaderKey,
+} from './boq-unit.util';
+
+export { normalizeBoqUnit } from './boq-unit.util';
 
 type BoqComponent =
   | 'source_development'
@@ -67,68 +73,12 @@ const COMPONENT_ALIASES: Record<string, BoqComponent> = {
   fhtc: 'fhtc',
 };
 
-const KNOWN_UNIT_PATTERN = /^(nos?|no\.?s\.?|cum|c\.?u\.?m\.?|rmt|r\.?m\.?t\.?|rm|qtl|quintal)$/i;
-
 function normalizeText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function normalizeKey(key: string): string {
   return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-}
-
-export function normalizeBoqUnit(raw: string): string {
-  const cleaned = raw.trim();
-  if (!cleaned) return '';
-  const key = cleaned.toLowerCase().replace(/\./g, '').replace(/\s+/g, '');
-  const aliases: Record<string, string> = {
-    nos: 'Nos',
-    no: 'Nos',
-    cum: 'cum',
-    cumt: 'cum',
-    rmt: 'Rmt',
-    rm: 'Rmt',
-    qtl: 'Qtl',
-    quintal: 'Qtl',
-  };
-  return aliases[key] ?? cleaned;
-}
-
-function looksLikeUnit(value: string): boolean {
-  const v = String(value ?? '').trim();
-  if (!v || v.length > 20) return false;
-  if (/^\d+([.,]\d+)?$/.test(v)) return false;
-  return KNOWN_UNIT_PATTERN.test(v) || /^[a-zA-Z]{2,5}$/.test(v);
-}
-
-function resolveUnitColumn(map: Record<string, number>, cells: string[]): number | undefined {
-  if (map.unit !== undefined) return map.unit;
-
-  if (map.qty !== undefined) {
-    const afterQty = map.qty + 1;
-    if (map.rate !== afterQty && map.amount !== afterQty && looksLikeUnit(cells[afterQty])) {
-      return afterQty;
-    }
-  }
-
-  if (map.qty !== undefined && map.rate !== undefined && map.rate > map.qty + 1) {
-    for (let i = map.qty + 1; i < map.rate; i += 1) {
-      if (looksLikeUnit(cells[i])) return i;
-    }
-  }
-
-  if (map.qty === 2 && looksLikeUnit(cells[3])) return 3;
-
-  return undefined;
-}
-
-function extractUnit(cells: string[], map: Record<string, number>): string {
-  const idx = resolveUnitColumn(map, cells);
-  if (idx !== undefined) {
-    const unit = normalizeBoqUnit(String(cells[idx] ?? ''));
-    if (unit) return unit;
-  }
-  return 'Nos';
 }
 
 function parseNumber(value: unknown): number {
@@ -199,8 +149,7 @@ function buildHeaderMap(cells: string[]): Record<string, number> {
       map.sor_code = idx;
     } else if (key.includes('description') || key.includes('particulars')) {
       map.description = idx;
-    } else if (key === 'unit' || key === 'units' || key === 'uom' || key === 'um'
-      || (key.includes('unit') && !key.includes('amount') && !key.includes('community'))) {
+    } else if (isUnitHeaderKey(key, raw)) {
       map.unit = idx;
     } else if (key === 'r_qty' || key === 'rqty' || key.includes('qty') || key.includes('quantity')) {
       map.qty = idx;
@@ -329,7 +278,7 @@ export function parseBoqExcelBuffer(buffer: Buffer): ImportBoqItemDto[] {
       items.push({
         itemCode: `${prefix}-${serialLabel.replace(/\s+/g, '')}`,
         description,
-        unit: extractUnit(cells, h),
+        unit: extractBoqUnit(cells, h) || 'Nos',
         contractQty: qty,
         rate,
         contractAmount: amount > 0 ? amount : Math.round(qty * rate * 100) / 100,
