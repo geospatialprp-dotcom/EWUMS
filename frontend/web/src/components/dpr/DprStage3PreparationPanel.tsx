@@ -530,9 +530,15 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
               </Box>
             )}
 
+            {boqValidationPassed && !uploadingBoq && boqValidation?.status === 'passed' && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                BOQ validation PASSED — you may submit to TAC once all other deliverables are complete.
+              </Alert>
+            )}
+
             {boqValidationFailed && !uploadingBoq && (
               <Alert severity="error" sx={{ mb: 2 }}>
-                BOQ validation must pass before submitting to TAC. Fix highlighted errors and re-upload the Excel workbook.
+                BOQ must pass validation before HQ submission. Fix highlighted errors and re-upload the Excel workbook.
               </Alert>
             )}
 
@@ -552,7 +558,7 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
                   <Typography variant="caption" display="block">• Upload Complete BOQ Excel (required — auto-validated)</Typography>
                 )}
                 {readiness.tacPackage?.hasBoqExcel && !readiness.tacPackage?.boqValidationPassed && (
-                  <Typography variant="caption" display="block">• Fix BOQ validation errors and re-upload Excel</Typography>
+                  <Typography variant="caption" display="block">• BOQ must pass validation before HQ submission</Typography>
                 )}
               </Alert>
             )}

@@ -431,7 +431,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
 
                 {boqValidationFailed && !uploadingBoq && (
                   <Alert severity="error" sx={{ mb: 2 }}>
-                    BOQ validation must pass before resubmitting to TAC.
+                    BOQ must pass validation before HQ submission. Fix highlighted errors and re-upload Excel.
                   </Alert>
                 )}
 
@@ -470,7 +470,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
                       <Typography variant="caption" display="block">• Upload BOQ Excel (required — auto-validated)</Typography>
                     )}
                     {readiness?.hasBoqExcel && !readiness?.boqValidationPassed && (
-                      <Typography variant="caption" display="block">• Fix BOQ validation errors and re-upload Excel</Typography>
+                      <Typography variant="caption" display="block">• BOQ must pass validation before HQ submission</Typography>
                     )}
                   </Alert>
                 )}

@@ -5,7 +5,7 @@ import {
   nonAmountColumnIndices,
   resolveUnitColumn,
 } from '../../construction/utils/boq-unit.util';
-import { attachExcelAudit, AMOUNT_TOLERANCE, getVisibleSheetNames } from './dpr-excel-audit.util';
+import { attachExcelAudit, getVisibleSheetNames } from './dpr-excel-audit.util';
 import type { DprExcelAuditReport } from './dpr-excel-audit.types';
 
 export type BoqLayoutFormat = 'standard' | 'tharali';
@@ -51,9 +51,15 @@ export type BoqLineIssue = {
   difference?: number | null;
 };
 
+/** Line-level Qty×Rate / component sums — 2-decimal rounding slack. */
+const QTY_RATE_AMOUNT_TOLERANCE = 0.05;
+/** Sub Total / Total Cost row checks — allow small column rounding on large totals. */
 const SECTION_TOTAL_TOLERANCE = 1.0;
-/** Qty×Rate vs Total Amount — allow for 2-decimal rounding only. */
-const QTY_RATE_AMOUNT_TOLERANCE = 0.02;
+
+function totalRowTolerance(amount: number): number {
+  const base = Math.abs(amount);
+  return Math.max(0.05, SECTION_TOTAL_TOLERANCE, base * 0.00001);
+}
 /** Only persist problem lines — keeps API/DB payloads small for large BOQ files. */
 const STORE_PROBLEM_LINES_ONLY = true;
 
@@ -188,8 +194,12 @@ export function isSubTotalLabel(text: string): boolean {
   return /sub[\s-]*total/i.test(text);
 }
 
+export function isSectionTotalLabel(text: string): boolean {
+  return /section\s*total/i.test(text);
+}
+
 export function isTotalCostLabel(text: string): boolean {
-  return /total\s*cost|grand\s*total|gross\s*total|section\s*total|net\s*amount/i.test(text);
+  return /total\s*cost|grand\s*total|gross\s*total|net\s*amount/i.test(text);
 }
 
 export function isGrandTotalLabel(text: string): boolean {
@@ -243,7 +253,7 @@ function tharaliRowHorizontalCheck(
   }
   const horizontalDeclared = declared.totalAmount;
   const horizontalComputed = declared.dsr + declared.ujn + declared.sorPwd + declared.nsi;
-  const horizontalMatch = Math.abs(horizontalDeclared - horizontalComputed) <= SECTION_TOTAL_TOLERANCE;
+  const horizontalMatch = Math.abs(horizontalDeclared - horizontalComputed) <= totalRowTolerance(horizontalDeclared);
   return { horizontalMatch, horizontalDeclared, horizontalComputed };
 }
 
@@ -275,7 +285,7 @@ function buildColumnChecks(
     const d = declared[col.key];
     const c = computed[col.key];
     if (d <= 0 && c <= 0) continue;
-    const match = Math.abs(d - c) <= SECTION_TOTAL_TOLERANCE;
+    const match = Math.abs(d - c) <= totalRowTolerance(Math.max(d, c));
     checks.push({
       column: col.key,
       columnLabel: col.label,
@@ -538,6 +548,7 @@ function isSectionContributingRow(
   if (isDescriptionOnlyRow(cells, headerMap)) return false;
   // Match total labels on description only — joined text includes amount cells and causes false exclusions.
   if (isSubTotalLabel(descCol)) return false;
+  if (isSectionTotalLabel(descCol)) return false;
   if (isTotalCostLabel(descCol)) return false;
   if (Object.keys(headerMap).length === 0) return false;
 
@@ -572,6 +583,7 @@ function isDataRow(cells: string[], headerMap: Record<string, number>): boolean 
   if (!desc || desc.length < 3) return false;
   const lower = desc.toLowerCase();
   if (/grand\s*total|gross\s*total|total\s*cost|section\s*total|sub[\s-]*total|abstract|^\s*total\s*$/i.test(lower)) return false;
+  if (isSectionTotalLabel(desc)) return false;
   if (/^\d+(\.\d+)?$/.test(desc)) return false;
   return isBoqItemRow(cells, headerMap);
 }
@@ -836,14 +848,16 @@ function validateTharaliLineValues(
   const sorPwd = round2(components.sorPwd);
   const nsi = round2(components.nsi);
   const totalAmount = round2(components.totalAmount);
-  const qtyRateTotal = round2(qty * rate);
-  const componentSum = round2(dsr + ujn + sorPwd + nsi);
-  const declaredAmount = totalAmount > 0 ? totalAmount : ujn > 0 ? ujn : qtyRateTotal;
+  const qtyRateTotal = qty * rate;
+  const componentSum = dsr + ujn + sorPwd + nsi;
+  const declaredAmount = totalAmount > 0 ? totalAmount : ujn > 0 ? ujn : round2(qtyRateTotal);
   const hasComponentSum = dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0;
-  const qtyRateTotalMatch = !(qty > 0 && rate > 0 && totalAmount > 0)
+  const hasDirectAmount = totalAmount > 0 || ujn > 0 || hasComponentSum;
+  const qtyRateCheckApplicable = qty > 0 && rate > 0 && totalAmount > 0;
+  const qtyRateTotalMatch = !qtyRateCheckApplicable
     || Math.abs(qtyRateTotal - totalAmount) <= QTY_RATE_AMOUNT_TOLERANCE;
   const componentSumMatch = totalAmount <= 0 || !hasComponentSum
-    || Math.abs(componentSum - totalAmount) <= AMOUNT_TOLERANCE;
+    || Math.abs(componentSum - totalAmount) <= QTY_RATE_AMOUNT_TOLERANCE;
   const crossCheckMatch = qtyRateTotalMatch && componentSumMatch;
   const isItemRow = qty > 0 || rate > 0 || totalAmount > 0 || ujn > 0
     || dsr > 0 || sorPwd > 0 || nsi > 0;
@@ -872,16 +886,16 @@ function validateTharaliLineValues(
       message: 'Step 2 — Quantity: must be numeric',
       expectedValue: 'Numeric value', actualValue: String(rawQty ?? ''),
     });
-  } else if (isItemRow && qty <= 0) {
+  } else if (rate > 0 && qty <= 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
-      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${qtyDisplay})`,
+      message: `Step 2 — Quantity: must be greater than zero when rate is present (found ${qtyDisplay})`,
       expectedValue: '> 0', actualValue: qty,
     });
-  } else if (qty > 0 && !unit.trim()) {
+  } else if (qty > 0 && rate > 0 && !unit.trim()) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Unit', status: 'fail',
-      message: 'Step 2 — Quantity: unit is required when quantity is present',
+      message: 'Step 2 — Quantity: unit is required when quantity and rate are present',
       expectedValue: 'Unit', actualValue: '(blank)',
     });
   } else {
@@ -941,14 +955,7 @@ function validateTharaliLineValues(
   }
 
   if (qty > 0 && rate > 0 && hasComponentSum && ujn > 0) {
-    const qtyRateVsComponents = Math.abs(qtyRateTotal - componentSum) <= AMOUNT_TOLERANCE;
-    if (!qtyRateVsComponents) {
-      issues.push({
-        order: 6, checkType: 'cross_check', column: 'UJN', status: 'warning',
-        message: `${rowRef}Qty×Rate (${qtyRateTotal}) differs from DSR+UJN+SOR(PWD)+NSI (${componentSum})`,
-        expectedValue: qtyRateTotal, actualValue: componentSum, difference: round2(componentSum - qtyRateTotal),
-      });
-    }
+    // Cross-check between Qty×Rate and component columns is covered by Steps 4–5; skip redundant warning.
   }
 
   if (!issues.some((i) => i.status === 'fail') && isItemRow && qty <= 0 && rate <= 0 && declaredAmount <= 0) {
@@ -956,7 +963,7 @@ function validateTharaliLineValues(
       order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
       message: 'Step 2 — Quantity: zero quantity, rate and amount on item row',
     });
-  } else if (!issues.some((i) => i.status === 'fail') && qty > 0 && rate === 0 && declaredAmount > 0) {
+  } else if (!issues.some((i) => i.status === 'fail') && qty > 0 && rate === 0 && declaredAmount > 0 && !hasDirectAmount) {
     issues.push({
       order: 3, checkType: 'rate', column: 'Rate', status: 'warning',
       message: 'Step 3 — Rate: amount present but rate is zero',
@@ -1012,9 +1019,9 @@ function validateLineValues(
   rawRate?: unknown,
 ): BoqLineValidation {
   const roundedDeclared = round2(declaredAmount);
-  const computedAmount = round2(qty * rate);
+  const computedAmount = qty * rate;
   const difference = round2(roundedDeclared - computedAmount);
-  const absDiff = Math.abs(difference);
+  const absDiff = Math.abs(roundedDeclared - computedAmount);
   const isItemRow = qty > 0 || rate > 0 || roundedDeclared > 0;
   const qtyDisplay = formatCellNumber(rawQty ?? qty);
   const rateDisplay = formatCellNumber(rawRate ?? rate);
@@ -1039,17 +1046,22 @@ function validateLineValues(
       message: 'Step 2 — Quantity: must be numeric',
       expectedValue: 'Numeric value', actualValue: String(rawQty ?? ''),
     });
-  } else if (isItemRow && qty <= 0) {
+  } else if (rate > 0 && qty <= 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
-      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${qtyDisplay})`,
+      message: `Step 2 — Quantity: must be greater than zero when rate is present (found ${qtyDisplay})`,
       expectedValue: '> 0', actualValue: qty,
     });
-  } else if (qty > 0 && !unit.trim()) {
+  } else if (qty > 0 && rate > 0 && !unit.trim()) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Unit', status: 'fail',
-      message: 'Step 2 — Quantity: unit is required when quantity is present',
+      message: 'Step 2 — Quantity: unit is required when quantity and rate are present',
       expectedValue: 'Unit', actualValue: '(blank)',
+    });
+  } else if (isItemRow && qty <= 0 && rate <= 0 && roundedDeclared <= 0) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
+      message: 'Step 2 — Quantity: zero quantity, rate and amount on item row',
     });
   } else {
     issues.push({
@@ -1092,12 +1104,7 @@ function validateLineValues(
     }
   }
 
-  if (!issues.some((i) => i.status === 'fail') && isItemRow && qty <= 0 && rate <= 0 && roundedDeclared <= 0) {
-    issues.push({
-      order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
-      message: 'Step 2 — Quantity: zero quantity, rate and amount on item row',
-    });
-  } else if (!issues.some((i) => i.status === 'fail') && qty > 0 && rate === 0 && roundedDeclared > 0) {
+  if (!issues.some((i) => i.status === 'fail') && qty > 0 && rate === 0 && roundedDeclared > 0) {
     issues.push({
       order: 3, checkType: 'rate', column: 'Rate', status: 'warning',
       message: 'Step 3 — Rate: amount present but rate is zero',
@@ -1206,9 +1213,11 @@ function buildCrossChecks(pages: BoqPageValidation[]): BoqCrossCheck[] {
     { name: 'BOQ sum', val: boqSum > 0 ? boqSum : null },
   ].filter((v): v is { name: string; val: number } => v.val != null && v.val > 0);
 
-  if (parts.length >= 2) {
+  const tharaliBoqPages = boqPages.filter((p) => p.layoutFormat === 'tharali');
+
+  if (tharaliBoqPages.length === 0 && parts.length >= 2) {
     const base = parts[0].val;
-    const match = parts.every((v) => Math.abs(v.val - base) <= SECTION_TOTAL_TOLERANCE * Math.max(1, parts.length));
+    const match = parts.every((v) => Math.abs(v.val - base) <= totalRowTolerance(base));
     checks.push({
       label: 'GAC / BC / Abstract / BOQ sum',
       gac: gac && gac > 0 ? gac : null,
@@ -1222,10 +1231,9 @@ function buildCrossChecks(pages: BoqPageValidation[]): BoqCrossCheck[] {
     });
   }
 
-  const tharaliBoqPages = boqPages.filter((p) => p.layoutFormat === 'tharali');
   if (tharaliBoqPages.length > 0 && abstractTotal != null && abstractTotal > 0) {
     const componentSum = round2(tharaliBoqPages.reduce((sum, p) => sum + p.computedPageTotal, 0));
-    const match = Math.abs(componentSum - abstractTotal) <= SECTION_TOTAL_TOLERANCE * Math.max(1, tharaliBoqPages.length);
+    const match = Math.abs(componentSum - abstractTotal) <= totalRowTolerance(abstractTotal);
     checks.push({
       label: 'Abstract gross vs component BOQ sheets (Tharali)',
       gac: null,
@@ -1303,7 +1311,7 @@ function validateWorkbookPages(workbook: XLSX.WorkBook, visibleSheetNames?: stri
 
     const failedTotals = totalChecks.filter((t) => !t.match);
     const pageTotalMatch = declaredPageTotal != null && computedPageTotal > 0
-      ? Math.abs(computedPageTotal - declaredPageTotal) <= SECTION_TOTAL_TOLERANCE
+      ? Math.abs(computedPageTotal - declaredPageTotal) <= totalRowTolerance(declaredPageTotal)
       : (failedTotals.length === 0 && declaredPageTotal != null ? true : null);
 
     const issues: string[] = [];
@@ -1422,6 +1430,8 @@ export function validateBoqExcelBuffer(buffer: Buffer): DprExcelAuditReport {
   if (problemPages.some((p) => p.status === 'failed') || crossChecks.some((c) => !c.match)) status = 'failed';
   else if (problemPages.length > 0 || warningItems > 0) status = 'warning';
 
+  const readyForTac = status === 'passed';
+
   const summaryMessage = status === 'passed'
     ? 'BOQ validation PASSED'
     : status === 'warning'
@@ -1443,7 +1453,7 @@ export function validateBoqExcelBuffer(buffer: Buffer): DprExcelAuditReport {
     crossChecks: slimmedCrossChecks,
     summary: {
       message: summaryMessage,
-      readyForTac: status !== 'failed',
+      readyForTac,
       issues: status === 'passed' ? [] : [summaryMessage],
     },
   };

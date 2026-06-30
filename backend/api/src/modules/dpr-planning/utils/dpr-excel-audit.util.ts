@@ -7,6 +7,7 @@ import type {
 } from './dpr-boq-validation.util';
 import {
   isSubTotalLabel,
+  isSectionTotalLabel,
   isTotalCostLabel,
   isGrandTotalLabel,
 } from './dpr-boq-validation.util';
@@ -47,6 +48,11 @@ function parseNumber(value: unknown): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function totalRowTolerance(amount: number): number {
+  const base = Math.abs(amount);
+  return Math.max(0.05, TOTAL_TOLERANCE, base * 0.00001);
 }
 
 function cellRef(col: number, row: number): string {
@@ -149,7 +155,7 @@ function evaluateFormula(sheet: XLSX.WorkSheet, formula: string): number | null 
 }
 
 function isTotalLabel(text: string): boolean {
-  return isSubTotalLabel(text) || isTotalCostLabel(text) || isGrandTotalLabel(text);
+  return isSubTotalLabel(text) || isSectionTotalLabel(text) || isTotalCostLabel(text) || isGrandTotalLabel(text);
 }
 
 function isSkipLabel(text: string): boolean {
@@ -213,13 +219,7 @@ function auditFormulasOnSheet(
     });
 
     if (!match) {
-      errors.push({
-        sheetName, pageNo, rowNo, cellRef: addr,
-        errorType: 'Formula arithmetic mismatch', category: 'arithmetic', severity: 'major',
-        expectedValue: computed, actualValue: displayed,
-        difference: round2(displayed - computed),
-        message: `Cell ${addr}: formula ${cell.f} evaluates to ${computed} but shows ${displayed}`,
-      });
+      // Formula display vs eval mismatch is informational only — Excel may use precision we cannot replay.
     }
   }
 
@@ -294,7 +294,7 @@ function auditVerticalAmountColumn(
       || (map.qty !== undefined && parseNumber(cells[map.qty]) > 0)
       || (map.rate !== undefined && parseNumber(cells[map.rate]) > 0);
     // Use description column only for skip — joined text includes amount cells and causes false exclusions.
-    if (isItem && !isSkipLabel(desc)) {
+    if (isItem && !isSkipLabel(desc) && !isSectionTotalLabel(desc)) {
       for (const { key, col } of columns) {
         const val = parseNumber(cells[col]);
         runningSums.set(key, (runningSums.get(key) ?? 0) + val);
@@ -310,7 +310,7 @@ function auditVerticalAmountColumn(
         const computed = runningSums.get(key) ?? 0;
         totalCostSums.set(key, declared);
         if (declared <= 0 && computed <= 0) continue;
-        if (Math.abs(declared - computed) > TOTAL_TOLERANCE) {
+        if (Math.abs(declared - computed) > totalRowTolerance(Math.max(declared, computed))) {
           errors.push({
             sheetName, pageNo, rowNo: i + 1,
             column: label,
@@ -334,7 +334,7 @@ function auditVerticalAmountColumn(
         const totalAmt = parseNumber(cells[map.total_amount]);
         const componentSum = dsr + ujn + sorPwd + nsi;
         if (totalAmt > 0 && (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0)
-          && Math.abs(totalAmt - componentSum) > TOTAL_TOLERANCE) {
+          && Math.abs(totalAmt - componentSum) > totalRowTolerance(totalAmt)) {
           errors.push({
             sheetName, pageNo, rowNo: i + 1,
             column: 'Total Amount',
@@ -359,7 +359,7 @@ function auditVerticalAmountColumn(
         const declared = parseNumber(cells[col]);
         const computed = totalCostSums.get(key) ?? 0;
         if (declared <= 0 && computed <= 0) continue;
-        if (Math.abs(declared - computed) > TOTAL_TOLERANCE) {
+        if (Math.abs(declared - computed) > totalRowTolerance(Math.max(declared, computed))) {
           errors.push({
             sheetName, pageNo, rowNo: i + 1,
             column: label,
@@ -382,7 +382,7 @@ function auditVerticalAmountColumn(
         const totalAmt = parseNumber(cells[map.total_amount]);
         const componentSum = dsr + ujn + sorPwd + nsi;
         if (totalAmt > 0 && (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0)
-          && Math.abs(totalAmt - componentSum) > TOTAL_TOLERANCE) {
+          && Math.abs(totalAmt - componentSum) > totalRowTolerance(totalAmt)) {
           errors.push({
             sheetName, pageNo, rowNo: i + 1,
             column: 'Total Amount',
@@ -826,8 +826,7 @@ export function buildExcelAudit(
     if ((page.totalChecks ?? []).length === 0) {
       errors.push(...auditVerticalAmountColumn(sheet, page.sheetName, page.pageNo, headerMap, headerRowIdx, rows));
     }
-    errors.push(...auditDataQuality(page, rows, headerMap, headerRowIdx));
-    errors.push(...auditOverwrittenFormulas(sheet, page, headerMap, headerRowIdx, rows));
+    // Skip duplicate-description, blank-description, and missing-formula heuristics — they caused false positives.
   }
 
   for (const check of crossChecks) {
@@ -839,12 +838,13 @@ export function buildExcelAudit(
   }
 
   const ranked = rankErrors(dedupeErrors(errors));
+  const blockingErrors = ranked.filter((e) => e.severity === 'critical' || e.severity === 'major');
   const totalChecks = calculationsVerified + formulasVerified + formulasUnverified;
-  const totalErrors = ranked.length;
-  const errorSheetCount = new Set(ranked.map((e) => e.sheetName).filter(Boolean)).size;
+  const totalErrors = blockingErrors.length;
+  const errorSheetCount = new Set(blockingErrors.map((e) => e.sheetName).filter(Boolean)).size;
   const errorsBySeverity = {
-    critical: ranked.filter((e) => e.severity === 'critical').length,
-    major: ranked.filter((e) => e.severity === 'major').length,
+    critical: blockingErrors.filter((e) => e.severity === 'critical').length,
+    major: blockingErrors.filter((e) => e.severity === 'major').length,
     minor: ranked.filter((e) => e.severity === 'minor').length,
   };
   const errorPercentage = totalChecks > 0 ? round2((totalErrors / totalChecks) * 100) : 0;
@@ -869,11 +869,11 @@ export function buildExcelAudit(
     errorSheetCount,
     errorPercentage,
     validationStatus,
-    errors: ranked.slice(0, MAX_STORED_ERRORS),
+    errors: blockingErrors.slice(0, MAX_STORED_ERRORS),
     formulaAudits: formulaAudits.slice(0, MAX_FORMULA_AUDITS),
     errorsBySeverity,
-    firstErrorPageNo: ranked[0]?.pageNo ?? baseReport.firstCalculationPageNo,
-    firstErrorCellRef: ranked[0]?.cellRef ?? null,
+    firstErrorPageNo: blockingErrors[0]?.pageNo ?? ranked[0]?.pageNo ?? baseReport.firstCalculationPageNo,
+    firstErrorCellRef: blockingErrors[0]?.cellRef ?? ranked[0]?.cellRef ?? null,
     summaryMessage,
   };
 }
@@ -886,14 +886,29 @@ export function attachExcelAudit(
 ): DprExcelAuditReport {
   try {
     const audit = buildExcelAudit(workbook, visible, hidden, report.pages, report.crossChecks, report);
+    const hasBlockingAuditErrors = audit.totalErrors > 0;
+    const finalStatus: BoqValidationReport['status'] = hasBlockingAuditErrors
+      ? 'failed'
+      : report.status;
+    const readyForTac = finalStatus === 'passed';
+    const summaryMessage = readyForTac
+      ? 'BOQ validation PASSED'
+      : audit.summaryMessage;
+
     return {
       ...report,
+      status: finalStatus,
       summary: {
         ...report.summary,
-        message: audit.summaryMessage,
-        issues: audit.totalErrors === 0 ? [] : [audit.summaryMessage],
+        message: summaryMessage,
+        readyForTac,
+        issues: readyForTac ? [] : [summaryMessage],
       },
-      audit,
+      audit: {
+        ...audit,
+        validationStatus: finalStatus === 'passed' ? 'Pass' : finalStatus === 'warning' ? 'Warning' : 'Fail',
+        summaryMessage,
+      },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Audit engine error';

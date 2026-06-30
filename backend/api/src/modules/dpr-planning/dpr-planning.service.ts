@@ -1971,12 +1971,12 @@ export class DprPlanningService {
       throw new BadRequestException('BOQ Excel must pass auto-validation — re-upload the workbook');
     }
     const summary = boqRow.summary as { readyForTac?: boolean; issues?: string[] } | null;
-    if (boqRow.status === 'failed' || summary?.readyForTac === false) {
+    if (boqRow.status !== 'passed' || summary?.readyForTac === false) {
       const issues = summary?.issues ?? [];
       throw new BadRequestException(
         issues.length
-          ? `BOQ validation failed — fix errors before TAC submission: ${issues.slice(0, 3).join('; ')}`
-          : 'BOQ validation failed — fix Qty×Rate, subtotal and grand total errors before TAC submission',
+          ? `BOQ must pass validation before HQ submission: ${issues.slice(0, 3).join('; ')}`
+          : 'BOQ must pass validation before HQ submission — fix Qty×Rate, subtotal and grand total errors and re-upload',
       );
     }
   }
@@ -2455,7 +2455,7 @@ export class DprPlanningService {
         where: { tenantId, proposalId: proposal.id },
         order: { validatedAt: 'DESC' },
       });
-      boqValidationPassed = boqRow != null && boqRow.status !== 'failed';
+      boqValidationPassed = boqRow != null && boqRow.status === 'passed';
     }
 
     const pdfValidationReady = validationMode === 'pdf_only'
@@ -2953,7 +2953,7 @@ export class DprPlanningService {
         where: { tenantId, proposalId: proposal.id },
         order: { validatedAt: 'DESC' },
       });
-      boqValidationPassed = boqRow != null && boqRow.status !== 'failed';
+      boqValidationPassed = boqRow != null && boqRow.status === 'passed';
     }
     const tacData = ((proposal.hqVerification ?? {}) as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
     const observations = (Array.isArray(tacData.observations) ? tacData.observations : []) as Array<{
@@ -2994,10 +2994,15 @@ export class DprPlanningService {
         `Cannot submit DPR to HQ — missing documents: ${readiness.missingDocuments.join(', ')}`,
       );
     }
-    if (!readiness.canSubmitToHq && laReadiness.missingActions.length) {
-      throw new BadRequestException(
-        `Land acquisition incomplete: ${laReadiness.missingActions.join('; ')}`,
-      );
+    if (!readiness.canSubmitToHq) {
+      if (readiness.tacPackage?.hasBoqExcel && !readiness.tacPackage?.boqValidationPassed) {
+        throw new BadRequestException('BOQ must pass validation before HQ submission — fix highlighted errors and re-upload Excel');
+      }
+      if (laReadiness.missingActions.length) {
+        throw new BadRequestException(
+          `Land acquisition incomplete: ${laReadiness.missingActions.join('; ')}`,
+        );
+      }
     }
   }
 
