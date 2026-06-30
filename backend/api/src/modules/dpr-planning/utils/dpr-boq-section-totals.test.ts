@@ -219,7 +219,7 @@ function testCwraPrematureSubTotalRow11(): void {
   assert(nsiCol?.computedAmount === NSI, `NSI calculated must include row 11 item; got ${nsiCol?.computedAmount}`);
 }
 
-/** cwra production block — rows 1–7 excluded; sum rows 8 + 10 + 11 → Sub Total row 12. */
+/** cwra production block — rows 1–7 + premature row 8 + row 10 + row 11 → Sub Total row 12; UJN must not 2×. */
 function testCwraRows1_7_8_10_11NoDoubleUjn(): void {
   const UJN = 951892;
   const NSI = 13400;
@@ -233,11 +233,11 @@ function testCwraRows1_7_8_10_11NoDoubleUjn(): void {
     ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
     [1, 'Lump sum item A', 'LS', 0, 500_000, 0, 0, 0, 0, 0],
     [2, 'Lump sum item B', 'LS', 0, 451_892, 0, 0, 0, 0, 0],
-    [3, 'Lump sum item C', 'LS', 0, 0, 0, 200_000, 0, 0, 0],
-    [4, 'Lump sum item D', 'LS', 0, 0, 0, 150_000, 0, 0, 0],
-    [5, 'Lump sum item E', 'LS', 0, 0, 0, 100_000, 0, 0, 0],
-    [6, 'Lump sum item F', 'LS', 0, 0, 0, 501_892, 0, 0, 0],
-    [7, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI],
+    [3, 'Lump sum item C', 'LS', 0, 0, 0, 0, 0, 0, 0],
+    [4, 'Lump sum item D', 'LS', 0, 0, 0, 0, 0, 0, 0],
+    [5, 'Lump sum item E', 'LS', 0, 0, 0, 0, 0, 0, 0],
+    [6, 'Lump sum item F', 'LS', 0, 0, 0, 0, 0, 0, 0],
+    [7, 'Detail item G', 'LS', 0, 0, 0, 0, 0, 0, 0],
     [8, 'Sub Total', '', '', '', 0, UJN, 0, 0, UJN],
     [9, 'Protection works for substructure and foundation', '', '', '', 0, 0, 0, 0, 0],
     [10, 'SOR rated item A', 'Nos', 1, SOR1, 0, 0, SOR1, 0, SOR1],
@@ -259,7 +259,7 @@ function testCwraRows1_7_8_10_11NoDoubleUjn(): void {
   assert(!premature, 'Premature row 8 must not trigger Step 6');
 }
 
-/** cwra — lump sums in unmapped Amt column; rows 1–7 excluded; block rows 8 + 11 → row 12. */
+/** cwra — lump sums in unmapped Amt column; rows 1–2 + row 8 block → Sub Total row 12. */
 function testCwraUnmappedAmtColumnStep6(): void {
   const UJN = 951892;
   const NSI = 13400;
@@ -268,9 +268,9 @@ function testCwraUnmappedAmtColumnStep6(): void {
 
   const rows: (string | number)[][] = [
     ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount', 'Amt'],
-    [1, 'Prior lump A', 'LS', 0, 0, 0, 0, 0, 0, 0, 500_000],
-    [2, 'Prior lump B', 'LS', 0, 0, 0, 0, 0, 0, 0, 451_892],
-    [8, 'Sub Total', 'LS', 0, 0, 0, 0, 0, 0, 0, UJN],
+    [1, 'Lump sum item A', 'LS', 0, 0, 0, 0, 0, 0, 0, 500_000],
+    [2, 'Lump sum item B', 'LS', 0, 0, 0, 0, 0, 0, 0, 451_892],
+    [8, 'Sub Total', 'LS', 0, 0, 0, UJN, 0, 0, UJN, ''],
     [9, 'Protection works for substructure', '', '', '', 0, 0, 0, 0, 0, 0],
     [11, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI, 0],
     [12, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL, ''],
@@ -285,7 +285,7 @@ function testCwraUnmappedAmtColumnStep6(): void {
   assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
 }
 
-/** cwra — Rate column lump sums; rows 1–7 excluded; block rows 8 + 11 → row 12. */
+/** cwra — Rate column lump sums; rows 1–2 + row 8 block → Sub Total row 12. */
 function testCwraRateColumnLumpSumStep6(): void {
   const UJN = 951892;
   const NSI = 13400;
@@ -294,9 +294,9 @@ function testCwraRateColumnLumpSumStep6(): void {
 
   const rows: (string | number)[][] = [
     ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
-    [1, 'Prior lump A', 'LS', 0, 500_000, 0, 0, 0, 0, 0],
-    [2, 'Prior lump B', 'LS', 0, 451_892, 0, 0, 0, 0, 0],
-    [8, 'Sub Total', 'LS', 0, UJN, 0, 0, 0, 0, 0],
+    [1, 'Lump sum item A', 'LS', 0, 500_000, 0, 0, 0, 0, 0],
+    [2, 'Lump sum item B', 'LS', 0, 451_892, 0, 0, 0, 0, 0],
+    [8, 'Sub Total', 'LS', 0, 0, 0, UJN, 0, 0, UJN],
     [9, 'Protection works for substructure', '', '', '', 0, 0, 0, 0, 0],
     [11, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI],
     [12, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL],

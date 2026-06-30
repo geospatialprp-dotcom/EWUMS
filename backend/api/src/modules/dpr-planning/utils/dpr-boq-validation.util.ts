@@ -819,17 +819,8 @@ export function validateTotalRows(
     if (prematureSubTotal) {
       if (sectionRowHasAmounts(cells, headerMap)) {
         const rowAmts = sectionRowColumnAmounts(cells, headerMap);
-        const realSubtotalBelow = hasSubTotalRowBelow(rows, headerMap, i);
-        const itemsBelow = hasContributingItemRowsBelow(rows, headerMap, i);
-        if (realSubtotalBelow && itemsBelow) {
-          /** cwra row 8 — mislabeled Sub Total starts a fresh block; rows 1–7 excluded. */
-          sectionItemSums = addColumnSums(emptyColumnSums(), rowAmts);
-        } else if (realSubtotalBelow) {
-          /** cwra row 11 — mislabeled Sub Total; contribute as item before real subtotal row. */
-          sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
-        } else {
-          /** so&Tra/sma/dsa — sole premature Sub Total before Total Cost; Step 7 base. */
-          sectionItemSums = addPrematureSubtotalRow(sectionItemSums, rowAmts);
+        sectionItemSums = addPrematureSubtotalRow(sectionItemSums, rowAmts);
+        if (!hasSubTotalRowBelow(rows, headerMap, i)) {
           totalCostContributors = rowAmts;
           afterSubtotalForTotalCost = true;
         }
