@@ -555,10 +555,84 @@ function isContributingItemRow(cells: string[], headerMap: Record<string, number
   return isBoqItemRow(cells, headerMap);
 }
 
-/** Step 6/7 vertical sums — parse each mapped amount column directly. */
+function assignTharaliLumpSum(
+  lumpSum: number,
+  headerMap: Record<string, number>,
+): Pick<BoqAmountColumns, 'ujn' | 'totalAmount'> {
+  if (headerMap.ujn !== undefined) {
+    return {
+      ujn: lumpSum,
+      totalAmount: headerMap.total_amount !== undefined ? lumpSum : 0,
+    };
+  }
+  if (headerMap.total_amount !== undefined) {
+    return { ujn: 0, totalAmount: lumpSum };
+  }
+  return { ujn: lumpSum, totalAmount: 0 };
+}
+
+/** Scan amount-region columns when mapped Tharali cells are blank (cwra lump-sum rows). */
+function sectionLumpSumFallback(cells: string[], headerMap: Record<string, number>): number {
+  if (headerMap.amount !== undefined) {
+    const mapped = parseNumber(cells[headerMap.amount]);
+    if (mapped > 0) return round2(mapped);
+  }
+
+  const tharaliEmpty = (
+    (headerMap.dsr === undefined || parseNumber(cells[headerMap.dsr]) <= 0)
+    && (headerMap.ujn === undefined || parseNumber(cells[headerMap.ujn]) <= 0)
+    && (headerMap.sor_pwd === undefined || parseNumber(cells[headerMap.sor_pwd]) <= 0)
+    && (headerMap.nsi === undefined || parseNumber(cells[headerMap.nsi]) <= 0)
+    && (headerMap.total_amount === undefined || parseNumber(cells[headerMap.total_amount]) <= 0)
+  );
+
+  if (tharaliEmpty && headerMap.rate !== undefined) {
+    const rate = parseNumber(cells[headerMap.rate]);
+    if (rate > 0) return round2(rate);
+  }
+
+  const skip = new Set(nonAmountColumnIndices(headerMap));
+  for (const key of ['dsr', 'ujn', 'sor_pwd', 'nsi', 'total_amount', 'amount'] as const) {
+    if (headerMap[key] !== undefined) skip.add(headerMap[key]);
+  }
+
+  const start = Math.max(
+    headerMap.description ?? 0,
+    headerMap.unit ?? 0,
+    headerMap.qty ?? 0,
+    headerMap.rate ?? 0,
+  ) + 1;
+
+  let sum = 0;
+  for (let idx = start; idx < cells.length; idx += 1) {
+    if (skip.has(idx)) continue;
+    const n = parseNumber(cells[idx]);
+    if (n > 0) sum += n;
+  }
+  return round2(sum);
+}
+
+/** Step 6/7 vertical sums — direct mapped-column read plus lump-sum fallbacks (cwra Rate/Amt cols). */
 function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
   if (isTharaliLayout(headerMap)) {
-    const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
+    let dsr = headerMap.dsr !== undefined ? parseNumber(cells[headerMap.dsr]) : 0;
+    let ujn = headerMap.ujn !== undefined ? parseNumber(cells[headerMap.ujn]) : 0;
+    let sorPwd = headerMap.sor_pwd !== undefined ? parseNumber(cells[headerMap.sor_pwd]) : 0;
+    let nsi = headerMap.nsi !== undefined ? parseNumber(cells[headerMap.nsi]) : 0;
+    let totalAmount = headerMap.total_amount !== undefined ? parseNumber(cells[headerMap.total_amount]) : 0;
+
+    const componentSum = dsr + ujn + sorPwd + nsi;
+    if (componentSum <= 0 && totalAmount <= 0) {
+      const lumpSum = sectionLumpSumFallback(cells, headerMap);
+      if (lumpSum > 0) {
+        const assigned = assignTharaliLumpSum(lumpSum, headerMap);
+        ujn = assigned.ujn;
+        if (assigned.totalAmount > 0) totalAmount = assigned.totalAmount;
+      }
+    } else if (totalAmount <= 0 && componentSum > 0) {
+      totalAmount = componentSum;
+    }
+
     return {
       dsr,
       ujn,
@@ -571,25 +645,67 @@ function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, numb
   return rowColumnAmounts(cells, headerMap);
 }
 
+function sectionRowHasAmounts(cells: string[], headerMap: Record<string, number>): boolean {
+  const amts = sectionRowColumnAmounts(cells, headerMap);
+  if (amts.dsr > 0 || amts.ujn > 0 || amts.sorPwd > 0 || amts.nsi > 0
+    || amts.totalAmount > 0 || amts.amount > 0) {
+    return true;
+  }
+  const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
+  const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+  return qty > 0 || rate > 0;
+}
+
+/** Sub Total label in description, or in joined text only when description is blank (not item rows). */
+function resolveSubTotalLabel(descCol: string, joined: string): boolean {
+  if (isSubTotalLabel(descCol)) return true;
+  if (descCol.length >= 3 && !isSubTotalLabel(descCol)) return false;
+  return isSubTotalLabel(joined);
+}
+
+/** Item rows below a premature Sub Total label — real subtotal row comes later (cwra rows 8–10). */
+function hasItemRowsBelow(
+  rows: (string | number)[][],
+  headerMap: Record<string, number>,
+  fromIdx: number,
+): boolean {
+  for (let j = fromIdx + 1; j < rows.length; j += 1) {
+    const cells = rows[j].map((c) => String(c ?? '').trim());
+    const joined = rowLabel(cells);
+    if (!joined) continue;
+
+    const descCol = headerMap.description !== undefined
+      ? String(cells[headerMap.description] ?? '').trim()
+      : joined;
+
+    if (isTotalCostLabel(joined) || isTotalCostLabel(descCol)) break;
+    if (isGrandTotalLabel(joined) || isGrandTotalLabel(descCol)) break;
+    if (resolveSubTotalLabel(descCol, joined)) break;
+
+    if (sectionRowHasAmounts(cells, headerMap) && !isDescriptionOnlyRow(cells, headerMap)) return true;
+  }
+  return false;
+}
+
 /** Rows that contribute to Step 6/7 vertical column sums — direct column amounts, not qty/rate gates. */
 function isSectionContributingRow(
   cells: string[],
   headerMap: Record<string, number>,
   _joined: string,
   descCol: string,
+  treatAsItemDespiteLabel = false,
 ): boolean {
-  if (isSubTotalLabel(descCol)) return false;
-  if (isSectionTotalLabel(descCol)) return false;
-  if (isTotalCostLabel(descCol)) return false;
+  if (!treatAsItemDespiteLabel) {
+    if (isSubTotalLabel(descCol)) return false;
+    if (isSectionTotalLabel(descCol)) return false;
+    if (isTotalCostLabel(descCol)) return false;
+  }
   if (Object.keys(headerMap).length === 0) return false;
 
-  const amts = sectionRowColumnAmounts(cells, headerMap);
-  const hasAmount = amts.dsr > 0 || amts.ujn > 0 || amts.sorPwd > 0 || amts.nsi > 0
-    || amts.totalAmount > 0 || amts.amount > 0;
-  if (!hasAmount) return false;
+  if (!sectionRowHasAmounts(cells, headerMap)) return false;
+  if (isDescriptionOnlyRow(cells, headerMap)) return false;
 
-  const desc = descCol.trim();
-  return desc.length >= 3;
+  return treatAsItemDespiteLabel || descCol.length >= 3 || sectionRowHasAmounts(cells, headerMap);
 }
 
 function isBoqItemRow(cells: string[], headerMap: Record<string, number>): boolean {
@@ -643,15 +759,20 @@ export function validateTotalRows(
       ? String(cells[headerMap.description] ?? '').trim()
       : joined;
 
-    const isSubTotal = isSubTotalLabel(joined) || isSubTotalLabel(descCol);
+    const hasSubTotalLabel = resolveSubTotalLabel(descCol, joined);
+    const prematureSubTotal = hasSubTotalLabel && hasItemRowsBelow(rows, headerMap, i);
+    const isSubTotal = hasSubTotalLabel && !prematureSubTotal;
     const isTotalCost = isTotalCostLabel(joined) || isTotalCostLabel(descCol);
 
-    if (!isSubTotal && !isTotalCost
-      && isSectionContributingRow(cells, headerMap, joined, descCol)) {
-      const rowAmts = sectionRowColumnAmounts(cells, headerMap);
-      sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
-      if (afterSubtotalForTotalCost) {
-        totalCostContributors = addColumnSums(totalCostContributors, rowAmts);
+    if (!isSubTotal && !isTotalCost) {
+      const contributes = isSectionContributingRow(cells, headerMap, joined, descCol, prematureSubTotal)
+        || (prematureSubTotal && sectionRowHasAmounts(cells, headerMap));
+      if (contributes) {
+        const rowAmts = sectionRowColumnAmounts(cells, headerMap);
+        sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
+        if (afterSubtotalForTotalCost) {
+          totalCostContributors = addColumnSums(totalCostContributors, rowAmts);
+        }
       }
     }
 
