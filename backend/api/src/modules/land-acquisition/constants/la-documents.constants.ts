@@ -10,11 +10,11 @@ export type LaDocumentDef = {
 export const LA_AUTO_DOCUMENTS: readonly LaDocumentDef[] = [
   { code: 'la_proposal', label: 'Land Acquisition Proposal', category: 'proposal', requiresParcels: true },
   { code: 'dm_letter', label: 'District Magistrate Letter', category: 'letter', requiresParcels: true },
-  { code: 'revenue_letter', label: 'Revenue Department Letter', category: 'letter', requiresParcels: true },
+  { code: 'revenue_letter', label: 'Revenue Department Letter', category: 'letter', requiresClearanceType: 'revenue' },
   { code: 'forest_proposal', label: 'Forest Proposal', category: 'proposal', requiresClearanceType: 'forest_fca' },
   { code: 'pwd_noc_request', label: 'PWD NOC Request', category: 'letter', requiresClearanceType: 'pwd_noc' },
   { code: 'railway_crossing_proposal', label: 'Railway Crossing Proposal', category: 'proposal', requiresClearanceType: 'railway_crossing' },
-  { code: 'gram_sabha_resolution', label: 'Gram Sabha Resolution', category: 'letter', requiresParcels: true },
+  { code: 'gram_sabha_resolution', label: 'Gram Sabha Resolution', category: 'letter', requiresClearanceType: 'gram_panchayat_resolution' },
   { code: 'land_schedule', label: 'Land Schedule', category: 'register', requiresParcels: true },
   { code: 'affected_owner_list', label: 'Affected Owner List', category: 'register', requiresParcels: true },
   { code: 'compensation_register', label: 'Compensation Register', category: 'register', requiresCompensation: true },

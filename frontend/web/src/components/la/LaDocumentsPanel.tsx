@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Alert, Box, Button, Chip, Grid, LinearProgress, Typography,
+  Alert, Box, Button, Chip, Grid, LinearProgress, Tooltip, Typography,
 } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
@@ -15,6 +15,8 @@ type DocCatalogRow = {
   label: string;
   category: string;
   generated?: boolean;
+  authority?: string;
+  clearanceType?: string;
 };
 
 type DocRow = {
@@ -50,17 +52,20 @@ export default function LaDocumentsPanel({
   documents,
   onGenerated,
   canGenerate = true,
+  hasParcels = true,
+  hasClearances = false,
 }: {
   caseId: string;
   catalog: DocCatalogRow[];
   documents: DocRow[];
   onGenerated: () => void;
   canGenerate?: boolean;
+  hasParcels?: boolean;
+  hasClearances?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [skipped, setSkipped] = useState<Array<{ code: string; label: string; reason?: string }>>([]);
 
   const docMap = new Map(documents.map((d) => [d.documentCode, d]));
   const rows = catalog.length ? catalog : documents.map((d) => ({
@@ -77,15 +82,17 @@ export default function LaDocumentsPanel({
     return acc;
   }, {});
 
+  const pendingCount = rows.filter((r) => !docMap.get(r.code) && !r.generated).length;
+  const generateDisabled = busy || !hasParcels || !rows.length;
+
   const generateAll = () => {
     setBusy(true);
     setError('');
     setSuccess('');
     landAcquisitionApi.generateDocuments(caseId)
       .then((res) => {
-        const data = res.data as { generated?: number; skipped?: Array<{ code: string; label: string; reason?: string }> };
-        setSkipped(data.skipped ?? []);
-        setSuccess(`Generated ${data.generated ?? 0} document(s)`);
+        const data = res.data as { generated?: number };
+        setSuccess(`Generated ${data.generated ?? 0} document(s) for affected authorities`);
         onGenerated();
       })
       .catch((err) => setError(getApiError(err, 'Document generation failed')))
@@ -114,30 +121,42 @@ export default function LaDocumentsPanel({
 
       <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} mb={2}>
         <Typography variant="body2" color="text.secondary">
-          Auto-generate statutory LA documents from parcels, clearances, and compensation data.
+          Documents are shown only for authorities affected by the pipeline route (from parcel intersection
+          and <strong>Detect Clearances</strong>). Run clearances before generating authority-specific letters.
           For a printable map with pipeline cover, centerline, and network circle markers, use
           <strong> Publish Acquisition Map</strong> on the Map tab.
         </Typography>
         {canGenerate && (
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AutoFixHighOutlinedIcon />}
-            disabled={busy}
-            onClick={generateAll}
+          <Tooltip
+            title={
+              !hasParcels
+                ? 'Identify parcels first'
+                : !rows.length
+                  ? 'Run Detect Clearances to determine applicable authority documents'
+                  : pendingCount
+                    ? `Generate ${pendingCount} applicable document(s)`
+                    : 'All applicable documents are up to date'
+            }
           >
-            Generate All Documents
-          </Button>
+            <span>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AutoFixHighOutlinedIcon />}
+                disabled={generateDisabled}
+                onClick={generateAll}
+              >
+                Generate Applicable Documents
+              </Button>
+            </span>
+          </Tooltip>
         )}
       </Box>
 
-      {skipped.length > 0 && (
+      {!hasClearances && hasParcels && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          {skipped.map((s) => (
-            <Typography key={s.code} variant="caption" display="block">
-              • {s.label}: {s.reason}
-            </Typography>
-          ))}
+          Run <strong>Detect Clearances</strong> on the Workflow tab to reveal authority-specific proposals
+          and letters (Forest, Railway, PWD, Gram Sabha, Revenue).
         </Alert>
       )}
 
@@ -149,6 +168,7 @@ export default function LaDocumentsPanel({
           <Grid container spacing={1}>
             {items.map((item) => {
               const saved = docMap.get(item.code);
+              const isGenerated = Boolean(saved || item.generated);
               return (
                 <Grid item xs={12} sm={6} md={4} key={item.code}>
                   <Box
@@ -165,33 +185,46 @@ export default function LaDocumentsPanel({
                       <DescriptionOutlinedIcon fontSize="small" color="action" />
                       <Box flex={1}>
                         <Typography variant="body2" fontWeight={600}>{item.label}</Typography>
+                        {item.authority && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {item.authority}
+                          </Typography>
+                        )}
                         <Chip
                           size="small"
-                          label={saved || item.generated ? 'Generated' : 'Not generated'}
-                          color={saved || item.generated ? 'success' : 'default'}
+                          label={isGenerated ? 'Generated' : 'Ready to generate'}
+                          color={isGenerated ? 'success' : 'default'}
                           sx={{ mt: 0.5 }}
                         />
                       </Box>
                     </Box>
                     <Box display="flex" gap={0.5} flexWrap="wrap">
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<PictureAsPdfOutlinedIcon />}
-                        disabled={busy}
-                        onClick={() => openDoc(item.code, item.label, 'print')}
-                      >
-                        Print / PDF
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="text"
-                        startIcon={<DownloadOutlinedIcon />}
-                        disabled={busy}
-                        onClick={() => openDoc(item.code, item.label, 'download')}
-                      >
-                        HTML
-                      </Button>
+                      <Tooltip title={isGenerated ? 'Open printable document' : 'Generate documents first'}>
+                        <span>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<PictureAsPdfOutlinedIcon />}
+                            disabled={busy || !isGenerated}
+                            onClick={() => openDoc(item.code, item.label, 'print')}
+                          >
+                            Print / PDF
+                          </Button>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title={isGenerated ? 'Download HTML' : 'Generate documents first'}>
+                        <span>
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={<DownloadOutlinedIcon />}
+                            disabled={busy || !isGenerated}
+                            onClick={() => openDoc(item.code, item.label, 'download')}
+                          >
+                            HTML
+                          </Button>
+                        </span>
+                      </Tooltip>
                     </Box>
                   </Box>
                 </Grid>
@@ -203,7 +236,9 @@ export default function LaDocumentsPanel({
 
       {!rows.length && (
         <Typography variant="body2" color="text.secondary">
-          Document catalog loads from LA module. Identify parcels and run compensation estimation before generating all documents.
+          {hasParcels
+            ? 'No authority-specific documents apply yet. Run Detect Clearances after tracing the pipeline alignment.'
+            : 'Identify parcels and trace alignment before documents can be generated.'}
         </Typography>
       )}
     </Box>

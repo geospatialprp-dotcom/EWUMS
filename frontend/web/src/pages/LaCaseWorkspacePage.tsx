@@ -505,10 +505,12 @@ export default function LaCaseWorkspacePage() {
             <SurfaceCard title="Auto Generated Documents">
               <LaDocumentsPanel
                 caseId={caseId}
-                catalog={documentCatalog as Array<{ code: string; label: string; category: string; generated?: boolean }>}
+                catalog={documentCatalog as Array<{ code: string; label: string; category: string; generated?: boolean; authority?: string; clearanceType?: string }>}
                 documents={documents as Array<{ documentCode: string; title: string; status: string; category: string }>}
                 onGenerated={() => { load(); setSuccess('Documents generated'); }}
                 canGenerate={canUpdate}
+                hasParcels={parcelCount > 0}
+                hasClearances={clearances.length > 0}
               />
             </SurfaceCard>
           )}

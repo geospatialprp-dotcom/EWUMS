@@ -1,4 +1,6 @@
+import { LA_CLEARANCE_TYPES } from '../constants/la-acquisition.constants';
 import { LA_AUTO_DOCUMENTS, type LaDocumentDef } from '../constants/la-documents.constants';
+import { findStatutoryClearance, mapLegacyClearanceType } from '../constants/la-statutory-clearances.constants';
 
 export type LaDocumentParcel = {
   id: string;
@@ -424,6 +426,24 @@ const GENERATORS: Record<string, (ctx: LaDocumentContext) => string> = {
   },
 };
 
+function clearanceMeta(code: string): { label: string; authority?: string } {
+  const statutory = findStatutoryClearance(code);
+  if (statutory) return { label: statutory.label, authority: statutory.authority };
+  const supplemental = LA_CLEARANCE_TYPES.find((c) => c.code === code);
+  if (supplemental) return { label: supplemental.label, authority: supplemental.authority };
+  return { label: code };
+}
+
+function hasDetectedClearance(
+  ctx: LaDocumentContext,
+  clearanceType: string,
+): boolean {
+  const normalized = mapLegacyClearanceType(clearanceType);
+  return ctx.clearances.some(
+    (c) => mapLegacyClearanceType(c.clearanceType) === normalized && c.status !== 'not_applicable',
+  );
+}
+
 export function canGenerateDocument(def: LaDocumentDef, ctx: LaDocumentContext): { ok: boolean; reason?: string } {
   if (def.requiresParcels && !ctx.parcels.length) {
     return { ok: false, reason: 'Identify parcels first' };
@@ -431,11 +451,47 @@ export function canGenerateDocument(def: LaDocumentDef, ctx: LaDocumentContext):
   if (def.requiresCompensation && !ctx.compensations.length) {
     return { ok: false, reason: 'Run Estimate Compensation first' };
   }
-  if (def.requiresClearanceType) {
-    const hit = ctx.clearances.some((c) => c.clearanceType === def.requiresClearanceType);
-    if (!hit) return { ok: false, reason: `Requires ${def.requiresClearanceType} clearance detection` };
+  if (def.requiresClearanceType && !hasDetectedClearance(ctx, def.requiresClearanceType)) {
+    const { label } = clearanceMeta(def.requiresClearanceType);
+    return { ok: false, reason: `No ${label} detected on pipeline route` };
   }
   return { ok: true };
+}
+
+export type LaDocumentCatalogRow = {
+  code: string;
+  label: string;
+  category: LaDocumentDef['category'];
+  generated: boolean;
+  authority?: string;
+  clearanceType?: string;
+};
+
+const STATIC_DOCUMENT_AUTHORITY: Partial<Record<string, string>> = {
+  la_proposal: 'Land Acquisition Authority',
+  dm_letter: 'District Magistrate',
+  revenue_letter: 'District Collector',
+};
+
+export function buildApplicableDocumentCatalog(
+  ctx: LaDocumentContext,
+  generatedCodes: Iterable<string>,
+): LaDocumentCatalogRow[] {
+  const generated = new Set(generatedCodes);
+  return LA_AUTO_DOCUMENTS.flatMap((def) => {
+    const check = canGenerateDocument(def, ctx);
+    if (!check.ok) return [];
+    const clearanceType = def.requiresClearanceType;
+    const meta = clearanceType ? clearanceMeta(clearanceType) : undefined;
+    return [{
+      code: def.code,
+      label: def.label,
+      category: def.category,
+      generated: generated.has(def.code),
+      clearanceType,
+      authority: meta?.authority ?? STATIC_DOCUMENT_AUTHORITY[def.code],
+    }];
+  });
 }
 
 export function generateLaDocumentHtml(code: string, ctx: LaDocumentContext): string | null {

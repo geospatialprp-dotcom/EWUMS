@@ -61,6 +61,7 @@ import {
   type LaGisDashboardStats,
 } from './constants/la-gis-dashboard.constants';
 import {
+  buildApplicableDocumentCatalog,
   generateAllLaDocuments,
   generateLaDocumentHtml,
   type LaDocumentContext,
@@ -641,12 +642,10 @@ export class LandAcquisitionService {
         })))
         : null,
       documents: documents.map((d) => this.toDocument(d)),
-      documentCatalog: LA_AUTO_DOCUMENTS.map((d) => ({
-        code: d.code,
-        label: d.label,
-        category: d.category,
-        generated: documents.some((doc) => doc.documentCode === d.code),
-      })),
+      documentCatalog: buildApplicableDocumentCatalog(
+        this.toDocumentApplicabilityContext(laCase, parcels, clearances, compensations),
+        documents.map((d) => d.documentCode),
+      ),
       events: events.map((e) => ({
         id: e.id,
         stage: e.stage,
@@ -1612,21 +1611,94 @@ export class LandAcquisitionService {
     const row = await this.documentRepo.findOne({
       where: { tenantId, laCaseId: caseId, documentCode },
     });
+    const ctx = await this.buildDocumentContext(tenantId, caseId, laCase);
+    const def = LA_AUTO_DOCUMENTS.find((d) => d.code === documentCode);
+    if (!def) throw new NotFoundException('Document type not found');
+
+    const applicability = generateAllLaDocuments(ctx).find((r) => r.code === documentCode);
+    if (applicability?.status === 'skipped') {
+      throw new NotFoundException(applicability.reason ?? 'Document not applicable for this case');
+    }
+
     if (row) {
       return { ...this.toDocument(row), contentHtml: row.contentHtml };
     }
 
-    const ctx = await this.buildDocumentContext(tenantId, caseId, laCase);
     const html = generateLaDocumentHtml(documentCode, ctx);
     if (!html) throw new NotFoundException('Document type not found');
 
-    const def = LA_AUTO_DOCUMENTS.find((d) => d.code === documentCode);
     return {
       documentCode,
-      title: def?.label ?? documentCode,
+      title: def.label,
       contentHtml: html,
       generatedAt: ctx.generatedAt,
       status: 'preview',
+    };
+  }
+
+  private toDocumentApplicabilityContext(
+    laCase: LaCase,
+    parcels: LaParcel[],
+    clearances: LaClearanceItem[],
+    compensations: LaCompensationSchedule[],
+  ): LaDocumentContext {
+    return {
+      caseNo: laCase.caseNo,
+      title: laCase.title,
+      schemeType: laCase.schemeType,
+      status: laCase.status,
+      statusLabel: getLaStatusLabel(laCase.status),
+      totalParcels: laCase.totalParcels,
+      totalAreaSqm: Number(laCase.totalAreaSqm ?? 0),
+      totalCompensationEst: Number(laCase.totalCompensationEst ?? 0),
+      clearanceStatus: laCase.clearanceStatus,
+      possessionStatus: laCase.possessionStatus,
+      generatedAt: new Date().toLocaleString('en-IN'),
+      parcels: parcels.map((p) => ({
+        id: p.id,
+        village: p.village,
+        tehsil: p.tehsil,
+        district: p.district,
+        khasraNo: p.khasraNo,
+        khataNo: p.khataNo,
+        landUse: p.landUse,
+        landClass: p.landClass,
+        affectedAreaSqm: Number(p.affectedAreaSqm ?? 0),
+        totalAreaSqm: Number(p.totalAreaSqm ?? 0),
+        ownershipType: p.ownershipType,
+        ownershipClassification: p.ownershipClassification,
+        department: p.department,
+        ownerName: p.ownerName,
+        acquisitionMode: p.acquisitionMode,
+        mutationStatus: p.mutationStatus,
+        circleRatePerSqm: Number(p.circleRatePerSqm ?? 0),
+        status: p.status,
+      })),
+      clearances: clearances.map((c) => {
+        const cleared = this.toClearance(c);
+        return {
+          clearanceType: cleared.clearanceType,
+          label: cleared.label ?? c.clearanceType,
+          authority: cleared.authority ?? undefined,
+          status: c.status,
+        };
+      }),
+      compensations: compensations.map((c) => ({
+        laParcelId: c.laParcelId,
+        circleRatePerSqm: Number(c.circleRatePerSqm ?? 0),
+        marketRatePerSqm: Number(c.marketRatePerSqm ?? 0),
+        affectedAreaSqm: Number(c.affectedAreaSqm ?? 0),
+        landCompensation: Number(c.landCompensation ?? c.marketValue ?? 0),
+        solatiumAmount: Number(c.solatiumAmount ?? 0),
+        additionalCompensation: Number(c.additionalCompensation ?? 0),
+        treeCompensation: Number(c.treeCompensation ?? 0),
+        cropCompensation: Number(c.cropCompensation ?? 0),
+        structureCompensation: Number(c.structureValue ?? 0),
+        totalCompensation: Number(c.totalCompensation ?? 0),
+        interestAmount: Number(c.interestAmount ?? 0),
+        rehabilitationCost: Number(c.rehabilitationCost ?? 0),
+        totalAcquisitionCost: Number(c.totalAcquisitionCost ?? c.totalAward ?? 0),
+      })),
     };
   }
 
