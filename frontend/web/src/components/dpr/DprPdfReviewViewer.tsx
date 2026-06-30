@@ -14,8 +14,10 @@ import * as pdfjsLib from 'pdfjs-dist';
 import axios from 'axios';
 import { dprPdfReviewApi, dprPlanningApi } from '../../services/api';
 
-// Stable path in public/ (copied at build) — hashed ?url assets fail on some nginx/CSP setups
-pdfjsLib.GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min.mjs`;
+// CDN worker matches pdfjs-dist in package.json — avoids VPS /assets/*.mjs fetch failures
+const PDFJS_VERSION = '4.10.38';
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
 
 type AnnotationTool = 'freehand' | 'highlight' | 'sticky_note';
 

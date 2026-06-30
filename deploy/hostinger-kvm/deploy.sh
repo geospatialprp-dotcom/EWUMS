@@ -22,8 +22,8 @@ set +a
 echo "==> Pulling latest code"
 sudo -u egip git -C ../.. pull --ff-only origin "${BRANCH:-main}"
 
-echo "==> Building images"
-${COMPOSE} build
+echo "==> Building images (web + api)"
+${COMPOSE} build web api
 
 echo "==> Starting infrastructure"
 ${COMPOSE} up -d postgres redis
@@ -56,6 +56,14 @@ ${COMPOSE} up -d api web
 
 echo "==> Service status"
 ${COMPOSE} ps
+
+echo ""
+echo "==> Smoke check (SPA + PDF worker)"
+if curl -fsI "http://127.0.0.1:8081/dpr-planning" 2>/dev/null | grep -qi 'content-type:.*text/html'; then
+  echo "OK  /dpr-planning returns text/html"
+else
+  echo "WARN /dpr-planning did not return text/html — rebuild web: ${COMPOSE} build --no-cache web && ${COMPOSE} up -d web"
+fi
 
 echo ""
 echo "EGIP is running locally at http://127.0.0.1:8081"
