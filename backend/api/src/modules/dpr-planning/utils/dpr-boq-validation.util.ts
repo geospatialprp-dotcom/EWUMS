@@ -221,25 +221,6 @@ function addColumnSums(a: BoqAmountColumns, b: BoqAmountColumns): BoqAmountColum
   };
 }
 
-/** Mislabeled Sub Total (cwra row 8): add item amounts without duplicating rollup columns already in section. */
-function addPrematureSubtotalRow(section: BoqAmountColumns, row: BoqAmountColumns): BoqAmountColumns {
-  const keys: (keyof BoqAmountColumns)[] = ['dsr', 'ujn', 'sorPwd', 'nsi', 'totalAmount'];
-  const result = { ...section };
-  for (const key of keys) {
-    const prior = section[key];
-    const next = row[key];
-    if (next <= 0) continue;
-    const tol = totalRowTolerance(Math.max(prior, next));
-    if (prior > 0 && Math.abs(next - prior) <= tol) {
-      result[key] = next;
-      continue;
-    }
-    result[key] = round2(prior + next);
-  }
-  result.amount = result.totalAmount > 0 ? result.totalAmount : result.ujn;
-  return result;
-}
-
 function tharaliDirectColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
   const c = tharaliComponentsFromRow(cells, headerMap);
   return {
@@ -261,20 +242,36 @@ function rowColumnAmounts(cells: string[], headerMap: Record<string, number>): B
   return { dsr: 0, ujn: 0, sorPwd: 0, nsi: 0, totalAmount: amt, amount: amt };
 }
 
-/** cwra Step 6/7 — reconcile Total Amount when Excel subtotal excludes SOR from Total column. */
-function cwraSubtotalComputedSums(
-  sums: BoqAmountColumns,
-  declared: BoqAmountColumns,
-): BoqAmountColumns {
+/** Mislabeled rollup Sub Total — amounts match accumulated section (cwra row 8). */
+function isRollupSubtotalRow(section: BoqAmountColumns, row: BoqAmountColumns): boolean {
+  const priorPrimary = primaryAmount(section);
+  const rowPrimary = primaryAmount(row);
+  if (priorPrimary <= 0 || rowPrimary <= 0) return false;
+
+  const tol = totalRowTolerance(Math.max(priorPrimary, rowPrimary));
+  if (Math.abs(rowPrimary - priorPrimary) <= tol) return true;
+
+  const keys: (keyof BoqAmountColumns)[] = ['dsr', 'ujn', 'sorPwd', 'nsi', 'totalAmount'];
+  for (const key of keys) {
+    if (row[key] > 0 && section[key] > 0
+      && Math.abs(row[key] - section[key]) <= totalRowTolerance(row[key])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Reconcile summed Total Amount column with declared subtotal (SOR may be excluded from Total). */
+function reconcileComputedTotal(sums: BoqAmountColumns, declared: BoqAmountColumns): BoqAmountColumns {
   const fromCol = round2(sums.totalAmount);
   const withoutSor = round2(sums.dsr + sums.ujn + sums.nsi);
   const withSor = round2(sums.dsr + sums.ujn + sums.sorPwd + sums.nsi);
   const d = declared.totalAmount;
   if (d > 0) {
     const tol = totalRowTolerance(d);
+    if (Math.abs(d - fromCol) <= tol) return { ...sums, totalAmount: fromCol };
     if (Math.abs(d - withoutSor) <= tol) return { ...sums, totalAmount: withoutSor };
     if (Math.abs(d - withSor) <= tol) return { ...sums, totalAmount: withSor };
-    if (Math.abs(d - fromCol) <= tol) return { ...sums, totalAmount: fromCol };
   }
   return { ...sums, totalAmount: fromCol > 0 ? fromCol : withSor };
 }
@@ -528,114 +525,50 @@ function tharaliComponentsFromRow(row: (string | number)[], headerMap: Record<st
   };
 }
 
-/** cwra sheets: extra Amount/Amt column or lump sums in Rate when Tharali cols are blank. */
-function isCwraLumpSumSheet(headerMap: Record<string, number>): boolean {
-  return headerMap.amount !== undefined
-    && (headerMap.total_amount === undefined || headerMap.amount !== headerMap.total_amount);
-}
-
-function cwraLumpSumNeeded(
-  cells: string[],
-  headerMap: Record<string, number>,
-  direct: BoqAmountColumns,
-): boolean {
-  if (isCwraLumpSumSheet(headerMap)) return true;
-  const componentSum = direct.dsr + direct.ujn + direct.sorPwd + direct.nsi;
-  if (componentSum > 0 || direct.totalAmount > 0) return false;
-  if (headerMap.rate !== undefined && parseNumber(cells[headerMap.rate]) > 0) return true;
-  if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) return true;
-  return cwraSectionLumpSumFallback(cells, headerMap) > 0;
-}
-
-function assignTharaliLumpSum(
-  lumpSum: number,
-  headerMap: Record<string, number>,
-): Pick<BoqAmountColumns, 'ujn' | 'totalAmount'> {
-  if (headerMap.ujn !== undefined) {
-    return {
-      ujn: lumpSum,
-      totalAmount: headerMap.total_amount !== undefined ? lumpSum : 0,
-    };
-  }
-  if (headerMap.total_amount !== undefined) {
-    return { ujn: 0, totalAmount: lumpSum };
-  }
-  return { ujn: lumpSum, totalAmount: 0 };
-}
-
-/** Scan amount-region columns when mapped Tharali cells are blank (cwra lump-sum rows only). */
-function cwraSectionLumpSumFallback(cells: string[], headerMap: Record<string, number>): number {
+/** Lump-sum fallback when mapped Tharali amount cells are blank (Rate / Amount column). */
+function lumpSumFromMappedColumns(cells: string[], headerMap: Record<string, number>): number {
   if (headerMap.amount !== undefined) {
     const mapped = parseNumber(cells[headerMap.amount]);
     if (mapped > 0) return round2(mapped);
   }
-
   if (headerMap.rate !== undefined) {
     const rate = parseNumber(cells[headerMap.rate]);
     if (rate > 0) return round2(rate);
   }
-
-  const skip = new Set(nonAmountColumnIndices(headerMap));
-  for (const key of ['dsr', 'ujn', 'sor_pwd', 'nsi', 'total_amount', 'amount'] as const) {
-    if (headerMap[key] !== undefined) skip.add(headerMap[key]);
-  }
-
-  const start = Math.max(
-    headerMap.description ?? 0,
-    headerMap.unit ?? 0,
-    headerMap.qty ?? 0,
-    headerMap.rate ?? 0,
-  ) + 1;
-
-  let sum = 0;
-  for (let idx = start; idx < cells.length; idx += 1) {
-    if (skip.has(idx)) continue;
-    const n = parseNumber(cells[idx]);
-    if (n > 0) sum += n;
-  }
-  return round2(sum);
+  return 0;
 }
 
-/** cwra-only: apply lump-sum fallbacks when Tharali amount columns are blank. */
-function cwraSectionRowColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
-  let dsr = headerMap.dsr !== undefined ? parseNumber(cells[headerMap.dsr]) : 0;
-  let ujn = headerMap.ujn !== undefined ? parseNumber(cells[headerMap.ujn]) : 0;
-  let sorPwd = headerMap.sor_pwd !== undefined ? parseNumber(cells[headerMap.sor_pwd]) : 0;
-  let nsi = headerMap.nsi !== undefined ? parseNumber(cells[headerMap.nsi]) : 0;
-  let totalAmount = headerMap.total_amount !== undefined ? parseNumber(cells[headerMap.total_amount]) : 0;
-
-  const componentSum = dsr + ujn + sorPwd + nsi;
-  if (componentSum <= 0 && totalAmount <= 0) {
-    const lumpSum = cwraSectionLumpSumFallback(cells, headerMap);
-    if (lumpSum > 0) {
-      const assigned = assignTharaliLumpSum(lumpSum, headerMap);
-      ujn = assigned.ujn;
-      if (assigned.totalAmount > 0) totalAmount = assigned.totalAmount;
-    }
-  } else if (totalAmount <= 0 && componentSum > 0) {
-    totalAmount = componentSum;
-  }
-
-  return {
-    dsr,
-    ujn,
-    sorPwd,
-    nsi,
-    totalAmount,
-    amount: totalAmount > 0 ? totalAmount : ujn,
-  };
-}
-
-/** Step 6/7 vertical sums — direct mapped-column read; cwra lump-sum path when needed. */
+/** Step 6/7 vertical sums — direct mapped-column read only. */
 function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
-  if (!isTharaliLayout(headerMap)) {
-    return rowColumnAmounts(cells, headerMap);
+  if (isTharaliLayout(headerMap)) {
+    const direct = tharaliDirectColumnAmounts(cells, headerMap);
+    const componentSum = direct.dsr + direct.ujn + direct.sorPwd + direct.nsi;
+    let { dsr, ujn, sorPwd, nsi, totalAmount } = direct;
+
+    if (totalAmount <= 0 && componentSum > 0) {
+      totalAmount = round2(componentSum);
+    }
+
+    if (componentSum <= 0 && totalAmount <= 0) {
+      const lumpSum = lumpSumFromMappedColumns(cells, headerMap);
+      if (lumpSum > 0) {
+        if (headerMap.ujn !== undefined) ujn = lumpSum;
+        else if (headerMap.total_amount !== undefined) totalAmount = lumpSum;
+        else ujn = lumpSum;
+        if (headerMap.total_amount !== undefined && totalAmount <= 0) totalAmount = lumpSum;
+      }
+    }
+
+    return {
+      dsr,
+      ujn,
+      sorPwd,
+      nsi,
+      totalAmount,
+      amount: totalAmount > 0 ? totalAmount : ujn,
+    };
   }
-  const direct = tharaliDirectColumnAmounts(cells, headerMap);
-  if (cwraLumpSumNeeded(cells, headerMap, direct)) {
-    return cwraSectionRowColumnAmounts(cells, headerMap);
-  }
-  return direct;
+  return rowColumnAmounts(cells, headerMap);
 }
 
 function sectionRowHasAmounts(cells: string[], headerMap: Record<string, number>): boolean {
@@ -787,8 +720,8 @@ export function validateTotalRows(
   const activeColumns = getActiveColumns(headerMap, tharali);
 
   let sectionItemSums = emptyColumnSums();
-  /** Step 7 base = Sub Total row amounts; post-subtotal item rows are added on top. */
-  let totalCostContributors = emptyColumnSums();
+  /** Step 7 base = last Sub Total / rollup row + post-subtotal items. */
+  let totalCostBase = emptyColumnSums();
   let afterSubtotalForTotalCost = false;
 
   for (let i = startIdx; i < rows.length; i += 1) {
@@ -806,12 +739,11 @@ export function validateTotalRows(
     const isTotalCost = isTotalCostLabel(joined) || isTotalCostLabel(descCol);
 
     if (!isSubTotal && !isTotalCost && !prematureSubTotal) {
-      const contributes = isSectionContributingRow(cells, headerMap, joined, descCol, false);
-      if (contributes) {
+      if (isSectionContributingRow(cells, headerMap, joined, descCol, false)) {
         const rowAmts = sectionRowColumnAmounts(cells, headerMap);
         sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
         if (afterSubtotalForTotalCost) {
-          totalCostContributors = addColumnSums(totalCostContributors, rowAmts);
+          totalCostBase = addColumnSums(totalCostBase, rowAmts);
         }
       }
     }
@@ -819,11 +751,11 @@ export function validateTotalRows(
     if (prematureSubTotal) {
       if (sectionRowHasAmounts(cells, headerMap)) {
         const rowAmts = sectionRowColumnAmounts(cells, headerMap);
-        sectionItemSums = addPrematureSubtotalRow(sectionItemSums, rowAmts);
-        if (!hasSubTotalRowBelow(rows, headerMap, i)) {
-          totalCostContributors = rowAmts;
-          afterSubtotalForTotalCost = true;
-        }
+        sectionItemSums = isRollupSubtotalRow(sectionItemSums, rowAmts)
+          ? rowAmts
+          : addColumnSums(sectionItemSums, rowAmts);
+        totalCostBase = rowAmts;
+        afterSubtotalForTotalCost = true;
       }
       continue;
     }
@@ -834,7 +766,7 @@ export function validateTotalRows(
       if (!hasDeclared) continue;
 
       const computedSums = tharali
-        ? cwraSubtotalComputedSums(sectionItemSums, declared)
+        ? reconcileComputedTotal(sectionItemSums, declared)
         : sectionItemSums;
       const columnChecks = buildColumnChecks(declared, computedSums, activeColumns, i + 1, 6, 'Sub Total');
       let allMatch = columnChecks.length === 0 || columnChecks.every((c) => c.match);
@@ -867,14 +799,14 @@ export function validateTotalRows(
           ].filter(Boolean).join('; '),
       });
 
-      totalCostContributors = declared;
+      totalCostBase = declared;
       afterSubtotalForTotalCost = true;
       sectionItemSums = emptyColumnSums();
       continue;
     }
 
     if (isTotalCost) {
-      const declared = rowColumnAmounts(cells, headerMap);
+      const declared = sectionRowColumnAmounts(cells, headerMap);
       const hasDeclared = activeColumns.some((col) => declared[col.key] > 0);
       if (!hasDeclared) continue;
 
@@ -882,9 +814,9 @@ export function validateTotalRows(
       const label = /total\s*cost/i.test(joined) || /total\s*cost/i.test(descCol)
         ? 'Total Cost'
         : isGrand ? 'Grand Total' : 'Total Cost';
-      const computedSums = isGrand && primaryAmount(totalCostContributors) <= 0
+      const computedSums = isGrand && primaryAmount(totalCostBase) <= 0
         ? { ...emptyColumnSums(), totalAmount: lineSum, amount: lineSum }
-        : totalCostContributors;
+        : totalCostBase;
 
       const columnChecks = buildColumnChecks(declared, computedSums, activeColumns, i + 1, 7, label);
       let allMatch = columnChecks.length === 0 || columnChecks.every((c) => c.match);
@@ -917,7 +849,7 @@ export function validateTotalRows(
           ].filter(Boolean).join('; '),
       });
 
-      totalCostContributors = emptyColumnSums();
+      totalCostBase = emptyColumnSums();
       afterSubtotalForTotalCost = false;
       sectionItemSums = emptyColumnSums();
     }

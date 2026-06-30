@@ -353,11 +353,69 @@ function testAbstractTreatmentWorksRows1to4(): void {
   assert(subTotal!.horizontalMatch === true, 'Sub Total horizontal DSR+UJN+SOR+NSI must equal Total Amount');
 }
 
+/** so & Tra page 2 — rows 7 + 10 items, row 9 description-only skip → Sub Total row 11. */
+function testSoTraPage2Rows7_9_10to11(): void {
+  const DSR7 = 500000;
+  const DSR10 = 200000;
+  const DSR = DSR7 + DSR10;
+  const UJN = 1296;
+  const SOR = 50000;
+  const TOTAL = DSR + UJN + SOR;
+
+  const rows: (string | number)[][] = [
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+    [7, 'Earthwork section item', 'cum', 10, 50000, DSR7, UJN, 0, 0, DSR7 + UJN],
+    [9, 'Protection works for substructure and foundation', '', '', '', 0, 0, 0, 0, 0],
+    [10, 'Concrete work item', 'cum', 4, 50000, DSR10, 0, SOR, 0, DSR10 + SOR],
+    [11, 'Sub Total', '', '', '', DSR, UJN, SOR, 0, TOTAL],
+  ];
+
+  const checks = validateTotalRows(rows, THARALI_HEADER, 1, TOTAL);
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 5);
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 5 (Excel row 11)');
+  assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
+
+  const dsrCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'DSR');
+  assert(dsrCol?.computedAmount === DSR, `DSR calculated must be ${DSR}, got ${dsrCol?.computedAmount}`);
+
+  const sorCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'SOR(PWD)');
+  assert(sorCol?.computedAmount === SOR, `SOR(PWD) calculated must be ${SOR}, got ${sorCol?.computedAmount}`);
+}
+
+/** Single premature Sub Total + items + Total Cost (no second Sub Total) — Step 7 must not be zero. */
+function testPrematureSubtotalOnlyStep7NotZero(): void {
+  const DSR = 2704964;
+  const UJN = 1296;
+  const SOR = 393668.98;
+  const SUB_TOTAL = 3099928.98;
+  const EXTRA = 100;
+  const TOTAL = SUB_TOTAL + EXTRA;
+
+  const rows: (string | number)[][] = [
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+    [1, 'Earthwork item', 'cum', 100, 27049.64, DSR, UJN, SOR, 0, SUB_TOTAL],
+    [2, 'Sub Total', '', '', '', DSR, UJN, SOR, 0, SUB_TOTAL],
+    [3, 'Extra item after premature subtotal', 'Nos', 1, EXTRA, EXTRA, 0, 0, 0, EXTRA],
+    [11, '', 'Total Cost', '', '', DSR + EXTRA, UJN, SOR, 0, TOTAL],
+  ];
+
+  const checks = validateTotalRows(rows, THARALI_HEADER, 1, TOTAL);
+  const totalCost = checks.find((c) => c.checkStep === 7 && c.rowNo === 5);
+  assert(!!totalCost, 'Expected Step 7 Total Cost check at row 5');
+  assert(totalCost!.match === true, `Total Cost should pass; got: ${totalCost!.message}`);
+
+  const dsrCol = totalCost!.columnChecks?.find((c) => c.columnLabel === 'DSR');
+  assert((dsrCol?.computedAmount ?? 0) > 0, 'Step 7 DSR must not be zero');
+  assert(dsrCol?.computedAmount === DSR + EXTRA, `DSR calculated must be ${DSR + EXTRA}, got ${dsrCol?.computedAmount}`);
+}
+
 function runAll(): void {
   testAbstractTreatmentWorksRows1to4();
+  testSoTraPage2Rows7_9_10to11();
   testSoTraStep7TotalCostRow11();
   testSoTraUjnTolerance1296vs1300();
   testSoTraStep7PrematureSubtotalWithItems();
+  testPrematureSubtotalOnlyStep7NotZero();
   testCwraAmountOnlyRowsStep6();
   testCwraRows8_10_11Step6();
   testCwraPrematureSubTotalRow8();
