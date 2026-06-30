@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, Dialog, DialogContent, Divider, IconButton, LinearProgress,
-  List, ListItem, ListItemButton, ListItemText, TextField, ToggleButton, ToggleButtonGroup, Typography,
+  List, ListItem, ListItemButton, ListItemText, TextField, ToggleButton, ToggleButtonGroup,
+  Tooltip, Typography,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import DrawOutlinedIcon from '@mui/icons-material/DrawOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import HighlightOutlinedIcon from '@mui/icons-material/HighlightOutlined';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import CommentOutlinedIcon from '@mui/icons-material/CommentOutlined';
@@ -21,6 +22,21 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
 
 type AnnotationTool = 'freehand' | 'highlight' | 'sticky_note';
+
+/** Standard red-ink review pen (TAC / HQ markup) */
+const RED_PEN = {
+  color: '#d32f2f',
+  width: 2.5,
+  highlightFill: 'rgba(211, 47, 47, 0.28)',
+} as const;
+
+function applyRedPenStroke(ctx: CanvasRenderingContext2D, width = RED_PEN.width) {
+  ctx.strokeStyle = RED_PEN.color;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.globalAlpha = 1;
+}
 
 const AI_SEVERITY_COLORS: Record<string, string> = {
   ai_critical: '#d32f2f',
@@ -274,8 +290,12 @@ export default function DprPdfReviewViewer({
       const isAi = ann.annotationType.startsWith('ai_');
       ctx.strokeStyle = isAi ? (AI_SEVERITY_COLORS[ann.annotationType] ?? ann.color) : ann.color;
       ctx.fillStyle = isAi ? (AI_SEVERITY_COLORS[ann.annotationType] ?? ann.color) : ann.color;
-      ctx.lineWidth = ann.annotationType === 'highlight' ? 12 : 2;
+      ctx.lineWidth = ann.annotationType === 'highlight' ? 12 : ann.annotationType === 'freehand' ? RED_PEN.width : 2;
       ctx.globalAlpha = ann.annotationType === 'highlight' ? 0.35 : isAi ? 0.25 : 1;
+      if (ann.annotationType === 'freehand') {
+        applyRedPenStroke(ctx, RED_PEN.width);
+        ctx.strokeStyle = ann.color || RED_PEN.color;
+      }
 
       if (isAi) {
         const rect = resolveRect(ann, overlay.width, overlay.height);
@@ -294,6 +314,8 @@ export default function DprPdfReviewViewer({
       } else if (ann.annotationType === 'freehand' && Array.isArray(ann.geometry.points)) {
         const pts = ann.geometry.points as Point[];
         if (pts.length < 2) continue;
+        applyRedPenStroke(ctx, RED_PEN.width);
+        ctx.strokeStyle = ann.color || RED_PEN.color;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i += 1) {
@@ -338,7 +360,7 @@ export default function DprPdfReviewViewer({
       pageNumber,
       annotationType: payload.annotationType,
       geometry: payload.geometry,
-      color: '#e53935',
+      color: RED_PEN.color,
       content: payload.content,
     });
     setAnnotations((prev) => [...prev, data as PdfAnnotation]);
@@ -371,8 +393,7 @@ export default function DprPdfReviewViewer({
       const ctx = overlay.getContext('2d');
       if (!ctx || drawingRef.current.points.length < 2) return;
       const pts = drawingRef.current.points;
-      ctx.strokeStyle = '#e53935';
-      ctx.lineWidth = 2;
+      applyRedPenStroke(ctx);
       ctx.beginPath();
       ctx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
       ctx.lineTo(pt.x, pt.y);
@@ -382,10 +403,9 @@ export default function DprPdfReviewViewer({
       const ctx = overlay.getContext('2d');
       if (!ctx) return;
       const s = drawingRef.current.start;
-      ctx.fillStyle = '#e53935';
-      ctx.globalAlpha = 0.35;
-      ctx.fillRect(s.x, s.y, pt.x - s.x, pt.y - s.y);
+      ctx.fillStyle = RED_PEN.highlightFill;
       ctx.globalAlpha = 1;
+      ctx.fillRect(s.x, s.y, pt.x - s.x, pt.y - s.y);
     }
   };
 
@@ -477,10 +497,43 @@ export default function DprPdfReviewViewer({
               onChange={(_, v) => v && setTool(v)}
               sx={{ bgcolor: '#fff', mr: 1 }}
             >
-              <ToggleButton value="freehand"><DrawOutlinedIcon fontSize="small" /></ToggleButton>
-              <ToggleButton value="highlight"><HighlightOutlinedIcon fontSize="small" /></ToggleButton>
-              <ToggleButton value="sticky_note"><StickyNote2OutlinedIcon fontSize="small" /></ToggleButton>
+              <Tooltip title="Red pen — draw markup">
+                <ToggleButton
+                  value="freehand"
+                  sx={{
+                    '&.Mui-selected': {
+                      bgcolor: 'rgba(211, 47, 47, 0.12)',
+                      borderColor: RED_PEN.color,
+                      color: RED_PEN.color,
+                    },
+                  }}
+                >
+                  <EditOutlinedIcon fontSize="small" sx={{ color: tool === 'freehand' ? RED_PEN.color : 'inherit' }} />
+                </ToggleButton>
+              </Tooltip>
+              <Tooltip title="Red highlight">
+                <ToggleButton value="highlight">
+                  <HighlightOutlinedIcon fontSize="small" sx={{ color: tool === 'highlight' ? RED_PEN.color : 'inherit' }} />
+                </ToggleButton>
+              </Tooltip>
+              <Tooltip title="Sticky note">
+                <ToggleButton value="sticky_note">
+                  <StickyNote2OutlinedIcon fontSize="small" />
+                </ToggleButton>
+              </Tooltip>
             </ToggleButtonGroup>
+            <Chip
+              size="small"
+              label="Red pen"
+              sx={{
+                mr: 1,
+                bgcolor: tool === 'freehand' ? RED_PEN.color : 'transparent',
+                color: tool === 'freehand' ? '#fff' : RED_PEN.color,
+                border: `1px solid ${RED_PEN.color}`,
+                fontWeight: 600,
+              }}
+              onClick={() => setTool('freehand')}
+            />
             </>
           )}
           <IconButton color="inherit" onClick={() => setPageNumber((p) => Math.max(1, p - 1))} disabled={pageNumber <= 1}>
@@ -508,7 +561,7 @@ export default function DprPdfReviewViewer({
                   position: 'absolute',
                   left: 0,
                   top: 0,
-                  cursor: readOnly ? 'default' : 'crosshair',
+                  cursor: readOnly ? 'default' : tool === 'freehand' ? 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\'%3E%3Cpath fill=\'%23d32f2f\' d=\'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\'/%3E%3C/svg%3E") 2 20, crosshair',
                 }}
                 onMouseDown={handleOverlayMouseDown}
                 onMouseMove={handleOverlayMouseMove}

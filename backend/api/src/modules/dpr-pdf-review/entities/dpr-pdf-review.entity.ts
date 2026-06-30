@@ -61,7 +61,7 @@ export class DprPdfAnnotation {
   @Column({ type: 'jsonb', default: {} })
   geometry: Record<string, unknown>;
 
-  @Column({ type: 'varchar', length: 20, default: '#e53935' })
+  @Column({ type: 'varchar', length: 20, default: '#d32f2f' })
   color: string;
 
   @Column({ type: 'text', nullable: true })

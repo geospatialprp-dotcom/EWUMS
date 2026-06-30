@@ -136,7 +136,7 @@ export class DprPdfReviewService {
       pageNumber: dto.pageNumber,
       annotationType: dto.annotationType,
       geometry: dto.geometry,
-      color: dto.color ?? '#e53935',
+      color: dto.color ?? '#d32f2f',
       content: dto.content ?? null,
       createdBy: userId,
     });
