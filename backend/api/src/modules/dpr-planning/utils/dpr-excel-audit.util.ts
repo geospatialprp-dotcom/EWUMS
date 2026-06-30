@@ -17,6 +17,7 @@ import type {
   DprExcelAuditReport,
   DprExcelAuditSummary,
   DprFormulaAuditRow,
+  DprSheetSummary,
 } from './dpr-excel-audit.types';
 
 export const AMOUNT_TOLERANCE = 0.5;
@@ -584,6 +585,34 @@ function rankErrors(errors: DprAuditError[]): DprAuditError[] {
   });
 }
 
+function buildSheetsSummary(
+  pages: BoqPageValidation[],
+  visible: string[],
+  blockingErrors: DprAuditError[],
+): DprSheetSummary[] {
+  const errorsBySheet = new Map<string, number>();
+  for (const e of blockingErrors) {
+    if (!e.sheetName) continue;
+    errorsBySheet.set(e.sheetName, (errorsBySheet.get(e.sheetName) ?? 0) + 1);
+  }
+  const pageByName = new Map(pages.map((p) => [p.sheetName, p]));
+
+  return visible.map((sheetName) => {
+    const page = pageByName.get(sheetName);
+    if (!page?.isCalculationSheet) {
+      return { sheetName, status: 'skipped' as const };
+    }
+    const errorCount = errorsBySheet.get(sheetName) ?? 0;
+    const itemCount = page.totalItems + page.totalChecks.length;
+    return {
+      sheetName,
+      status: errorCount > 0 ? ('failed' as const) : ('passed' as const),
+      itemCount,
+      errorCount,
+    };
+  });
+}
+
 export function buildExcelAudit(
   workbook: XLSX.WorkBook,
   visible: string[],
@@ -665,6 +694,8 @@ export function buildExcelAudit(
     ? 'BOQ validation PASSED'
     : `${totalErrors} error${totalErrors === 1 ? '' : 's'} in ${errorSheetCount} sheet${errorSheetCount === 1 ? '' : 's'}`;
 
+  const sheetsSummary = buildSheetsSummary(pages, visible, blockingErrors);
+
   return {
     visibleSheetsChecked: visible.length,
     hiddenSheetsSkipped: hidden.length,
@@ -682,6 +713,7 @@ export function buildExcelAudit(
     firstErrorPageNo: blockingErrors[0]?.pageNo ?? ranked[0]?.pageNo ?? baseReport.firstCalculationPageNo,
     firstErrorCellRef: blockingErrors[0]?.cellRef ?? ranked[0]?.cellRef ?? null,
     summaryMessage,
+    sheetsSummary,
   };
 }
 
@@ -750,6 +782,7 @@ export function attachExcelAudit(
         errorsBySeverity: { critical: 0, major: 0, minor: 1 },
         firstErrorPageNo: report.firstCalculationPageNo,
         firstErrorCellRef: null,
+        sheetsSummary: buildSheetsSummary(report.pages, visible, []),
       },
     };
   }

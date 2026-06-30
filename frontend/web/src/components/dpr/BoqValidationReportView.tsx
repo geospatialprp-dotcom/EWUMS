@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  Alert, Box, Button, LinearProgress, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Alert, Box, Button, LinearProgress, Paper, Table, TableBody, TableCell, TableHead, TableRow, Typography,
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import { dprPlanningApi } from '../../services/api';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
@@ -62,6 +63,13 @@ export type DprAuditError = {
   message: string;
 };
 
+export type DprSheetSummary = {
+  sheetName: string;
+  status: 'passed' | 'failed' | 'skipped';
+  itemCount?: number;
+  errorCount?: number;
+};
+
 export type DprAuditSummary = {
   visibleSheetsChecked?: number;
   hiddenSheetsSkipped?: number;
@@ -71,6 +79,7 @@ export type DprAuditSummary = {
   summaryMessage?: string;
   errors?: DprAuditError[];
   firstErrorCellRef?: string | null;
+  sheetsSummary?: DprSheetSummary[];
 };
 
 export type BoqValidationData = {
@@ -94,6 +103,56 @@ interface Props {
   validating?: boolean;
   validatingLabel?: string;
   proposalId?: string | null;
+}
+
+function resolveSheetsSummary(validation: BoqValidationData): DprSheetSummary[] {
+  const fromAudit = validation.audit?.sheetsSummary;
+  if (fromAudit && fromAudit.length > 0) return fromAudit;
+
+  return (validation.pages ?? [])
+    .filter((p) => p.isCalculationSheet !== false && p.status !== 'skipped')
+    .map((p) => ({
+      sheetName: p.sheetName,
+      status: (p.failedItems ?? 0) > 0 || p.hasIssues ? 'failed' as const : 'passed' as const,
+      itemCount: (p.totalItems ?? 0) + (p.totalChecks?.length ?? 0),
+      errorCount: p.failedItems ?? 0,
+    }));
+}
+
+function SheetStatusRow({ sheet, failed = false }: { sheet: DprSheetSummary; failed?: boolean }) {
+  const isPassed = sheet.status === 'passed';
+  const Icon = isPassed ? CheckCircleOutlineIcon : ErrorOutlineIcon;
+  const iconColor = isPassed ? 'success' : 'error';
+
+  return (
+    <Box
+      display="flex"
+      alignItems="flex-start"
+      gap={1}
+      sx={{
+        py: 0.75,
+        px: 1,
+        borderRadius: 1,
+        bgcolor: failed ? 'rgba(211,47,47,0.06)' : isPassed ? 'rgba(46,125,50,0.06)' : undefined,
+      }}
+    >
+      <Icon color={iconColor} fontSize="small" sx={{ mt: 0.15 }} />
+      <Box flex={1} minWidth={0}>
+        <Typography variant="body2" fontWeight={failed ? 600 : 500}>
+          {sheet.sheetName}
+          {' — '}
+          {isPassed
+            ? 'All items OK'
+            : `${sheet.errorCount ?? 0} error${(sheet.errorCount ?? 0) === 1 ? '' : 's'}`}
+        </Typography>
+        {(sheet.itemCount ?? 0) > 0 && (
+          <Typography variant="caption" color="text.secondary">
+            {sheet.itemCount} item{sheet.itemCount === 1 ? '' : 's'} validated
+          </Typography>
+        )}
+      </Box>
+    </Box>
+  );
 }
 
 export default function BoqValidationReportView({
@@ -147,18 +206,46 @@ export default function BoqValidationReportView({
     ?? validation.summary?.message
     ?? (passed ? 'BOQ validation PASSED' : `${totalErrors} error${totalErrors === 1 ? '' : 's'} in ${errorSheetCount} sheet${errorSheetCount === 1 ? '' : 's'}`);
 
+  const allSheets = resolveSheetsSummary(validation);
+  const validatedSheets = allSheets.filter((s) => s.status !== 'skipped');
+  const passedSheets = validatedSheets.filter((s) => s.status === 'passed');
+  const failedSheets = validatedSheets.filter((s) => s.status === 'failed');
+
   if (passed) {
+    const sheetCount = validatedSheets.length
+      || audit?.visibleSheetsChecked
+      || validation.pages?.filter((p) => p.isCalculationSheet !== false && p.status !== 'skipped').length
+      || 0;
+
     return (
       <Box>
-        <Alert severity="success" icon={<CheckCircleOutlineIcon />}>
+        <Alert severity="success" icon={<CheckCircleOutlineIcon />} sx={{ mb: 1.5 }}>
           <Typography variant="body2" fontWeight={600}>BOQ validation PASSED</Typography>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-            All {audit?.visibleSheetsChecked ?? validation.pages?.filter((p) => p.isCalculationSheet !== false && p.status !== 'skipped').length ?? 0} calculation sheet(s) checked — no errors found.
+            All {sheetCount} calculation sheet{sheetCount === 1 ? '' : 's'} checked — no errors found.
           </Typography>
         </Alert>
+
+        {validatedSheets.length > 0 && (
+          <Paper variant="outlined" sx={{ p: 1.5, mb: 1 }}>
+            <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 1 }}>
+              Sheets validated
+            </Typography>
+            <Box
+              display="grid"
+              gridTemplateColumns={{ xs: '1fr', sm: '1fr 1fr' }}
+              gap={0.5}
+            >
+              {validatedSheets.map((sheet) => (
+                <SheetStatusRow key={sheet.sheetName} sheet={sheet} />
+              ))}
+            </Box>
+          </Paper>
+        )}
+
         {proposalId && (
           <Button size="small" variant="text" startIcon={<DownloadOutlinedIcon />}
-            disabled={exporting || !audit} onClick={downloadReport} sx={{ mt: 1 }}>
+            disabled={exporting || !audit} onClick={downloadReport} sx={{ mt: 0.5 }}>
             Download full audit Excel
           </Button>
         )}
@@ -185,6 +272,23 @@ export default function BoqValidationReportView({
           </Typography>
         )}
       </Box>
+
+      {validatedSheets.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+          <Box
+            display="grid"
+            gridTemplateColumns={{ xs: '1fr', sm: '1fr 1fr' }}
+            gap={0.5}
+          >
+            {failedSheets.map((sheet) => (
+              <SheetStatusRow key={sheet.sheetName} sheet={sheet} failed />
+            ))}
+            {passedSheets.map((sheet) => (
+              <SheetStatusRow key={sheet.sheetName} sheet={sheet} />
+            ))}
+          </Box>
+        </Paper>
+      )}
 
       {errors.length > 0 ? (
         <>

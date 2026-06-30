@@ -41,6 +41,14 @@ export type DprFormulaAuditRow = {
   issue?: string;
 };
 
+export type DprSheetSummary = {
+  sheetName: string;
+  status: 'passed' | 'failed' | 'skipped';
+  /** Line rows + total-row checks validated on this sheet */
+  itemCount?: number;
+  errorCount?: number;
+};
+
 export type DprExcelAuditSummary = {
   visibleSheetsChecked: number;
   hiddenSheetsSkipped: number;
@@ -60,6 +68,8 @@ export type DprExcelAuditSummary = {
   firstErrorCellRef: string | null;
   /** Compact one-line summary for UI: "BOQ validation PASSED" or "N errors in M sheets" */
   summaryMessage: string;
+  /** Per-sheet pass/fail for UI — no full line-level pass payload */
+  sheetsSummary: DprSheetSummary[];
 };
 
 export type DprExcelAuditReport = BoqValidationReport & {
