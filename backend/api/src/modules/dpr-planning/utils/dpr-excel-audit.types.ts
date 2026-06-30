@@ -17,6 +17,8 @@ export type DprAuditError = {
   column?: string;
   cellRef: string;
   errorType: string;
+  /** Validation step order (1=description, 2=qty, 3=rate, 4=horizontal A, 5=horizontal B, …) */
+  checkOrder?: number;
   category: DprAuditCategory;
   severity: DprAuditSeverity;
   expectedValue: number | string | null;

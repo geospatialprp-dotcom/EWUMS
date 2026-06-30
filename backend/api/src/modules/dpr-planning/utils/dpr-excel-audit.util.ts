@@ -64,7 +64,7 @@ function refColumn(cellRefStr: string): string {
 }
 
 function amountColRef(page: BoqPageValidation, rowNo: number): string {
-  const col = page.headerMap?.amount;
+  const col = page.headerMap?.total_amount ?? page.headerMap?.ujn ?? page.headerMap?.amount;
   if (col === undefined || !rowNo) return '';
   return cellRef(col, rowNo - 1);
 }
@@ -216,6 +216,19 @@ function auditFormulasOnSheet(
   return { errors, rows, verified, unverified };
 }
 
+function isTharaliHeaderMap(headerMap: Record<string, number>): boolean {
+  return headerMap.ujn !== undefined
+    || (headerMap.dsr !== undefined && headerMap.total_amount !== undefined);
+}
+
+function verticalSumColumn(headerMap: Record<string, number>): number | undefined {
+  if (isTharaliHeaderMap(headerMap)) {
+    if (headerMap.total_amount !== undefined) return headerMap.total_amount;
+    if (headerMap.ujn !== undefined) return headerMap.ujn;
+  }
+  return headerMap.amount;
+}
+
 function auditVerticalAmountColumn(
   sheet: XLSX.WorkSheet,
   sheetName: string,
@@ -225,9 +238,12 @@ function auditVerticalAmountColumn(
   rows: (string | number)[][],
 ): DprAuditError[] {
   const errors: DprAuditError[] = [];
-  if (headerMap.amount === undefined) return errors;
+  const amountCol = verticalSumColumn(headerMap);
+  if (amountCol === undefined) return errors;
 
-  const amountCol = headerMap.amount;
+  const amountLabel = isTharaliHeaderMap(headerMap)
+    ? (headerMap.total_amount !== undefined ? 'Total Amount' : 'UJN')
+    : 'Amount';
   let runningSum = 0;
 
   for (let i = headerRowIdx + 1; i < rows.length; i += 1) {
@@ -239,12 +255,14 @@ function auditVerticalAmountColumn(
       if (runningSum > 0 && Math.abs(amount - runningSum) > TOTAL_TOLERANCE) {
         errors.push({
           sheetName, pageNo, rowNo: i + 1,
+          column: amountLabel,
           cellRef: cellRef(amountCol, i),
-          errorType: 'Vertical column sum mismatch',
+          errorType: 'Vertical subtotal mismatch',
           category: 'vertical', severity: 'critical',
+          checkOrder: 6,
           expectedValue: runningSum, actualValue: amount,
           difference: round2(amount - runningSum),
-          message: `Amount column sum ₹${runningSum.toLocaleString('en-IN')} ≠ declared total ₹${amount.toLocaleString('en-IN')} at row ${i + 1}`,
+          message: `Step 6 — Vertical subtotal: ${amountLabel} column sum ₹${runningSum.toLocaleString('en-IN')} ≠ declared total ₹${amount.toLocaleString('en-IN')} at row ${i + 1}`,
         });
       }
       runningSum = 0;
@@ -389,34 +407,131 @@ function auditOverwrittenFormulas(
   return errors;
 }
 
-function lineToAuditError(page: BoqPageValidation, line: BoqPageValidation['lines'][number]): DprAuditError {
-  const severity: DprAuditSeverity = line.status === 'fail' ? 'major' : 'minor';
-  const amountRef = line.sheetRow ? amountColRef(page, line.sheetRow) : '';
-  const qtyRef = line.sheetRow && page.headerMap?.qty !== undefined
-    ? cellRef(page.headerMap.qty, line.sheetRow - 1) : '';
-  const cellRefStr = amountRef || qtyRef;
-  const column = amountRef
-    ? (page.headerMap?.amount !== undefined ? columnLabel(page.headerMap.amount, page.headerMap, 'amount') : refColumn(amountRef))
-    : (page.headerMap?.qty !== undefined ? columnLabel(page.headerMap.qty, page.headerMap, 'qty') : refColumn(qtyRef));
+function issueToErrorType(checkType: string): string {
+  if (checkType === 'description') return 'Missing / invalid description';
+  if (checkType === 'quantity') return 'Invalid quantity';
+  if (checkType === 'rate') return 'Invalid rate';
+  if (checkType === 'qty_rate_ujn') return 'Qty × Rate ≠ UJN';
+  if (checkType === 'qty_rate_amount') return 'Qty × Rate ≠ Total Amount';
+  if (checkType === 'component_sum') return 'Component sum ≠ Total Amount';
+  if (checkType === 'cross_check') return 'Qty×Rate ≠ component sum';
+  return 'Data warning';
+}
 
-  return {
+function cellRefForIssue(
+  page: BoqPageValidation,
+  line: BoqPageValidation['lines'][number],
+  issue: { checkType: string; column?: string },
+): string {
+  const rowIdx = (line.sheetRow ?? line.lineNo) - 1;
+  const map = page.headerMap;
+  if (!map || rowIdx < 0) return '';
+
+  const fieldByCheck: Record<string, string | undefined> = {
+    description: 'description',
+    quantity: 'qty',
+    rate: 'rate',
+    qty_rate_ujn: 'ujn',
+    qty_rate_amount: map.total_amount !== undefined ? 'total_amount' : 'amount',
+    component_sum: 'total_amount',
+    cross_check: 'total_amount',
+  };
+  const field = fieldByCheck[issue.checkType];
+  if (field && map[field] !== undefined) return cellRef(map[field], rowIdx);
+  if (issue.column === 'Unit' && map.unit !== undefined) return cellRef(map.unit, rowIdx);
+  return line.sheetRow ? amountColRef(page, line.sheetRow) : '';
+}
+
+function lineToAuditErrors(page: BoqPageValidation, line: BoqPageValidation['lines'][number]): DprAuditError[] {
+  const failedIssues = (line.issues ?? []).filter((i) => i.status !== 'pass');
+  if (failedIssues.length > 0) {
+    return failedIssues.map((issue) => {
+      const severity: DprAuditSeverity = issue.status === 'fail' ? 'major' : 'minor';
+      const isHorizontal = issue.checkType === 'qty_rate_ujn'
+        || issue.checkType === 'component_sum'
+        || issue.checkType === 'qty_rate_amount'
+        || issue.checkType === 'cross_check';
+      return {
+        sheetName: page.sheetName,
+        pageNo: page.pageNo,
+        rowNo: line.sheetRow ?? line.lineNo,
+        column: issue.column,
+        cellRef: cellRefForIssue(page, line, issue),
+        errorType: issueToErrorType(issue.checkType),
+        checkOrder: issue.order,
+        category: isHorizontal ? 'horizontal' : 'data',
+        severity,
+        expectedValue: issue.expectedValue ?? null,
+        actualValue: issue.actualValue ?? null,
+        difference: issue.difference ?? null,
+        message: issue.message,
+      };
+    });
+  }
+
+  if (line.status === 'pass') return [];
+
+  const severity: DprAuditSeverity = line.status === 'fail' ? 'major' : 'minor';
+  const tharali = line.layoutFormat === 'tharali' && line.tharali;
+  const failUjn = tharali && !tharali.ujnMatch && line.qty > 0 && line.rate > 0 && tharali.ujn > 0;
+  const failComponent = tharali && !tharali.componentSumMatch && tharali.totalAmount > 0;
+  const failCross = tharali && !tharali.crossCheckMatch && line.qty > 0 && line.rate > 0;
+
+  let column = 'Amount';
+  let cellRefStr = '';
+  if (failUjn && page.headerMap?.ujn !== undefined && line.sheetRow) {
+    column = 'UJN';
+    cellRefStr = cellRef(page.headerMap.ujn, line.sheetRow - 1);
+  } else if (failComponent && page.headerMap?.total_amount !== undefined && line.sheetRow) {
+    column = 'Total Amount';
+    cellRefStr = cellRef(page.headerMap.total_amount, line.sheetRow - 1);
+  } else if (failCross && page.headerMap?.ujn !== undefined && line.sheetRow) {
+    column = 'UJN';
+    cellRefStr = cellRef(page.headerMap.ujn, line.sheetRow - 1);
+  } else {
+    const amountRef = line.sheetRow ? amountColRef(page, line.sheetRow) : '';
+    const qtyRef = line.sheetRow && page.headerMap?.qty !== undefined
+      ? cellRef(page.headerMap.qty, line.sheetRow - 1) : '';
+    cellRefStr = amountRef || qtyRef;
+    column = amountRef
+      ? (page.headerMap?.total_amount !== undefined ? 'Total Amount'
+        : page.headerMap?.ujn !== undefined ? 'UJN'
+          : page.headerMap?.amount !== undefined ? columnLabel(page.headerMap.amount, page.headerMap, 'amount') : refColumn(amountRef))
+      : (page.headerMap?.qty !== undefined ? columnLabel(page.headerMap.qty, page.headerMap, 'qty') : refColumn(qtyRef));
+  }
+
+  const errorType = failUjn ? 'Qty × Rate ≠ UJN'
+    : failComponent ? 'Component sum ≠ Total Amount'
+      : failCross ? 'Qty×Rate ≠ component sum'
+        : line.status === 'fail' ? 'Qty × Rate ≠ Amount' : 'Data warning';
+  const checkOrder = failUjn ? 4 : failComponent ? 5 : failCross ? 6 : line.status === 'fail' ? 4 : 1;
+
+  return [{
     sheetName: page.sheetName,
     pageNo: page.pageNo,
     rowNo: line.sheetRow ?? line.lineNo,
     column,
     cellRef: cellRefStr,
-    errorType: line.status === 'fail' ? 'Qty × Rate mismatch' : 'Data warning',
+    errorType,
+    checkOrder,
     category: line.status === 'fail' ? 'horizontal' : 'data',
     severity,
-    expectedValue: line.computedAmount,
-    actualValue: line.declaredAmount,
+    expectedValue: failUjn ? tharali?.qtyRateTotal
+      : failComponent ? tharali?.componentSum
+        : failCross ? tharali?.qtyRateTotal
+          : line.computedAmount,
+    actualValue: failUjn ? tharali?.ujn
+      : failComponent ? tharali?.totalAmount
+        : failCross ? tharali?.componentSum
+          : line.declaredAmount,
     difference: line.difference,
-    message: line.message ?? `${line.description}: Qty×Rate check`,
-  };
+    message: line.message ?? `${line.description}: row check`,
+  }];
 }
 
 function totalCheckToError(page: BoqPageValidation, check: BoqTotalRowCheck): DprAuditError {
   const addr = amountColRef(page, check.rowNo);
+  const isGross = /gross|grand|abstract|gac|bc/i.test(check.label);
   return {
     sheetName: page.sheetName,
     pageNo: page.pageNo,
@@ -426,27 +541,31 @@ function totalCheckToError(page: BoqPageValidation, check: BoqTotalRowCheck): Dp
       : refColumn(addr),
     cellRef: addr,
     errorType: `${check.label} mismatch`,
-    category: /gross|grand|abstract|gac|bc/i.test(check.label) ? 'dpr_estimate' : 'vertical',
-    severity: /gross|grand|abstract|gac|bc/i.test(check.label) ? 'critical' : 'major',
+    checkOrder: isGross ? 7 : 6,
+    category: isGross ? 'dpr_estimate' : 'vertical',
+    severity: isGross ? 'critical' : 'major',
     expectedValue: check.computedAmount,
     actualValue: check.declaredAmount,
     difference: round2(check.declaredAmount - check.computedAmount),
-    message: check.message ?? `${check.label} row ${check.rowNo} mismatch`,
+    message: check.message
+      ?? `Step ${isGross ? 7 : 6} — ${check.label} row ${check.rowNo}: Excel ₹${check.declaredAmount.toLocaleString('en-IN')} ≠ calculated ₹${check.computedAmount.toLocaleString('en-IN')}`,
   };
 }
 
 function crossCheckToError(check: BoqCrossCheck, page: BoqPageValidation | undefined): DprAuditError {
+  const isTharaliGross = /tharali/i.test(check.label);
   return {
     sheetName: page?.sheetName ?? 'Cross-sheet',
     pageNo: page?.pageNo ?? 0,
     rowNo: 0,
+    column: isTharaliGross ? 'Gross Total' : 'Grand Total',
     cellRef: '',
-    errorType: 'DPR estimate mismatch',
+    errorType: isTharaliGross ? 'Abstract gross mismatch' : 'DPR estimate mismatch',
     category: 'dpr_estimate',
     severity: 'critical',
-    expectedValue: check.gac ?? check.boqSum,
+    expectedValue: check.boqSum ?? check.gac,
     actualValue: check.abstract ?? check.bc,
-    difference: check.gac != null && check.abstract != null ? round2((check.abstract ?? 0) - check.gac) : null,
+    difference: check.abstract != null && check.boqSum != null ? round2(check.abstract - check.boqSum) : null,
     message: check.message ?? check.label,
   };
 }
@@ -462,8 +581,12 @@ function dedupeErrors(errors: DprAuditError[]): DprAuditError[] {
 }
 
 function rankErrors(errors: DprAuditError[]): DprAuditError[] {
-  const order = { critical: 0, major: 1, minor: 2 };
-  return [...errors].sort((a, b) => order[a.severity] - order[b.severity]);
+  const severityOrder = { critical: 0, major: 1, minor: 2 };
+  return [...errors].sort((a, b) => {
+    const orderDiff = (a.checkOrder ?? 99) - (b.checkOrder ?? 99);
+    if (orderDiff !== 0) return orderDiff;
+    return severityOrder[a.severity] - severityOrder[b.severity];
+  });
 }
 
 export function buildExcelAudit(
@@ -485,7 +608,7 @@ export function buildExcelAudit(
     calculationsVerified += page.totalItems + page.totalChecks.length;
 
     for (const line of page.lines) {
-      if (line.status !== 'pass') errors.push(lineToAuditError(page, line));
+      if (line.status !== 'pass') errors.push(...lineToAuditErrors(page, line));
     }
     for (const check of page.totalChecks) {
       if (!check.match) errors.push(totalCheckToError(page, check));
@@ -526,9 +649,9 @@ export function buildExcelAudit(
 
   for (const check of crossChecks) {
     if (!check.match) {
-      const firstBoq = pages.find((p) => p.sheetType === 'boq' && p.isCalculationSheet);
       const abstractPage = pages.find((p) => p.sheetType === 'abstract' && p.isCalculationSheet);
-      errors.push(crossCheckToError(check, abstractPage ?? firstBoq));
+      const firstBoq = pages.find((p) => p.sheetType === 'boq' && p.isCalculationSheet);
+      errors.push(crossCheckToError(check, /tharali/i.test(check.label) ? abstractPage : abstractPage ?? firstBoq));
     }
   }
 

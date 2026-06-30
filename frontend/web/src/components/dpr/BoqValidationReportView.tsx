@@ -14,6 +14,7 @@ export type BoqPageData = {
   pageNo: number;
   sheetName: string;
   sheetType?: string;
+  layoutFormat?: 'standard' | 'tharali';
   status: string;
   isCalculationSheet?: boolean;
   totalItems?: number;
@@ -48,6 +49,30 @@ export type BoqPageData = {
     difference: number;
     status: string;
     message?: string;
+    layoutFormat?: 'standard' | 'tharali';
+    tharali?: {
+      dsr: number;
+      ujn: number;
+      sorPwd: number;
+      nsi: number;
+      totalAmount: number;
+      qtyRateTotal: number;
+      componentSum: number;
+      qtyRateTotalMatch: boolean;
+      componentSumMatch: boolean;
+      crossCheckMatch: boolean;
+      ujnComputed?: number;
+      totalComputed?: number;
+      ujnMatch?: boolean;
+      totalAmountMatch?: boolean;
+    };
+    issues?: Array<{
+      order: number;
+      checkType: string;
+      column?: string;
+      status: string;
+      message: string;
+    }>;
   }>;
 };
 
@@ -68,6 +93,7 @@ export type DprAuditError = {
   column?: string;
   cellRef: string;
   errorType: string;
+  checkOrder?: number;
   category: string;
   severity: 'critical' | 'major' | 'minor';
   expectedValue: number | string | null;
@@ -122,6 +148,12 @@ function pageStatusColor(status?: string): 'success' | 'warning' | 'error' | 'de
   return 'error';
 }
 
+function severityColor(s?: string): 'error' | 'warning' | 'default' {
+  if (s === 'critical') return 'error';
+  if (s === 'major') return 'warning';
+  return 'default';
+}
+
 function sheetTypeLabel(type?: string) {
   if (type === 'gac') return 'GAC';
   if (type === 'bc') return 'BC';
@@ -131,10 +163,70 @@ function sheetTypeLabel(type?: string) {
   return 'Sheet';
 }
 
-function severityColor(s?: string): 'error' | 'warning' | 'default' {
-  if (s === 'critical') return 'error';
-  if (s === 'major') return 'warning';
-  return 'default';
+function checkTypeLabel(errorType: string, checkOrder?: number) {
+  const prefix = checkOrder != null ? `Step ${checkOrder} — ` : '';
+  if (errorType === 'Missing / invalid description') return `${prefix}Description`;
+  if (errorType === 'Invalid quantity') return `${prefix}Quantity`;
+  if (errorType === 'Invalid rate') return `${prefix}Rate`;
+  if (errorType === 'Qty × Rate ≠ UJN') return `${prefix}Qty×Rate = UJN`;
+  if (errorType === 'Qty × Rate ≠ Total Amount') return `${prefix}Qty×Rate = Total Amount`;
+  if (errorType === 'Component sum ≠ Total Amount') return `${prefix}DSR+UJN+SOR(PWD)+NSI = Total Amount`;
+  if (errorType === 'Qty×Rate ≠ component sum') return `${prefix}Qty×Rate vs component sum`;
+  if (errorType === 'Qty × Rate ≠ Amount') return `${prefix}Qty×Rate = Amount`;
+  if (errorType === 'Vertical subtotal mismatch') return `${prefix}Vertical subtotal`;
+  if (/mismatch$/i.test(errorType)) return `${prefix}${errorType}`;
+  return `${prefix}${errorType}`;
+}
+
+function renderErrorTable(errors: DprAuditError[], onNavigate: (e: DprAuditError) => void, maxRows = 50) {
+  if (!errors.length) return null;
+  return (
+    <>
+      <Table size="small" sx={{ ...dataTableSx, maxHeight: 280 }}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Sheet</TableCell>
+            <TableCell>Row</TableCell>
+            <TableCell>Column</TableCell>
+            <TableCell>Cell</TableCell>
+            <TableCell>Error Type</TableCell>
+            <TableCell>Severity</TableCell>
+            <TableCell align="right">Expected</TableCell>
+            <TableCell align="right">Actual</TableCell>
+            <TableCell align="right">Diff</TableCell>
+            <TableCell>Message</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {errors.slice(0, maxRows).map((e, idx) => (
+            <TableRow key={`${e.sheetName}-${e.rowNo}-${e.errorType}-${idx}`}
+              hover
+              onClick={() => onNavigate(e)}
+              sx={{
+                cursor: e.pageNo ? 'pointer' : 'default',
+                bgcolor: e.severity === 'critical' ? 'rgba(211,47,47,0.08)' : e.severity === 'major' ? 'rgba(237,108,2,0.06)' : undefined,
+              }}>
+              <TableCell>{e.sheetName}</TableCell>
+              <TableCell>{e.rowNo || '—'}</TableCell>
+              <TableCell>{e.column || '—'}</TableCell>
+              <TableCell>{e.cellRef || '—'}</TableCell>
+              <TableCell>{e.errorType}</TableCell>
+              <TableCell><Chip size="small" color={severityColor(e.severity)} label={e.severity} /></TableCell>
+              <TableCell align="right">{typeof e.expectedValue === 'number' ? fmt(e.expectedValue) : e.expectedValue ?? '—'}</TableCell>
+              <TableCell align="right">{typeof e.actualValue === 'number' ? fmt(e.actualValue) : e.actualValue ?? '—'}</TableCell>
+              <TableCell align="right">{e.difference != null ? fmt(e.difference) : '—'}</TableCell>
+              <TableCell sx={{ maxWidth: 240 }}><Typography variant="caption">{e.message}</Typography></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {errors.length > maxRows && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+          Showing first {maxRows} of {errors.length} — download Excel report for full list.
+        </Typography>
+      )}
+    </>
+  );
 }
 
 interface Props {
@@ -175,6 +267,25 @@ export default function BoqValidationReportView({
     const cats = new Set(auditErrors.map((e) => e.category));
     return ['all', ...Array.from(cats).sort()];
   }, [auditErrors]);
+
+  const errorsByCheckType = useMemo(() => {
+    const map = new Map<string, DprAuditError[]>();
+    for (const e of filteredErrors) {
+      const key = e.errorType;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
+    return Array.from(map.entries()).sort((a, b) => {
+      const orderA = a[1][0]?.checkOrder ?? 99;
+      const orderB = b[1][0]?.checkOrder ?? 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [filteredErrors]);
+
+  const tharaliPages = useMemo(() => calcPages.filter((p) => p.layoutFormat === 'tharali'), [calcPages]);
+
+  const [expandedCheckTypes, setExpandedCheckTypes] = useState<string[]>([]);
 
   const navigateToError = (err: DprAuditError) => {
     if (!err.pageNo) return;
@@ -219,8 +330,15 @@ export default function BoqValidationReportView({
     if (!validation) {
       setExpanded([]);
       setShowSkipped(false);
+      setExpandedCheckTypes([]);
     }
   }, [validation?.validatedAt, validation]);
+
+  useEffect(() => {
+    if (errorsByCheckType.length > 0) {
+      setExpandedCheckTypes(errorsByCheckType.map(([type]) => type));
+    }
+  }, [validation?.validatedAt, errorsByCheckType.length]);
 
   useEffect(() => {
     if (highlightProblemPages && focusKeys.length) {
@@ -247,7 +365,8 @@ export default function BoqValidationReportView({
     return (
       <Alert severity="info">
         Click <strong>Upload BOQ Excel</strong> above and select your DPR estimate workbook (.xlsx).
-        The system auto-checks every visible sheet (description, unit, Qty×Rate, subtotals, grand totals, formulas).
+        The system auto-checks every visible sheet — horizontal row math (Qty×Rate=Total Amount, DSR+UJN+SOR(PWD)+NSI=Total Amount, cross-check),
+        vertical subtotals, Abstract gross total, and formulas (Tharali/UJS layout supported).
       </Alert>
     );
   }
@@ -290,6 +409,9 @@ export default function BoqValidationReportView({
             <Chip size="small" label={`Page ${page.pageNo}`} variant="outlined" />
             <Typography variant="body2" fontWeight={600}>{page.sheetName}</Typography>
             <Chip size="small" variant="outlined" label={sheetTypeLabel(page.sheetType)} />
+            {page.layoutFormat === 'tharali' && (
+              <Chip size="small" color="info" variant="outlined" label="Tharali/UJS" />
+            )}
             <Chip size="small" color={pColor} label={page.status?.toUpperCase() ?? 'UNKNOWN'} />
             {!isSkipped && (
               <Typography variant="caption" color="text.secondary">
@@ -374,6 +496,13 @@ export default function BoqValidationReportView({
                       <TableCell>Description</TableCell>
                       <TableCell align="right">Qty</TableCell>
                       <TableCell align="right">Rate</TableCell>
+                      {page.layoutFormat === 'tharali' && (
+                        <>
+                          <TableCell align="right">Qty×Rate</TableCell>
+                          <TableCell align="right">Comp Sum</TableCell>
+                          <TableCell align="right">Total Amt</TableCell>
+                        </>
+                      )}
                       <TableCell align="right">Declared</TableCell>
                       <TableCell align="right">Computed</TableCell>
                       <TableCell>Issue</TableCell>
@@ -386,6 +515,13 @@ export default function BoqValidationReportView({
                         <TableCell sx={{ maxWidth: 220 }}>{line.description}</TableCell>
                         <TableCell align="right">{line.qty}</TableCell>
                         <TableCell align="right">{line.rate}</TableCell>
+                        {page.layoutFormat === 'tharali' && (
+                          <>
+                            <TableCell align="right">{line.tharali?.qtyRateTotal ?? line.tharali?.ujnComputed ?? '—'}</TableCell>
+                            <TableCell align="right">{line.tharali?.componentSum ?? line.tharali?.totalComputed ?? '—'}</TableCell>
+                            <TableCell align="right">{line.tharali?.totalAmount ?? '—'}</TableCell>
+                          </>
+                        )}
                         <TableCell align="right">{line.declaredAmount}</TableCell>
                         <TableCell align="right">{line.computedAmount}</TableCell>
                         <TableCell>
@@ -496,52 +632,46 @@ export default function BoqValidationReportView({
               {(audit.hiddenSheetNames ?? []).length > 8 ? ` +${(audit.hiddenSheetNames ?? []).length - 8} more` : ''}
             </Typography>
           )}
-          {filteredErrors.length > 0 && (
-            <Table size="small" sx={{ ...dataTableSx, maxHeight: 280 }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Sheet</TableCell>
-                  <TableCell>Row</TableCell>
-                  <TableCell>Column</TableCell>
-                  <TableCell>Cell</TableCell>
-                  <TableCell>Error Type</TableCell>
-                  <TableCell>Category</TableCell>
-                  <TableCell>Severity</TableCell>
-                  <TableCell align="right">Expected</TableCell>
-                  <TableCell align="right">Actual</TableCell>
-                  <TableCell align="right">Diff</TableCell>
-                  <TableCell>Message</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredErrors.slice(0, 100).map((e, idx) => (
-                  <TableRow key={`${e.sheetName}-${e.rowNo}-${idx}`}
-                    hover
-                    onClick={() => navigateToError(e)}
-                    sx={{
-                      cursor: e.pageNo ? 'pointer' : 'default',
-                      bgcolor: e.severity === 'critical' ? 'rgba(211,47,47,0.08)' : e.severity === 'major' ? 'rgba(237,108,2,0.06)' : undefined,
-                    }}>
-                    <TableCell>{e.sheetName}</TableCell>
-                    <TableCell>{e.rowNo || '—'}</TableCell>
-                    <TableCell>{e.column || '—'}</TableCell>
-                    <TableCell>{e.cellRef || '—'}</TableCell>
-                    <TableCell>{e.errorType}</TableCell>
-                    <TableCell>{e.category}</TableCell>
-                    <TableCell><Chip size="small" color={severityColor(e.severity)} label={e.severity} /></TableCell>
-                    <TableCell align="right">{typeof e.expectedValue === 'number' ? fmt(e.expectedValue) : e.expectedValue ?? '—'}</TableCell>
-                    <TableCell align="right">{typeof e.actualValue === 'number' ? fmt(e.actualValue) : e.actualValue ?? '—'}</TableCell>
-                    <TableCell align="right">{e.difference != null ? fmt(e.difference) : '—'}</TableCell>
-                    <TableCell sx={{ maxWidth: 240 }}><Typography variant="caption">{e.message}</Typography></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          {tharaliPages.length > 0 && (
+            <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
+              Tharali/UJS layout on {tharaliPages.length} sheet(s) — per row: Description → Qty → Rate → Step 4 Qty×Rate=Total Amount → Step 5 DSR+UJN+SOR(PWD)+NSI=Total Amount → Step 6 cross-check.
+            </Alert>
           )}
-          {filteredErrors.length > 100 && (
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-              Showing first 100 of {filteredErrors.length} filtered errors ({auditErrors.length} total) — download Excel report for full list.
-            </Typography>
+
+          {filteredErrors.length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                Errors grouped by check type (Description → Qty → Rate → horizontal → vertical → gross)
+              </Typography>
+              {errorsByCheckType.map(([errorType, groupErrors]) => {
+                const sample = groupErrors[0];
+                const open = expandedCheckTypes.includes(errorType);
+                return (
+                  <Accordion
+                    key={errorType}
+                    expanded={open}
+                    onChange={(_, isOpen) => setExpandedCheckTypes((prev) => (
+                      isOpen ? [...new Set([...prev, errorType])] : prev.filter((k) => k !== errorType)
+                    ))}
+                    disableGutters
+                    sx={{ mb: 0.5, '&:before': { display: 'none' }, border: '1px solid', borderColor: 'divider', borderRadius: '4px !important' }}
+                  >
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                        <Typography variant="body2" fontWeight={600}>
+                          {checkTypeLabel(errorType, sample?.checkOrder)}
+                        </Typography>
+                        <Chip size="small" color="error" label={`${groupErrors.length} error(s)`} />
+                        <Chip size="small" variant="outlined" label={sample?.category ?? '—'} />
+                      </Box>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ pt: 0 }}>
+                      {renderErrorTable(groupErrors, navigateToError, 30)}
+                    </AccordionDetails>
+                  </Accordion>
+                );
+              })}
+            </Box>
           )}
           {auditErrors.length > 0 && filteredErrors.length === 0 && (
             <Typography variant="caption" color="text.secondary">No errors match the selected filters.</Typography>

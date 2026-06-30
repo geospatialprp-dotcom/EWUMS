@@ -1,6 +1,50 @@
 import * as XLSX from 'xlsx';
 import { attachExcelAudit, AMOUNT_TOLERANCE, getVisibleSheetNames } from './dpr-excel-audit.util';
 import type { DprExcelAuditReport } from './dpr-excel-audit.types';
+
+export type BoqLayoutFormat = 'standard' | 'tharali';
+
+export type BoqTharaliLineCheck = {
+  dsr: number;
+  ujn: number;
+  sorPwd: number;
+  nsi: number;
+  totalAmount: number;
+  qtyRateTotal: number;
+  componentSum: number;
+  qtyRateTotalMatch: boolean;
+  componentSumMatch: boolean;
+  crossCheckMatch: boolean;
+  /** @deprecated use qtyRateTotal */
+  ujnComputed: number;
+  /** @deprecated use componentSum */
+  totalComputed: number;
+  /** @deprecated use qtyRateTotalMatch */
+  ujnMatch: boolean;
+  /** @deprecated use componentSumMatch */
+  totalAmountMatch: boolean;
+};
+
+export type BoqCheckType =
+  | 'description'
+  | 'quantity'
+  | 'rate'
+  | 'qty_rate_ujn'
+  | 'component_sum'
+  | 'qty_rate_amount'
+  | 'cross_check';
+
+export type BoqLineIssue = {
+  order: number;
+  checkType: BoqCheckType;
+  column?: string;
+  status: 'pass' | 'fail' | 'warning';
+  message: string;
+  expectedValue?: number | string | null;
+  actualValue?: number | string | null;
+  difference?: number | null;
+};
+
 const SECTION_TOTAL_TOLERANCE = 1.0;
 /** Only persist problem lines — keeps API/DB payloads small for large BOQ files. */
 const STORE_PROBLEM_LINES_ONLY = true;
@@ -18,6 +62,9 @@ export type BoqLineValidation = {
   difference: number;
   status: 'pass' | 'fail' | 'warning';
   message?: string;
+  issues?: BoqLineIssue[];
+  layoutFormat?: BoqLayoutFormat;
+  tharali?: BoqTharaliLineCheck;
 };
 
 export type BoqKeyTotal = {
@@ -40,6 +87,7 @@ export type BoqPageValidation = {
   pageNo: number;
   sheetName: string;
   sheetType: 'boq' | 'gac' | 'bc' | 'abstract' | 'form' | 'other';
+  layoutFormat: BoqLayoutFormat;
   status: 'passed' | 'failed' | 'warning' | 'skipped';
   isCalculationSheet: boolean;
   totalItems: number;
@@ -139,15 +187,42 @@ function buildHeaderMap(cells: string[]): Record<string, number> {
   const map: Record<string, number> = {};
   cells.forEach((cell, idx) => {
     const key = normalizeKey(cell);
+    const raw = cell.trim().toLowerCase();
     if (!key) return;
     if (key === 'sn' || ['s_no', 'sno', 'sl_no', 'sr_no', 'serial'].includes(key)) map.serial = idx;
+    else if ((key.includes('sor') && key.includes('code')) || raw === 'sor code') map.sor_code = idx;
     else if (key.includes('description') || key.includes('particulars') || key.includes('item')) map.description = idx;
     else if (key === 'unit' || key === 'units' || key === 'uom') map.unit = idx;
     else if (key.includes('qty') || key.includes('quantity')) map.qty = idx;
     else if (key.includes('rate')) map.rate = idx;
+    else if (key === 'dsr' || raw === 'dsr') map.dsr = idx;
+    else if (key === 'ujn' || raw === 'ujn') map.ujn = idx;
+    else if (/sor.*pwd|pwd.*sor|sor_pwd/.test(key) || /sor\s*\(?\s*pwd\s*\)?/i.test(raw)) map.sor_pwd = idx;
+    else if (key === 'nsi' || raw === 'nsi') map.nsi = idx;
+    else if ((key.includes('total') && key.includes('amount')) || raw === 'total amount') map.total_amount = idx;
     else if (key.includes('amount') || key.includes('cost')) map.amount = idx;
   });
   return map;
+}
+
+export function isTharaliLayout(headerMap: Record<string, number>): boolean {
+  return headerMap.ujn !== undefined
+    || (headerMap.dsr !== undefined && headerMap.total_amount !== undefined)
+    || (headerMap.ujn !== undefined && headerMap.total_amount !== undefined);
+}
+
+function lineAmountColumn(headerMap: Record<string, number>): 'total_amount' | 'ujn' | 'amount' {
+  if (isTharaliLayout(headerMap)) {
+    if (headerMap.total_amount !== undefined) return 'total_amount';
+    if (headerMap.ujn !== undefined) return 'ujn';
+  }
+  return 'amount';
+}
+
+function cellAmount(cells: string[], headerMap: Record<string, number>, col: 'total_amount' | 'ujn' | 'amount'): number {
+  const idx = headerMap[col];
+  if (idx === undefined) return 0;
+  return round2(parseNumber(cells[idx]));
 }
 
 function findHeaderInfo(rows: (string | number)[][]): {
@@ -164,12 +239,21 @@ function findHeaderInfo(rows: (string | number)[][]): {
 
     const headerMap = buildHeaderMap(cells);
     const issues: string[] = [];
+    const tharali = isTharaliLayout(headerMap);
     if (headerMap.description === undefined) issues.push('Missing Description / Particulars column');
-    if (headerMap.qty === undefined && headerMap.rate === undefined) {
-      issues.push('Missing Qty and Rate columns');
-    }
-    if (headerMap.amount === undefined && headerMap.rate === undefined) {
-      issues.push('Missing Amount column');
+    if (tharali) {
+      if (headerMap.qty === undefined) issues.push('Missing Quantity column');
+      if (headerMap.rate === undefined) issues.push('Missing Rate column');
+      if (headerMap.ujn === undefined && headerMap.total_amount === undefined) {
+        issues.push('Missing UJN or Total Amount column (Tharali/UJS layout)');
+      }
+    } else {
+      if (headerMap.qty === undefined && headerMap.rate === undefined) {
+        issues.push('Missing Qty and Rate columns');
+      }
+      if (headerMap.amount === undefined && headerMap.rate === undefined) {
+        issues.push('Missing Amount column');
+      }
     }
 
     return {
@@ -188,12 +272,25 @@ function rowLabel(cells: string[]): string {
 }
 
 function amountFromRow(cells: string[], headerMap: Record<string, number>): number {
-  if (headerMap.amount !== undefined) {
-    const v = parseNumber(cells[headerMap.amount]);
-    if (v > 0) return round2(v);
+  const col = lineAmountColumn(headerMap);
+  const primary = cellAmount(cells, headerMap, col);
+  if (primary > 0) return primary;
+  if (headerMap.amount !== undefined && col !== 'amount') {
+    const fallback = cellAmount(cells, headerMap, 'amount');
+    if (fallback > 0) return fallback;
   }
   const nums = cells.map(parseNumber).filter((n) => n > 0);
   return nums.length ? round2(Math.max(...nums)) : 0;
+}
+
+function tharaliComponentsFromRow(cells: string[], headerMap: Record<string, number>) {
+  return {
+    dsr: headerMap.dsr !== undefined ? parseNumber(cells[headerMap.dsr]) : 0,
+    ujn: headerMap.ujn !== undefined ? parseNumber(cells[headerMap.ujn]) : 0,
+    sorPwd: headerMap.sor_pwd !== undefined ? parseNumber(cells[headerMap.sor_pwd]) : 0,
+    nsi: headerMap.nsi !== undefined ? parseNumber(cells[headerMap.nsi]) : 0,
+    totalAmount: headerMap.total_amount !== undefined ? parseNumber(cells[headerMap.total_amount]) : 0,
+  };
 }
 
 function isDataRow(cells: string[], headerMap: Record<string, number>): boolean {
@@ -205,6 +302,11 @@ function isDataRow(cells: string[], headerMap: Record<string, number>): boolean 
   const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
   const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
   const amount = amountFromRow(cells, headerMap);
+  if (isTharaliLayout(headerMap)) {
+    const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
+    if (qty <= 0 && rate <= 0 && totalAmount <= 0 && ujn <= 0 && dsr <= 0 && sorPwd <= 0 && nsi <= 0) return false;
+    return qty > 0 || rate > 0 || amount > 0 || ujn > 0 || totalAmount > 0;
+  }
   return qty > 0 || rate > 0 || amount > 0;
 }
 
@@ -249,7 +351,7 @@ function validateTotalRows(
         match,
         message: match
           ? undefined
-          : `${key} row ${i + 1}: Excel shows ₹${declaredAmount.toLocaleString('en-IN')} but calculated ₹${computedAmount.toLocaleString('en-IN')}`,
+          : `Step ${/gross\s*total|grand\s*total/i.test(key) ? 7 : 6} — ${key} row ${i + 1}: Excel shows ₹${declaredAmount.toLocaleString('en-IN')} but calculated ₹${computedAmount.toLocaleString('en-IN')}`,
       });
       break;
     }
@@ -327,6 +429,196 @@ function isCalculationSheet(
   return false;
 }
 
+function mergeLineStatus(issues: BoqLineIssue[]): BoqLineValidation['status'] {
+  if (issues.some((i) => i.status === 'fail')) return 'fail';
+  if (issues.some((i) => i.status === 'warning')) return 'warning';
+  return 'pass';
+}
+
+function failedIssueMessages(issues: BoqLineIssue[]): string {
+  return issues.filter((i) => i.status !== 'pass').map((i) => i.message).join('; ');
+}
+
+function validateTharaliLineValues(
+  lineNo: number,
+  description: string,
+  unit: string,
+  qty: number,
+  rate: number,
+  components: ReturnType<typeof tharaliComponentsFromRow>,
+  itemCode?: string,
+  sheetRow?: number,
+  rawQty?: unknown,
+  rawRate?: unknown,
+): BoqLineValidation {
+  const roundedQty = round2(qty);
+  const roundedRate = round2(rate);
+  const dsr = round2(components.dsr);
+  const ujn = round2(components.ujn);
+  const sorPwd = round2(components.sorPwd);
+  const nsi = round2(components.nsi);
+  const totalAmount = round2(components.totalAmount);
+  const qtyRateTotal = round2(roundedQty * roundedRate);
+  const componentSum = round2(dsr + ujn + sorPwd + nsi);
+  const declaredAmount = totalAmount > 0 ? totalAmount : ujn > 0 ? ujn : qtyRateTotal;
+  const hasComponentSum = dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0;
+  const ujnMatch = !(roundedQty > 0 && roundedRate > 0 && ujn > 0)
+    || Math.abs(qtyRateTotal - ujn) <= AMOUNT_TOLERANCE;
+  const componentSumMatch = totalAmount <= 0 || !hasComponentSum
+    || Math.abs(componentSum - totalAmount) <= AMOUNT_TOLERANCE;
+  const crossCheckMatch = ujnMatch && componentSumMatch;
+  const isItemRow = roundedQty > 0 || roundedRate > 0 || totalAmount > 0 || ujn > 0
+    || dsr > 0 || sorPwd > 0 || nsi > 0;
+  const rowRef = sheetRow ? `Row ${sheetRow}, ` : '';
+
+  const issues: BoqLineIssue[] = [];
+
+  if (!description.trim() || description.trim().length < 3) {
+    issues.push({
+      order: 1, checkType: 'description', column: 'Description', status: 'fail',
+      message: 'Step 1 — Description: item description is required and must not be empty',
+      expectedValue: 'Non-empty description', actualValue: description.trim() || '(blank)',
+    });
+  } else {
+    issues.push({
+      order: 1, checkType: 'description', column: 'Description', status: 'pass',
+      message: 'Step 1 — Description: OK',
+    });
+  }
+
+  if (String(rawQty ?? '').trim() && !isNumericCell(rawQty)) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
+      message: 'Step 2 — Quantity: must be numeric',
+      expectedValue: 'Numeric value', actualValue: String(rawQty ?? ''),
+    });
+  } else if (isItemRow && roundedQty <= 0) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
+      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${roundedQty})`,
+      expectedValue: '> 0', actualValue: roundedQty,
+    });
+  } else if (roundedQty > 0 && !unit.trim()) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Unit', status: 'fail',
+      message: 'Step 2 — Quantity: unit is required when quantity is present',
+      expectedValue: 'Unit', actualValue: '(blank)',
+    });
+  } else {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'pass',
+      message: 'Step 2 — Quantity: OK',
+    });
+  }
+
+  if (String(rawRate ?? '').trim() && !isNumericCell(rawRate)) {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'fail',
+      message: 'Step 3 — Rate: must be numeric',
+      expectedValue: 'Numeric value', actualValue: String(rawRate ?? ''),
+    });
+  } else if (roundedRate < 0) {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'fail',
+      message: `Step 3 — Rate: must be zero or greater (found ${roundedRate})`,
+      expectedValue: '>= 0', actualValue: roundedRate,
+    });
+  } else {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'pass',
+      message: 'Step 3 — Rate: OK',
+    });
+  }
+
+  if (roundedQty > 0 && roundedRate > 0 && ujn > 0) {
+    if (!ujnMatch) {
+      issues.push({
+        order: 4, checkType: 'qty_rate_ujn', column: 'UJN', status: 'fail',
+        message: `${rowRef}Step 4 — Qty×Rate=UJN: ${roundedQty} × ${roundedRate} = ${qtyRateTotal} ≠ UJN ${ujn}`,
+        expectedValue: qtyRateTotal, actualValue: ujn, difference: round2(ujn - qtyRateTotal),
+      });
+    } else {
+      issues.push({
+        order: 4, checkType: 'qty_rate_ujn', column: 'UJN', status: 'pass',
+        message: 'Step 4 — Qty×Rate=UJN: OK',
+      });
+    }
+  }
+
+  if (totalAmount > 0 && hasComponentSum) {
+    if (!componentSumMatch) {
+      issues.push({
+        order: 5, checkType: 'component_sum', column: 'Total Amount', status: 'fail',
+        message: `${rowRef}Step 5 — DSR+UJN+SOR(PWD)+NSI=Total Amount: ${dsr}+${ujn}+${sorPwd}+${nsi} = ${componentSum} ≠ Total Amount ${totalAmount}`,
+        expectedValue: componentSum, actualValue: totalAmount, difference: round2(totalAmount - componentSum),
+      });
+    } else {
+      issues.push({
+        order: 5, checkType: 'component_sum', column: 'Total Amount', status: 'pass',
+        message: 'Step 5 — DSR+UJN+SOR(PWD)+NSI=Total Amount: OK',
+      });
+    }
+  }
+
+  if (roundedQty > 0 && roundedRate > 0 && hasComponentSum && ujn > 0) {
+    const qtyRateVsComponents = Math.abs(qtyRateTotal - componentSum) <= AMOUNT_TOLERANCE;
+    if (!qtyRateVsComponents) {
+      issues.push({
+        order: 6, checkType: 'cross_check', column: 'UJN', status: 'warning',
+        message: `${rowRef}Step 6 — Qty×Rate (${qtyRateTotal}) differs from DSR+UJN+SOR(PWD)+NSI (${componentSum})`,
+        expectedValue: qtyRateTotal, actualValue: componentSum, difference: round2(componentSum - qtyRateTotal),
+      });
+    }
+  }
+
+  if (!issues.some((i) => i.status === 'fail') && isItemRow && roundedQty <= 0 && roundedRate <= 0 && declaredAmount <= 0) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
+      message: 'Step 2 — Quantity: zero quantity, rate and amount on item row',
+    });
+  } else if (!issues.some((i) => i.status === 'fail') && roundedQty > 0 && roundedRate === 0 && declaredAmount > 0) {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'warning',
+      message: 'Step 3 — Rate: amount present but rate is zero',
+    });
+  } else if (!issues.some((i) => i.status === 'fail') && roundedQty === 0 && roundedRate > 0 && declaredAmount > 0) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
+      message: 'Step 2 — Quantity: amount present but quantity is zero',
+    });
+  }
+
+  const status = mergeLineStatus(issues);
+
+  return {
+    lineNo,
+    sheetRow,
+    itemCode,
+    description,
+    unit,
+    qty: roundedQty,
+    rate: roundedRate,
+    declaredAmount,
+    computedAmount: qtyRateTotal > 0 ? qtyRateTotal : componentSum,
+    difference: round2(declaredAmount - (qtyRateTotal > 0 ? qtyRateTotal : componentSum)),
+    status,
+    message: failedIssueMessages(issues) || undefined,
+    issues,
+    layoutFormat: 'tharali',
+    tharali: {
+      dsr, ujn, sorPwd, nsi, totalAmount,
+      qtyRateTotal, componentSum,
+      qtyRateTotalMatch: ujnMatch,
+      componentSumMatch,
+      crossCheckMatch,
+      ujnComputed: qtyRateTotal,
+      totalComputed: componentSum,
+      ujnMatch,
+      totalAmountMatch: componentSumMatch,
+    },
+  };
+}
+
 function validateLineValues(
   lineNo: number,
   description: string,
@@ -345,35 +637,99 @@ function validateLineValues(
   const computedAmount = round2(roundedQty * roundedRate);
   const difference = round2(roundedDeclared - computedAmount);
   const absDiff = Math.abs(difference);
-
-  let status: BoqLineValidation['status'] = 'pass';
-  let message: string | undefined;
+  const isItemRow = roundedQty > 0 || roundedRate > 0 || roundedDeclared > 0;
+  const issues: BoqLineIssue[] = [];
 
   if (!description.trim() || description.trim().length < 3) {
-    status = 'fail';
-    message = 'Item description is required';
-  } else if (String(rawQty ?? '').trim() && !isNumericCell(rawQty)) {
-    status = 'fail';
-    message = 'Quantity must be numeric';
-  } else if (String(rawRate ?? '').trim() && !isNumericCell(rawRate)) {
-    status = 'fail';
-    message = 'Rate must be numeric';
-  } else if (roundedQty > 0 && !unit.trim()) {
-    status = 'fail';
-    message = 'Unit is required when quantity is present';
-  } else if (roundedQty <= 0 && roundedRate <= 0 && roundedDeclared <= 0) {
-    status = 'warning';
-    message = 'Zero quantity, rate and amount';
-  } else if (roundedQty > 0 && roundedRate > 0 && absDiff > AMOUNT_TOLERANCE) {
-    status = 'fail';
-    message = `Qty × Rate (${computedAmount}) ≠ Amount (${roundedDeclared})`;
-  } else if (roundedQty > 0 && roundedRate === 0 && roundedDeclared > 0) {
-    status = 'warning';
-    message = 'Amount present but rate is zero';
-  } else if (roundedQty === 0 && roundedRate > 0 && roundedDeclared > 0) {
-    status = 'warning';
-    message = 'Amount present but quantity is zero';
+    issues.push({
+      order: 1, checkType: 'description', column: 'Description', status: 'fail',
+      message: 'Step 1 — Description: item description is required and must not be empty',
+      expectedValue: 'Non-empty description', actualValue: description.trim() || '(blank)',
+    });
+  } else {
+    issues.push({
+      order: 1, checkType: 'description', column: 'Description', status: 'pass',
+      message: 'Step 1 — Description: OK',
+    });
   }
+
+  if (String(rawQty ?? '').trim() && !isNumericCell(rawQty)) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
+      message: 'Step 2 — Quantity: must be numeric',
+      expectedValue: 'Numeric value', actualValue: String(rawQty ?? ''),
+    });
+  } else if (isItemRow && roundedQty <= 0) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
+      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${roundedQty})`,
+      expectedValue: '> 0', actualValue: roundedQty,
+    });
+  } else if (roundedQty > 0 && !unit.trim()) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Unit', status: 'fail',
+      message: 'Step 2 — Quantity: unit is required when quantity is present',
+      expectedValue: 'Unit', actualValue: '(blank)',
+    });
+  } else {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'pass',
+      message: 'Step 2 — Quantity: OK',
+    });
+  }
+
+  if (String(rawRate ?? '').trim() && !isNumericCell(rawRate)) {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'fail',
+      message: 'Step 3 — Rate: must be numeric',
+      expectedValue: 'Numeric value', actualValue: String(rawRate ?? ''),
+    });
+  } else if (roundedRate < 0) {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'fail',
+      message: `Step 3 — Rate: must be zero or greater (found ${roundedRate})`,
+      expectedValue: '>= 0', actualValue: roundedRate,
+    });
+  } else {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'pass',
+      message: 'Step 3 — Rate: OK',
+    });
+  }
+
+  if (roundedQty > 0 && roundedRate >= 0 && roundedDeclared > 0) {
+    if (absDiff > AMOUNT_TOLERANCE) {
+      issues.push({
+        order: 4, checkType: 'qty_rate_amount', column: 'Amount', status: 'fail',
+        message: `Step 4 — Qty×Rate=Amount: ${roundedQty} × ${roundedRate} = ${computedAmount} ≠ Amount ${roundedDeclared}`,
+        expectedValue: computedAmount, actualValue: roundedDeclared, difference,
+      });
+    } else {
+      issues.push({
+        order: 4, checkType: 'qty_rate_amount', column: 'Amount', status: 'pass',
+        message: 'Step 4 — Qty×Rate=Amount: OK',
+      });
+    }
+  }
+
+  if (!issues.some((i) => i.status === 'fail') && isItemRow && roundedQty <= 0 && roundedRate <= 0 && roundedDeclared <= 0) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
+      message: 'Step 2 — Quantity: zero quantity, rate and amount on item row',
+    });
+  } else if (!issues.some((i) => i.status === 'fail') && roundedQty > 0 && roundedRate === 0 && roundedDeclared > 0) {
+    issues.push({
+      order: 3, checkType: 'rate', column: 'Rate', status: 'warning',
+      message: 'Step 3 — Rate: amount present but rate is zero',
+    });
+  } else if (!issues.some((i) => i.status === 'fail') && roundedQty === 0 && roundedRate > 0 && roundedDeclared > 0) {
+    issues.push({
+      order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
+      message: 'Step 2 — Quantity: amount present but quantity is zero',
+    });
+  }
+
+  const status = mergeLineStatus(issues);
 
   return {
     lineNo,
@@ -387,7 +743,9 @@ function validateLineValues(
     computedAmount,
     difference,
     status,
-    message,
+    message: failedIssueMessages(issues) || undefined,
+    issues,
+    layoutFormat: 'standard',
   };
 }
 
@@ -399,6 +757,7 @@ function parseLinesFromSheetRows(
   const { headerMap, headerRowNo, headerValid } = headerInfo;
   if (!headerValid || headerRowNo == null) return [];
 
+  const tharali = isTharaliLayout(headerMap);
   const lines: BoqLineValidation[] = [];
   let lineNo = startLineNo;
   const startIdx = headerRowNo;
@@ -415,6 +774,7 @@ function parseLinesFromSheetRows(
     const unit = headerMap.unit !== undefined ? String(cells[headerMap.unit] ?? '').trim() : '';
     const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
     const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+    const itemCode = headerMap.sor_code !== undefined ? String(cells[headerMap.sor_code] ?? '').trim() : undefined;
     let amount = amountFromRow(cells, headerMap);
     if (amount <= 0 && qty > 0 && rate > 0) amount = round2(qty * rate);
     if (qty <= 0 && rate <= 0 && amount <= 0) continue;
@@ -422,7 +782,16 @@ function parseLinesFromSheetRows(
     lineNo += 1;
     const rawQty = headerMap.qty !== undefined ? cells[headerMap.qty] : '';
     const rawRate = headerMap.rate !== undefined ? cells[headerMap.rate] : '';
-    lines.push(validateLineValues(lineNo, description, unit, qty, rate, amount, undefined, i + 1, rawQty, rawRate));
+
+    if (tharali) {
+      lines.push(validateTharaliLineValues(
+        lineNo, description, unit, qty, rate,
+        tharaliComponentsFromRow(cells, headerMap),
+        itemCode || undefined, i + 1, rawQty, rawRate,
+      ));
+    } else {
+      lines.push(validateLineValues(lineNo, description, unit, qty, rate, amount, itemCode || undefined, i + 1, rawQty, rawRate));
+    }
   }
 
   return lines;
@@ -445,9 +814,8 @@ function buildCrossChecks(pages: BoqPageValidation[]): BoqCrossCheck[] {
   const gac = pickSheetTotal(calc, 'gac', 'Gross Total', 'Grand Total', 'GAC');
   const bc = pickSheetTotal(calc, 'bc', 'Gross Total', 'Grand Total', 'BC');
   const abstractTotal = pickSheetTotal(calc, 'abstract', 'Abstract of Cost', 'Grand Total', 'Gross Total');
-  const boqSum = round2(
-    calc.filter((p) => p.sheetType === 'boq').reduce((sum, p) => sum + p.computedPageTotal, 0),
-  );
+  const boqPages = calc.filter((p) => p.sheetType === 'boq');
+  const boqSum = round2(boqPages.reduce((sum, p) => sum + p.computedPageTotal, 0));
 
   const checks: BoqCrossCheck[] = [];
   const parts = [
@@ -473,6 +841,23 @@ function buildCrossChecks(pages: BoqPageValidation[]): BoqCrossCheck[] {
     });
   }
 
+  const tharaliBoqPages = boqPages.filter((p) => p.layoutFormat === 'tharali');
+  if (tharaliBoqPages.length > 0 && abstractTotal != null && abstractTotal > 0) {
+    const componentSum = round2(tharaliBoqPages.reduce((sum, p) => sum + p.computedPageTotal, 0));
+    const match = Math.abs(componentSum - abstractTotal) <= SECTION_TOTAL_TOLERANCE * Math.max(1, tharaliBoqPages.length);
+    checks.push({
+      label: 'Abstract gross vs component BOQ sheets (Tharali)',
+      gac: null,
+      bc: null,
+      abstract: abstractTotal,
+      boqSum: componentSum,
+      match,
+      message: match
+        ? `Abstract of Cost gross ₹${abstractTotal.toLocaleString('en-IN')} matches sum of ${tharaliBoqPages.length} component sheet(s)`
+        : `Abstract gross ₹${abstractTotal.toLocaleString('en-IN')} ≠ component BOQ sum ₹${componentSum.toLocaleString('en-IN')} (${tharaliBoqPages.map((p) => p.sheetName).join(', ')})`,
+    });
+  }
+
   return checks;
 }
 
@@ -489,6 +874,7 @@ function validateWorkbookPages(workbook: XLSX.WorkBook, visibleSheetNames?: stri
 
     const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1, defval: '', raw: true });
     const headerInfo = findHeaderInfo(rows);
+    const layoutFormat: BoqLayoutFormat = isTharaliLayout(headerInfo.headerMap) ? 'tharali' : 'standard';
     const lines = parseLinesFromSheetRows(rows, headerInfo, globalLineNo);
     globalLineNo += lines.length;
 
@@ -511,6 +897,7 @@ function validateWorkbookPages(workbook: XLSX.WorkBook, visibleSheetNames?: stri
         pageNo: pageIdx + 1,
         sheetName,
         sheetType,
+        layoutFormat,
         status: 'skipped',
         isCalculationSheet: false,
         totalItems: 0,
@@ -542,7 +929,11 @@ function validateWorkbookPages(workbook: XLSX.WorkBook, visibleSheetNames?: stri
     if (!headerInfo.headerValid && lines.length > 0) {
       issues.push(`Column headings issue: ${headerInfo.headerIssues.join('; ')}`);
     }
-    if (failedItems > 0) issues.push(`${failedItems} line(s) failed Qty × Rate = Amount`);
+    if (failedItems > 0) {
+      issues.push(layoutFormat === 'tharali'
+        ? `${failedItems} line(s) failed ordered checks (Description → Qty → Rate → Qty×Rate=Total Amount → DSR+UJN+SOR(PWD)+NSI=Total Amount → cross-check)`
+        : `${failedItems} line(s) failed ordered checks (Description → Qty → Rate → Qty×Rate=Amount)`);
+    }
     if (warningItems > 0) issues.push(`${warningItems} line(s) have warnings`);
     failedTotals.forEach((t) => { if (t.message) issues.push(t.message); });
     if (declaredPageTotal != null && pageTotalMatch === false) {
@@ -561,6 +952,7 @@ function validateWorkbookPages(workbook: XLSX.WorkBook, visibleSheetNames?: stri
       pageNo: pageIdx + 1,
       sheetName,
       sheetType,
+      layoutFormat,
       status,
       isCalculationSheet: true,
       totalItems: lines.length,
@@ -648,7 +1040,11 @@ export function validateBoqExcelBuffer(buffer: Buffer): DprExcelAuditReport {
   if (problemPages.length > 0) {
     issues.push(`${problemPages.length} calculation sheet(s) have errors — see highlighted pages below`);
   }
-  if (failedItems > 0) issues.push(`${failedItems} line(s) failed Qty × Rate = Amount`);
+  if (failedItems > 0) {
+    issues.push(calcPages.some((p) => p.layoutFormat === 'tharali')
+      ? `${failedItems} line(s) failed ordered row checks (Description → Qty → Rate → Qty×Rate=Total Amount → DSR+UJN+SOR(PWD)+NSI=Total Amount → cross-check)`
+      : `${failedItems} line(s) failed ordered row checks (Description → Qty → Rate → Qty×Rate=Amount)`);
+  }
   if (totalErrors.length > 0) issues.push(`${totalErrors.length} Total / Gross Total row mismatch(es)`);
   if (crossChecks.some((c) => !c.match)) issues.push('GAC / BC / Abstract / BOQ Gross Totals do not match');
 

@@ -191,9 +191,12 @@ function buildHeaderMap(cells: string[]): Record<string, number> {
   const map: Record<string, number> = {};
   cells.forEach((cell, idx) => {
     const key = normalizeKey(cell);
+    const raw = cell.trim().toLowerCase();
     if (!key) return;
     if (key === 'sn' || ['s_no', 'sno', 'sl_no', 'sr_no'].includes(key)) {
       map.serial = idx;
+    } else if ((key.includes('sor') && key.includes('code')) || raw === 'sor code') {
+      map.sor_code = idx;
     } else if (key.includes('description') || key.includes('particulars')) {
       map.description = idx;
     } else if (key === 'unit' || key === 'units' || key === 'uom' || key === 'um'
@@ -203,11 +206,40 @@ function buildHeaderMap(cells: string[]): Record<string, number> {
       map.qty = idx;
     } else if (key.includes('rate')) {
       map.rate = idx;
+    } else if (key === 'dsr' || raw === 'dsr') {
+      map.dsr = idx;
+    } else if (key === 'ujn' || raw === 'ujn') {
+      map.ujn = idx;
+    } else if (/sor.*pwd|pwd.*sor|sor_pwd/.test(key) || /sor\s*\(?\s*pwd\s*\)?/i.test(raw)) {
+      map.sor_pwd = idx;
+    } else if (key === 'nsi' || raw === 'nsi') {
+      map.nsi = idx;
+    } else if ((key.includes('total') && key.includes('amount')) || raw === 'total amount') {
+      map.total_amount = idx;
     } else if (key.includes('amount') || (key.includes('total') && key.includes('tax'))) {
       map.amount = idx;
     }
   });
   return map;
+}
+
+function isTharaliLayout(map: Record<string, number>): boolean {
+  return map.ujn !== undefined
+    || (map.dsr !== undefined && map.total_amount !== undefined);
+}
+
+function lineAmountFromRow(cells: string[], map: Record<string, number>): number {
+  if (isTharaliLayout(map)) {
+    if (map.total_amount !== undefined) {
+      const total = parseNumber(cells[map.total_amount]);
+      if (total > 0) return total;
+    }
+    if (map.ujn !== undefined) {
+      const ujn = parseNumber(cells[map.ujn]);
+      if (ujn > 0) return ujn;
+    }
+  }
+  return parseNumber(map.amount !== undefined ? cells[map.amount] : 0);
 }
 
 function finalizeAmounts(qty: number, rate: number, amount: number) {
@@ -282,12 +314,12 @@ export function parseBoqExcelBuffer(buffer: Buffer): ImportBoqItemDto[] {
 
       let qty = parseNumber(get('qty'));
       let rate = parseNumber(get('rate'));
-      let amount = parseNumber(get('amount'));
+      let amount = lineAmountFromRow(cells, h);
       ({ qty, rate, amount } = finalizeAmounts(qty, rate, amount));
       if (qty === 0 && rate === 0 && amount === 0) continue;
 
       sortOrder += 1;
-      const serialRaw = get('serial');
+      const serialRaw = get('serial') || (h.sor_code !== undefined ? String(cells[h.sor_code] ?? '').trim() : '');
       const serialLabel = serialRaw || String(sortOrder);
       const prefix = sheetName.replace(/[^a-z]/gi, '').slice(0, 3).toUpperCase() || 'BOQ';
       const component = resolveFhtcItemComponent(description)
