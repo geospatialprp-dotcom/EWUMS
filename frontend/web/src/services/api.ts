@@ -925,6 +925,32 @@ export const dprPlanningApi = {
   advanceProposal: (id: string, data: object) => api.patch(`/dpr-planning/proposals/${id}/advance`, data),
 };
 
+export const dprPdfReviewApi = {
+  getReview: (proposalId: string, documentId: string) =>
+    api.get(`/dpr-pdf-review/proposals/${proposalId}/review`, { params: { documentId } }),
+  fetchPdfStream: async (proposalId: string, documentId: string) => {
+    const { data } = await api.get(`/dpr-pdf-review/proposals/${proposalId}/pdf-stream`, {
+      params: { documentId },
+      responseType: 'blob',
+    });
+    return data as Blob;
+  },
+  listAnnotations: (proposalId: string, documentId: string) =>
+    api.get(`/dpr-pdf-review/proposals/${proposalId}/annotations`, { params: { documentId } }),
+  createAnnotation: (proposalId: string, data: object) =>
+    api.post(`/dpr-pdf-review/proposals/${proposalId}/annotations`, data),
+  updateAnnotation: (proposalId: string, annotationId: string, data: object) =>
+    api.patch(`/dpr-pdf-review/proposals/${proposalId}/annotations/${annotationId}`, data),
+  deleteAnnotation: (proposalId: string, annotationId: string) =>
+    api.delete(`/dpr-pdf-review/proposals/${proposalId}/annotations/${annotationId}`),
+  listComments: (proposalId: string, documentId: string) =>
+    api.get(`/dpr-pdf-review/proposals/${proposalId}/comments`, { params: { documentId } }),
+  createComment: (proposalId: string, data: object) =>
+    api.post(`/dpr-pdf-review/proposals/${proposalId}/comments`, data),
+  listVersions: (proposalId: string, documentId: string) =>
+    api.get(`/dpr-pdf-review/proposals/${proposalId}/versions`, { params: { documentId } }),
+};
+
 export const landAcquisitionApi = {
   getCatalog: () => api.get('/land-acquisition/catalog'),
   dashboard: () => api.get('/land-acquisition/dashboard'),

@@ -17,6 +17,7 @@ import { WorkflowsModule } from './modules/workflows/workflows.module';
 import { ConstructionModule } from './modules/construction/construction.module';
 import { OmModule } from './modules/om/om.module';
 import { DprPlanningModule } from './modules/dpr-planning/dpr-planning.module';
+import { DprPdfReviewModule } from './modules/dpr-pdf-review/dpr-pdf-review.module';
 import { LandAcquisitionModule } from './modules/land-acquisition/land-acquisition.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { HealthController } from './health.controller';
@@ -51,6 +52,7 @@ import { HealthController } from './health.controller';
     ConstructionModule,
     OmModule,
     DprPlanningModule,
+    DprPdfReviewModule,
     LandAcquisitionModule,
     AuditModule,
   ],

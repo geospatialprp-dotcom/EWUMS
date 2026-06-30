@@ -11,12 +11,14 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../../services/api';
 import { DPR_STAGE_3_DOCUMENT_TYPES, DPR_TAC_ACTION_LABELS } from '../../constants/dprPlanningWorkflow';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { DprDialogHeader, dprDialogActionsSx, dprDialogContentSx, dprDialogPaperSx } from './dprUi';
 import BoqValidationReportView, { type BoqValidationData } from './BoqValidationReportView';
+import DprPdfReviewViewer from './DprPdfReviewViewer';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
 import { hasBilingualContent, serializeBilingualText, type BilingualText } from '../../utils/bilingualText';
@@ -92,6 +94,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
   const [resubmitComments, setResubmitComments] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [pendingDocType, setPendingDocType] = useState('');
   const [boqValidation, setBoqValidation] = useState<BoqValidationData | null>(null);
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const boqRef = useRef<HTMLInputElement>(null);
@@ -146,6 +149,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
       .filter((h) => DPR_STAGE_3_DOCUMENT_TYPES.some((d) => d.type === h.documentType))
       .map((h) => [h.documentType, h]),
   );
+  const revisedPdfDoc = historyByType.get('dpr_complete_pdf')?.latestVersion ?? null;
 
   const beginRevision = async () => {
     if (!proposalId) return;
@@ -407,6 +411,12 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
                   {readiness?.hasCompletePdf && (
                     <Chip size="small" color="success" icon={<CheckCircleOutlineIcon />} label="Revised PDF ready" />
                   )}
+                  {revisedPdfDoc && proposalId && (
+                    <Button variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
+                      onClick={() => setPdfViewerOpen(true)}>
+                      Review PDF Online
+                    </Button>
+                  )}
                 </Box>
 
                 {(uploadingBoq || readiness?.hasBoqExcel) && (
@@ -478,6 +488,16 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
           </Button>
         )}
       </DialogActions>
+      {proposalId && revisedPdfDoc && (
+        <DprPdfReviewViewer
+          open={pdfViewerOpen}
+          proposalId={proposalId}
+          documentId={revisedPdfDoc.id}
+          fileName={revisedPdfDoc.fileName ?? 'dpr-revised.pdf'}
+          readOnly={false}
+          onClose={() => setPdfViewerOpen(false)}
+        />
+      )}
     </Dialog>
   );
 }

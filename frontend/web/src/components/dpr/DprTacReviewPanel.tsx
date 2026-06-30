@@ -9,9 +9,11 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import ForwardToInboxOutlinedIcon from '@mui/icons-material/ForwardToInboxOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../../services/api';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
+import DprPdfReviewViewer from './DprPdfReviewViewer';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
 import { hasBilingualContent, parseBilingualText, serializeBilingualText, type BilingualText } from '../../utils/bilingualText';
 import { DPR_STAGE_3_DOCUMENT_TYPES, DPR_TAC_ACTION_LABELS, DPR_TAC_ROUND1_CHECKLIST } from '../../constants/dprPlanningWorkflow';
@@ -106,6 +108,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
     boqQuantities: false,
     drawingsLayouts: false,
   });
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!proposalId) return;
@@ -284,10 +287,16 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
             </Typography>
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
               {pdfDoc && (
-                <Button size="small" variant="contained" startIcon={<DownloadOutlinedIcon />}
-                  onClick={() => download(pdfDoc.id, pdfDoc.fileName ?? 'dpr-complete.pdf')}>
-                  Complete DPR PDF
-                </Button>
+                <>
+                  <Button size="small" variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
+                    onClick={() => setPdfViewerOpen(true)}>
+                    Review PDF Online
+                  </Button>
+                  <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
+                    onClick={() => download(pdfDoc.id, pdfDoc.fileName ?? 'dpr-complete.pdf')}>
+                    Download DPR PDF
+                  </Button>
+                </>
               )}
               {boqDoc && (
                 <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
@@ -471,6 +480,16 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
           </Button>
         )}
       </DialogActions>
+      {proposalId && pdfDoc && (
+        <DprPdfReviewViewer
+          open={pdfViewerOpen}
+          proposalId={proposalId}
+          documentId={pdfDoc.id}
+          fileName={pdfDoc.fileName ?? 'dpr-complete.pdf'}
+          readOnly={!canReview}
+          onClose={() => setPdfViewerOpen(false)}
+        />
+      )}
     </Dialog>
   );
 }
