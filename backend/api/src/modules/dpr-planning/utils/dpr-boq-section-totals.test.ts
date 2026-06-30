@@ -78,9 +78,40 @@ function testCwraAmountOnlyRowsStep6(): void {
   assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
 }
 
+/** cwra row 8 — lump sums in unmapped Amt column + NSI item rows (matches production sheet). */
+function testCwraUnmappedAmtColumnStep6(): void {
+  const UJN = 951892;
+  const NSI = 13400;
+  const TOTAL = UJN + NSI;
+  const header: Record<string, number> = { ...THARALI_HEADER };
+
+  const rows: (string | number)[][] = [
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount', 'Amt'],
+    [1, 'Lump sum item A', 'LS', 0, 0, 0, 0, 0, 0, 0, 500_000],
+    [2, 'Lump sum item B', 'LS', 0, 0, 0, 0, 0, 0, 0, 451_892],
+    [3, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI, 0],
+    [8, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL],
+  ];
+
+  const checks = validateTotalRows(rows, header, 1, TOTAL);
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 5);
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 5');
+  assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
+
+  const ujnCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'UJN');
+  assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
+
+  const totalCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'Total Amount');
+  assert(
+    totalCol?.computedAmount === TOTAL,
+    `Total Amount calculated must be ${TOTAL}, got ${totalCol?.computedAmount}`,
+  );
+}
+
 function runAll(): void {
   testSoTraStep7TotalCostRow11();
   testCwraAmountOnlyRowsStep6();
+  testCwraUnmappedAmtColumnStep6();
   console.log('dpr-boq-section-totals: all tests passed');
 }
 

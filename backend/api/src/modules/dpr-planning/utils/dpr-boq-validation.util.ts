@@ -365,7 +365,7 @@ function buildHeaderMap(cells: string[]): Record<string, number> {
     else if (/sor.*pwd|pwd.*sor|sor_pwd/.test(key) || /sor\s*\(?\s*pwd\s*\)?/i.test(raw)) map.sor_pwd = idx;
     else if (key === 'nsi' || raw === 'nsi') map.nsi = idx;
     else if ((key.includes('total') && key.includes('amount')) || raw === 'total amount') map.total_amount = idx;
-    else if (key.includes('amount') || key.includes('cost')) map.amount = idx;
+    else if (key === 'amt' || key.includes('amount') || key.includes('cost')) map.amount = idx;
   });
   return map;
 }
@@ -527,7 +527,7 @@ function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, numb
     const c = tharaliComponentsFromRow(cells, headerMap);
     let { dsr, ujn, sorPwd, nsi, totalAmount } = c;
     const fallbackAmount = headerMap.amount !== undefined ? parseNumber(cells[headerMap.amount]) : 0;
-    const componentSum = dsr + ujn + sorPwd + nsi;
+    let componentSum = dsr + ujn + sorPwd + nsi;
     if (fallbackAmount > 0 && componentSum <= 0 && totalAmount <= 0) {
       if (headerMap.ujn !== undefined) {
         ujn = fallbackAmount;
@@ -542,6 +542,20 @@ function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, numb
     } else if (ujn > 0 && totalAmount <= 0 && headerMap.total_amount !== undefined) {
       totalAmount = ujn;
     }
+    componentSum = dsr + ujn + sorPwd + nsi;
+    if (componentSum <= 0 && totalAmount <= 0) {
+      const scanned = amountFromRow(cells, headerMap);
+      if (scanned > 0) {
+        if (headerMap.ujn !== undefined) {
+          ujn = scanned;
+          if (headerMap.total_amount !== undefined) totalAmount = scanned;
+        } else if (headerMap.total_amount !== undefined) {
+          totalAmount = scanned;
+        } else {
+          ujn = scanned;
+        }
+      }
+    }
     return {
       dsr,
       ujn,
@@ -554,6 +568,12 @@ function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, numb
   return rowColumnAmounts(cells, headerMap);
 }
 
+function sectionRowHasAmounts(cells: string[], headerMap: Record<string, number>): boolean {
+  const amts = sectionRowColumnAmounts(cells, headerMap);
+  return amts.dsr > 0 || amts.ujn > 0 || amts.sorPwd > 0 || amts.nsi > 0
+    || amts.totalAmount > 0 || amts.amount > 0;
+}
+
 /** Rows that contribute to Step 6/7 vertical column sums — uses amount columns, not qty/rate alignment. */
 function isSectionContributingRow(
   cells: string[],
@@ -561,23 +581,12 @@ function isSectionContributingRow(
   _joined: string,
   descCol: string,
 ): boolean {
-  if (isDescriptionOnlyRow(cells, headerMap)) return false;
   // Match total labels on description only — joined text includes amount cells and causes false exclusions.
   if (isSubTotalLabel(descCol)) return false;
   if (isSectionTotalLabel(descCol)) return false;
   if (isTotalCostLabel(descCol)) return false;
   if (Object.keys(headerMap).length === 0) return false;
-
-  if (isTharaliLayout(headerMap)) {
-    const c = tharaliComponentsFromRow(cells, headerMap);
-    const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
-    const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
-    const fallbackAmount = headerMap.amount !== undefined ? parseNumber(cells[headerMap.amount]) : 0;
-    return c.dsr > 0 || c.ujn > 0 || c.sorPwd > 0 || c.nsi > 0 || c.totalAmount > 0
-      || fallbackAmount > 0
-      || (qty > 0 && rate > 0);
-  }
-  return isBoqItemRow(cells, headerMap);
+  return sectionRowHasAmounts(cells, headerMap);
 }
 
 function isBoqItemRow(cells: string[], headerMap: Record<string, number>): boolean {
@@ -630,8 +639,6 @@ export function validateTotalRows(
     const descCol = headerMap.description !== undefined
       ? String(cells[headerMap.description] ?? '').trim()
       : joined;
-
-    if (isDescriptionOnlyRow(cells, headerMap)) continue;
 
     const isSubTotal = isSubTotalLabel(joined) || isSubTotalLabel(descCol);
     const isTotalCost = isTotalCostLabel(joined) || isTotalCostLabel(descCol);
