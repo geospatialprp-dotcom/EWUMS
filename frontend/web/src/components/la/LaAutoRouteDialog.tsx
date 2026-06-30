@@ -160,9 +160,13 @@ export default function LaAutoRouteDialog({
   const [fitRevision, setFitRevision] = useState(0);
   const [mapInitRevision, setMapInitRevision] = useState(0);
   const requestGenRef = useRef(0);
+  const [resolvedProjectId, setResolvedProjectId] = useState<string | null>(null);
+
+  const effectiveProjectId = projectId ?? resolvedProjectId;
 
   useEffect(() => {
     if (open) setMapInitRevision((r) => r + 1);
+    if (!open) setResolvedProjectId(null);
   }, [open]);
 
   const invalidatePendingRequests = useCallback(() => {
@@ -174,7 +178,14 @@ export default function LaAutoRouteDialog({
     [importedNetwork],
   );
 
-  const routes = (routeResults?.routes as RouteRow[]) ?? [];
+  const canRoute = Boolean(effectiveProjectId || dprProposalId);
+  const routes = useMemo((): RouteRow[] => {
+    const raw = routeResults?.routes;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((route) => normalizeRouteRow(route))
+      .filter((route): route is RouteRow => route != null);
+  }, [routeResults]);
   const recommendedKey = String(routeResults?.recommendedRouteKey ?? 'imported');
   const comparison = routeResults?.comparison as { rows?: Array<Record<string, string | number>> } | undefined;
 
@@ -533,23 +544,29 @@ export default function LaAutoRouteDialog({
           hazards, and environmental layers from Feature Class Catalog.
         </Typography>
 
-        <Alert severity={projectId ? 'info' : 'warning'} sx={{ mb: 2 }}>
+        <Alert severity={effectiveProjectId ? 'info' : dprProposalId ? 'info' : 'warning'} sx={{ mb: 2 }}>
           <Typography variant="subtitle2" fontWeight={700} mb={1}>
-            {projectId ? 'GIS project linked for auto-routing' : 'Link a project to this LA case before auto-routing'}
+            {effectiveProjectId
+              ? 'GIS project linked for auto-routing'
+              : dprProposalId
+                ? 'DPR scheme available — auto-routing will use a GIS workspace'
+                : 'Link a project to this LA case before auto-routing'}
           </Typography>
           <LaLinkProjectPanel
             caseId={caseId}
             compact
+            autoLinkSingleOption={open}
             linkedProjectId={projectId}
             linkedProjectName={projectName}
             linkedProjectCode={projectCode}
             linkedProjectStatus={projectStatus}
             dprProposalId={dprProposalId}
+            onRoutingResolved={(id) => { if (id) setResolvedProjectId(id); }}
             onLinked={() => onProjectLinked?.()}
           />
         </Alert>
 
-        {projectId && isDprGisWorkspace && (
+        {effectiveProjectId && isDprGisWorkspace && (
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="subtitle2" fontWeight={700} mb={0.5}>
               Routing via DPR GIS workspace
@@ -668,11 +685,11 @@ export default function LaAutoRouteDialog({
             onClick={() => setPickMode('end')}
             variant={pickMode === 'end' ? 'filled' : 'outlined'}
           />
-          {projectId && (
+          {effectiveProjectId && (
             <Button
               size="small"
               component={RouterLink}
-              to={`/map?projectId=${projectId}`}
+              to={`/map?projectId=${effectiveProjectId}`}
               target="_blank"
               startIcon={<OpenInNewOutlinedIcon />}
             >
@@ -830,7 +847,7 @@ export default function LaAutoRouteDialog({
         <Button
           variant="outlined"
           startIcon={<PlayArrowOutlinedIcon />}
-          disabled={!start || !end || busy || !projectId}
+          disabled={!start || !end || busy || !canRoute}
           onClick={runPreview}
         >
           Preview Route
@@ -838,7 +855,7 @@ export default function LaAutoRouteDialog({
         <Button
           variant="outlined"
           startIcon={<AutoAwesomeOutlinedIcon />}
-          disabled={!start || !end || busy || !projectId}
+          disabled={!start || !end || busy || !canRoute}
           onClick={runAutoTraceAll}
         >
           Auto Trace All Routes
@@ -846,7 +863,7 @@ export default function LaAutoRouteDialog({
         <Button
           variant="contained"
           startIcon={<SaveOutlinedIcon />}
-          disabled={(!preview && !hasResults && !canApplyImportedCorridor) || busy || !projectId}
+          disabled={(!preview && !hasResults && !canApplyImportedCorridor) || busy || !canRoute}
           onClick={() => applySelectedRoute()}
         >
           {hasResults ? `Apply ${selectedRoute?.label ?? 'Route'}` : 'Apply & Trace'}

@@ -439,6 +439,14 @@ export class LandAcquisitionService {
     const laCase = await this.requireCase(tenantId, caseId);
     await this.assertCaseAccess(user, laCase, tenantId);
 
+    if (!laCase.projectId && laCase.dprProposalId) {
+      try {
+        await this.resolveCaseProjectId(tenantId, user, laCase);
+      } catch {
+        // Allow manual linking when auto-provision fails.
+      }
+    }
+
     const schemes: Array<{
       id: string;
       projectId: string | null;
@@ -820,7 +828,7 @@ export class LandAcquisitionService {
              AND pf.geometry IS NOT NULL
              AND s.line_geom IS NOT NULL
              AND ST_Intersects(pf.geometry, c.geom)`,
-          [seg.id, segRowWidth, tenantId, laCase.projectId, fc.id],
+          [seg.id, segRowWidth, tenantId, projectId, fc.id],
         ) as Array<{
           id: string;
           attributes: Record<string, unknown>;
@@ -860,10 +868,10 @@ export class LandAcquisitionService {
       );
 
       let village = fields.village;
-      if (!village && laCase.projectId) {
+      if (!village && projectId) {
         village = await this.lookupAdminNameForParcel(
           tenantId,
-          laCase.projectId,
+          projectId,
           hit.geometry,
           ['village_boundary', 'village', 'revenue_village', 'rev_village'],
         );
@@ -871,21 +879,21 @@ export class LandAcquisitionService {
 
       let tehsil = fields.tehsil;
       let district = fields.district;
-      if (laCase.projectId) {
+      if (projectId) {
         if (!tehsil) {
           tehsil = await this.lookupAdminNameForParcel(
-            tenantId, laCase.projectId, hit.geometry, ['tehsil', 'tehsil_boundary'],
+            tenantId, projectId, hit.geometry, ['tehsil', 'tehsil_boundary'],
           );
         }
         if (!district) {
           district = await this.lookupAdminNameForParcel(
-            tenantId, laCase.projectId, hit.geometry, ['district_boundary', 'district'],
+            tenantId, projectId, hit.geometry, ['district_boundary', 'district'],
           );
         }
       }
 
-      const overlayLayers = laCase.projectId
-        ? await this.detectParcelOwnershipOverlays(tenantId, laCase.projectId, hit.geometry)
+      const overlayLayers = projectId
+        ? await this.detectParcelOwnershipOverlays(tenantId, projectId, hit.geometry)
         : [];
       const ownership = classifyParcelOwnership(fields, overlayLayers);
 

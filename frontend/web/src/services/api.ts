@@ -934,10 +934,22 @@ export const landAcquisitionApi = {
   caseAiAlerts: (id: string) => api.get(`/land-acquisition/cases/${id}/ai-alerts`),
   listCases: (params?: { status?: string }) => api.get('/land-acquisition/cases', { params }),
   getCase: (id: string) => api.get(`/land-acquisition/cases/${id}`),
+  getRoutingSchemes: (id: string) => api.get<{
+    linkedProjectId: string | null;
+    dprProposalId: string | null;
+    schemes: Array<{
+      id: string;
+      projectId: string | null;
+      label: string;
+      kind: 'linked_project' | 'dpr_scheme';
+      projectStatus?: string;
+      proposalNo?: string;
+    }>;
+  }>(`/land-acquisition/cases/${id}/routing-schemes`),
   getMapGeoJson: (id: string) => api.get(`/land-acquisition/cases/${id}/map-geojson`),
   getProposalReadiness: (proposalId: string) => api.get(`/land-acquisition/proposals/${proposalId}/readiness`),
   createCase: (data: object) => api.post('/land-acquisition/cases', data),
-  linkProject: (id: string, data: { projectId: string }) =>
+  linkProject: (id: string, data: { projectId?: string; dprProposalId?: string }) =>
     api.patch(`/land-acquisition/cases/${id}/link-project`, data),
   traceAlignment: (id: string, data?: object) => api.post(`/land-acquisition/cases/${id}/trace-alignment`, data ?? {}),
   previewAutoRoute: (id: string, data: object) => api.post(`/land-acquisition/cases/${id}/preview-auto-route`, data),

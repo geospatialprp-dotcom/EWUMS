@@ -1,6 +1,6 @@
--- OPTIONAL DEMO SEED — do not run on production after cleanup (see 091_cleanup_demo_kpg_data.sql).
+-- OPTIONAL DEMO SEED — skip if Tharali project (PRJ-TPPWSS-2026-27) is absent.
+-- Do not run on production after cleanup (see 091_cleanup_demo_kpg_data.sql).
 -- Karanprayag (DIV-KPG) demo complaints for /complaints JE dashboard.
-
 -- Tharali Pinder Paar WSS is the division scheme; complaints must carry project_id.
 
 
@@ -50,9 +50,8 @@ BEGIN
 
 
   IF v_project IS NULL THEN
-
-    RAISE EXCEPTION 'Tharali project (PRJ-TPPWSS-2026-27) not found — create the scheme before seeding KPG complaints';
-
+    RAISE NOTICE '087: Tharali project (PRJ-TPPWSS-2026-27) not found — skipping KPG demo complaints seed';
+    RETURN;
   END IF;
 
 

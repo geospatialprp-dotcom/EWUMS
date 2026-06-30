@@ -93,6 +93,20 @@ export default function LaCaseWorkspacePage() {
   }, [caseId]);
 
   useEffect(() => { load(); }, [load]);
+
+  /** Trigger backend auto-provision via routing-schemes, then refresh if workspace was linked */
+  useEffect(() => {
+    if (!caseId || detail?.projectId) return;
+    let cancelled = false;
+    landAcquisitionApi.getRoutingSchemes(caseId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data?.linkedProjectId) load();
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [caseId, detail?.projectId, detail?.dprProposalId, load]);
+
   useEffect(() => { if (caseId) loadMap(); }, [caseId, loadMap, detail?.status]);
   useEffect(() => {
     landAcquisitionApi.getCatalog()
@@ -292,6 +306,7 @@ export default function LaCaseWorkspacePage() {
                   linkedProjectName={detail.projectName as string | null | undefined}
                   linkedProjectStatus={detail.projectStatus as string | null | undefined}
                   dprProposalId={detail.dprProposalId as string | null | undefined}
+                  onRoutingResolved={(id) => { if (id && !detail.projectId) load(); }}
                   onLinked={load}
                 />
               ) : (

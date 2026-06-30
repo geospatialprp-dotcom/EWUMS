@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Typography,
 } from '@mui/material';
@@ -9,23 +9,29 @@ import { featureClassesApi, landAcquisitionApi, projectsApi } from '../../servic
 
 const DPR_GIS_WORKSPACE_STATUS = 'dpr_gis_workspace';
 
-type ProjectOption = {
-  id: string;
-  name: string;
-  code?: string;
+type SchemeOption = {
+  /** Select value — project UUID or `dpr:<proposalId>` */
+  selectId: string;
+  projectId: string | null;
+  dprProposalId?: string | null;
+  label: string;
   status?: string;
 };
 
 type Props = {
   caseId: string;
   compact?: boolean;
-  /** Already linked GIS project on this LA case */
+  /** Already linked GIS project on this LA case (from parent detail) */
   linkedProjectId?: string | null;
   linkedProjectName?: string | null;
   linkedProjectCode?: string | null;
   linkedProjectStatus?: string | null;
   dprProposalId?: string | null;
+  /** When true, auto-select and link if exactly one scheme is available */
+  autoLinkSingleOption?: boolean;
   onLinked: () => void;
+  /** Fired when routing-schemes resolves a linked project (incl. auto-provision) */
+  onRoutingResolved?: (linkedProjectId: string | null) => void;
 };
 
 function getApiError(err: unknown, fallback: string): string {
@@ -37,7 +43,7 @@ function getApiError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function normalizeProject(raw: unknown): ProjectOption | null {
+function normalizeProject(raw: unknown): SchemeOption | null {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Record<string, unknown>;
   const id = typeof p.id === 'string' ? p.id : '';
@@ -46,18 +52,16 @@ function normalizeProject(raw: unknown): ProjectOption | null {
     ? p.projectCode
     : typeof p.code === 'string'
       ? p.code
-      : undefined;
+      : '';
+  const name = typeof p.name === 'string' && p.name.trim() ? p.name : 'Untitled project';
+  const status = typeof p.status === 'string' ? p.status : undefined;
+  const planning = status === DPR_GIS_WORKSPACE_STATUS ? ' · DPR planning' : '';
   return {
-    id,
-    name: typeof p.name === 'string' && p.name.trim() ? p.name : 'Untitled project',
-    code,
-    status: typeof p.status === 'string' ? p.status : undefined,
+    selectId: id,
+    projectId: id,
+    label: `${name}${code ? ` (${code})` : ''}${planning}`,
+    status,
   };
-}
-
-function formatProjectLabel(p: ProjectOption): string {
-  const planning = p.status === DPR_GIS_WORKSPACE_STATUS ? ' · DPR planning' : '';
-  return `${p.name}${p.code ? ` (${p.code})` : ''}${planning}`;
 }
 
 export default function LaLinkProjectPanel({
@@ -68,72 +72,173 @@ export default function LaLinkProjectPanel({
   linkedProjectCode,
   linkedProjectStatus,
   dprProposalId,
+  autoLinkSingleOption = false,
   onLinked,
+  onRoutingResolved,
 }: Props) {
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
-  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [schemeOptions, setSchemeOptions] = useState<SchemeOption[]>([]);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [routingLinkedProjectId, setRoutingLinkedProjectId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState('');
   const [scaffoldLayers, setScaffoldLayers] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-
-  const isAlreadyLinked = Boolean(linkedProjectId);
+  const autoLinkAttemptedRef = useRef(false);
+  const parentRefreshRequestedRef = useRef(false);
+  const onLinkedRef = useRef(onLinked);
+  const onRoutingResolvedRef = useRef(onRoutingResolved);
 
   useEffect(() => {
-    setProjectsLoaded(false);
-    projectsApi.list()
-      .then((res) => {
-        const list = Array.isArray(res.data) ? res.data : [];
-        setProjects(
-          list
-            .map((p) => normalizeProject(p))
-            .filter((p): p is ProjectOption => p != null),
-        );
+    onLinkedRef.current = onLinked;
+    onRoutingResolvedRef.current = onRoutingResolved;
+  });
+
+  const effectiveLinkedProjectId = linkedProjectId ?? routingLinkedProjectId;
+  const isAlreadyLinked = Boolean(effectiveLinkedProjectId);
+
+  useEffect(() => {
+    setOptionsLoaded(false);
+    setRoutingLinkedProjectId(null);
+    autoLinkAttemptedRef.current = false;
+    parentRefreshRequestedRef.current = false;
+
+    Promise.all([
+      landAcquisitionApi.getRoutingSchemes(caseId).catch(() => ({ data: null })),
+      projectsApi.list().catch(() => ({ data: [] as unknown[] })),
+    ])
+      .then(([schemesRes, projectsRes]) => {
+        const bySelectId = new Map<string, SchemeOption>();
+
+        const routing = schemesRes.data;
+        const routingLinked = routing?.linkedProjectId ?? null;
+        setRoutingLinkedProjectId(routingLinked);
+        onRoutingResolvedRef.current?.(routingLinked);
+
+        if (routingLinked && !linkedProjectId && !parentRefreshRequestedRef.current) {
+          parentRefreshRequestedRef.current = true;
+          onLinkedRef.current();
+        }
+
+        for (const scheme of routing?.schemes ?? []) {
+          bySelectId.set(scheme.id, {
+            selectId: scheme.id,
+            projectId: scheme.projectId,
+            dprProposalId: scheme.kind === 'dpr_scheme' && scheme.id.startsWith('dpr:')
+              ? scheme.id.slice(4)
+              : null,
+            label: scheme.label,
+            status: scheme.projectStatus,
+          });
+        }
+
+        const projects = Array.isArray(projectsRes.data) ? projectsRes.data : [];
+        for (const raw of projects) {
+          const opt = normalizeProject(raw);
+          if (!opt) continue;
+          if (!bySelectId.has(opt.selectId)) {
+            bySelectId.set(opt.selectId, opt);
+          }
+        }
+
+        const effectiveLinked = routingLinked ?? linkedProjectId;
+        if (effectiveLinked && !bySelectId.has(effectiveLinked)) {
+          const code = linkedProjectCode ?? '';
+          const planning = linkedProjectStatus === DPR_GIS_WORKSPACE_STATUS ? ' · DPR planning' : '';
+          bySelectId.set(effectiveLinked, {
+            selectId: effectiveLinked,
+            projectId: effectiveLinked,
+            label: `${linkedProjectName?.trim() || 'Linked scheme'}${code ? ` (${code})` : ''}${planning}`,
+            status: linkedProjectStatus ?? undefined,
+          });
+        }
+
+        const list = Array.from(bySelectId.values());
+        list.sort((a, b) => {
+          if (a.selectId === effectiveLinked) return -1;
+          if (b.selectId === effectiveLinked) return 1;
+          return a.label.localeCompare(b.label);
+        });
+        setSchemeOptions(list);
+
+        const preselect = routingLinked ?? linkedProjectId ?? '';
+        if (preselect) {
+          setSelectedId(preselect);
+        } else if (dprProposalId) {
+          const dprKey = `dpr:${dprProposalId}`;
+          if (bySelectId.has(dprKey)) setSelectedId(dprKey);
+        } else if (list.length === 1) {
+          setSelectedId(list[0].selectId);
+        }
       })
-      .catch(() => setProjects([]))
-      .finally(() => setProjectsLoaded(true));
-  }, []);
+      .catch(() => setSchemeOptions([]))
+      .finally(() => setOptionsLoaded(true));
+  }, [
+    caseId,
+    linkedProjectId,
+    linkedProjectName,
+    linkedProjectCode,
+    linkedProjectStatus,
+    dprProposalId,
+  ]);
 
   useEffect(() => {
     if (linkedProjectId) {
       setSelectedId(linkedProjectId);
+      setRoutingLinkedProjectId(linkedProjectId);
     }
   }, [linkedProjectId]);
 
-  const projectOptions = useMemo(() => {
-    const byId = new Map<string, ProjectOption>();
-    for (const p of projects) byId.set(p.id, p);
-
-    if (linkedProjectId && !byId.has(linkedProjectId)) {
-      byId.set(linkedProjectId, {
-        id: linkedProjectId,
-        name: linkedProjectName?.trim() || 'Linked scheme',
-        code: linkedProjectCode ?? undefined,
-        status: linkedProjectStatus ?? undefined,
-      });
-    }
-
-    const list = Array.from(byId.values());
-    list.sort((a, b) => {
-      if (a.id === linkedProjectId) return -1;
-      if (b.id === linkedProjectId) return 1;
-      return a.name.localeCompare(b.name);
-    });
-    return list;
-  }, [projects, linkedProjectId, linkedProjectName, linkedProjectCode, linkedProjectStatus]);
-
-  const selectedOption = useMemo(
-    () => projectOptions.find((p) => p.id === selectedId) ?? null,
-    [projectOptions, selectedId],
-  );
-
   const selectValue = useMemo(() => {
     if (!selectedId) return '';
-    if (projectOptions.some((p) => p.id === selectedId)) return selectedId;
-    if (linkedProjectId && selectedId === linkedProjectId) return linkedProjectId;
+    if (schemeOptions.some((o) => o.selectId === selectedId)) return selectedId;
+    if (effectiveLinkedProjectId && selectedId === effectiveLinkedProjectId) return effectiveLinkedProjectId;
     return '';
-  }, [selectedId, projectOptions, linkedProjectId]);
+  }, [selectedId, schemeOptions, effectiveLinkedProjectId]);
+
+  const selectedOption = useMemo(
+    () => schemeOptions.find((o) => o.selectId === selectValue) ?? null,
+    [schemeOptions, selectValue],
+  );
+
+  const performLink = useCallback((option: SchemeOption) => {
+    setBusy(true);
+    setError('');
+    setSuccess('');
+
+    const linkPayload = option.projectId
+      ? { projectId: option.projectId }
+      : option.dprProposalId
+        ? { dprProposalId: option.dprProposalId }
+        : { projectId: option.selectId };
+
+    landAcquisitionApi.linkProject(caseId, linkPayload)
+      .then(async (res) => {
+        const linkedId = (res.data as { projectId?: string })?.projectId ?? option.projectId;
+        if (linkedId) {
+          setRoutingLinkedProjectId(linkedId);
+          onRoutingResolvedRef.current?.(linkedId);
+        }
+        if (scaffoldLayers && linkedId) {
+          await featureClassesApi.scaffoldLaGisLayers(linkedId).catch(() => undefined);
+        }
+        setSuccess('Project linked. You can now run auto-routing and GIS overlay analysis.');
+        onLinkedRef.current();
+      })
+      .catch((err) => setError(getApiError(err, 'Failed to link project')))
+      .finally(() => setBusy(false));
+  }, [caseId, scaffoldLayers]);
+
+  useEffect(() => {
+    if (!autoLinkSingleOption || !optionsLoaded || isAlreadyLinked || busy) return;
+    if (autoLinkAttemptedRef.current) return;
+    if (schemeOptions.length !== 1) return;
+
+    const only = schemeOptions[0];
+    autoLinkAttemptedRef.current = true;
+    setSelectedId(only.selectId);
+    performLink(only);
+  }, [autoLinkSingleOption, optionsLoaded, isAlreadyLinked, busy, schemeOptions, performLink]);
 
   const handleLink = () => {
     if (isAlreadyLinked) return;
@@ -141,19 +246,12 @@ export default function LaLinkProjectPanel({
       setError('Select a project to link');
       return;
     }
-    setBusy(true);
-    setError('');
-    setSuccess('');
-    landAcquisitionApi.linkProject(caseId, { projectId: selectedId })
-      .then(async () => {
-        if (scaffoldLayers) {
-          await featureClassesApi.scaffoldLaGisLayers(selectedId).catch(() => undefined);
-        }
-        setSuccess('Project linked. You can now run auto-routing and GIS overlay analysis.');
-        onLinked();
-      })
-      .catch((err) => setError(getApiError(err, 'Failed to link project')))
-      .finally(() => setBusy(false));
+    const option = schemeOptions.find((o) => o.selectId === selectedId);
+    if (!option) {
+      setError('Select a valid project or DPR scheme');
+      return;
+    }
+    performLink(option);
   };
 
   return (
@@ -185,30 +283,27 @@ export default function LaLinkProjectPanel({
             displayEmpty: true,
             renderValue: (value) => {
               if (!value) {
-                return projectsLoaded ? 'Select project…' : 'Loading projects…';
+                return optionsLoaded ? 'Select project…' : 'Loading projects…';
               }
-              const opt = projectOptions.find((p) => p.id === value);
-              if (opt) return formatProjectLabel(opt);
-              if (linkedProjectId === value && linkedProjectName) {
-                return formatProjectLabel({
-                  id: value,
-                  name: linkedProjectName,
-                  code: linkedProjectCode ?? undefined,
-                  status: linkedProjectStatus ?? undefined,
-                });
+              const opt = schemeOptions.find((o) => o.selectId === value);
+              if (opt) return opt.label;
+              if (effectiveLinkedProjectId === value && linkedProjectName) {
+                const code = linkedProjectCode ? ` (${linkedProjectCode})` : '';
+                const planning = linkedProjectStatus === DPR_GIS_WORKSPACE_STATUS ? ' · DPR planning' : '';
+                return `${linkedProjectName}${code}${planning}`;
               }
-              return selectedOption ? formatProjectLabel(selectedOption) : 'Select project…';
+              return selectedOption?.label ?? 'Select project…';
             },
           }}
         >
           {!isAlreadyLinked && (
             <MenuItem value="">
-              <em>{projectsLoaded ? 'Select project…' : 'Loading projects…'}</em>
+              <em>{optionsLoaded ? 'Select project…' : 'Loading projects…'}</em>
             </MenuItem>
           )}
-          {projectOptions.map((p) => (
-            <MenuItem key={p.id} value={p.id}>
-              {formatProjectLabel(p)}
+          {schemeOptions.map((o) => (
+            <MenuItem key={o.selectId} value={o.selectId}>
+              {o.label}
             </MenuItem>
           ))}
         </TextField>
@@ -216,11 +311,11 @@ export default function LaLinkProjectPanel({
           variant={isAlreadyLinked ? 'outlined' : 'contained'}
           color={isAlreadyLinked ? 'success' : 'primary'}
           startIcon={isAlreadyLinked ? <CheckCircleOutlineIcon /> : <LinkOutlinedIcon />}
-          disabled={isAlreadyLinked || !selectedId || busy || !projectsLoaded}
+          disabled={isAlreadyLinked || !selectedId || busy || !optionsLoaded}
           onClick={handleLink}
           sx={{ flexShrink: 0 }}
         >
-          {isAlreadyLinked ? 'Linked' : 'Link Project'}
+          {isAlreadyLinked ? 'Linked' : busy && autoLinkSingleOption ? 'Linking…' : 'Link Project'}
         </Button>
       </Stack>
 

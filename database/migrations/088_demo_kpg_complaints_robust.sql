@@ -1,6 +1,6 @@
--- OPTIONAL DEMO SEED — do not run on production after cleanup (see 091_cleanup_demo_kpg_data.sql).
+-- OPTIONAL DEMO SEED — skip if Tharali project (PRJ-TPPWSS-2026-27) is absent.
+-- Do not run on production after cleanup (see 091_cleanup_demo_kpg_data.sql).
 -- Robust Karanprayag (DIV-KPG) demo complaints — idempotent upsert for production.
-
 -- Resolves Tharali scheme dynamically; fixes 087 rows stuck with wrong/missing project_id.
 
 
@@ -74,9 +74,8 @@ BEGIN
 
 
   IF v_project IS NULL THEN
-
-    RAISE EXCEPTION 'Tharali project (PRJ-TPPWSS-2026-27) not found — create the scheme before seeding KPG complaints';
-
+    RAISE NOTICE '088: Tharali project (PRJ-TPPWSS-2026-27) not found — skipping KPG demo complaints seed';
+    RETURN;
   END IF;
 
 

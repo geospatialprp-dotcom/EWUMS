@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProjectsModule } from '../projects/projects.module';
 import { DprProposal } from '../dpr-planning/entities/dpr-proposal.entity';
@@ -21,7 +21,7 @@ import { LaAutoRouteService } from './la-auto-route.service';
 
 @Module({
   imports: [
-    ProjectsModule,
+    forwardRef(() => ProjectsModule),
     TypeOrmModule.forFeature([
       LaCase,
       LaCaseDocument,

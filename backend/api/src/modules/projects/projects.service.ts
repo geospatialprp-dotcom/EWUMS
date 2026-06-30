@@ -410,6 +410,13 @@ export class ProjectsService {
     const saved = await this.projectsRepo.save(project);
     await this.divisionAccess.assignProjectDivision(saved.id, divisionId);
 
+    await this.projectsRepo.manager.query(
+      `UPDATE la_cases
+       SET project_id = $1
+       WHERE tenant_id = $2 AND dpr_proposal_id = $3 AND project_id IS NULL`,
+      [saved.id, tenantId, dto.dprProposalId.trim()],
+    );
+
     const proposal = await this.linkDprProposalOnCreate(
       tenantId,
       saved.id,
