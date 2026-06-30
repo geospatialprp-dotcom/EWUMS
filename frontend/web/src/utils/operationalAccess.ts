@@ -3,7 +3,7 @@ export function isSuperAdmin(roles?: string[] | null): boolean {
 }
 
 export const SUPER_ADMIN_VIEW_ONLY_MESSAGE =
-  'Super Admin has view-only access; use HQ or division login for operational tasks.';
+  'Super Admin has view-only access; use a division login for operational tasks.';
 
 const SUPER_ADMIN_DEMO_OPERATIONAL = new Set([
   'om:create',

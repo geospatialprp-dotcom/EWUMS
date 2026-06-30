@@ -100,7 +100,7 @@ export default function DprPlanningPage() {
   const { user } = useAuth();
   const roles = user?.roles ?? [];
   const isSuperAdmin = roles.includes('super_admin');
-  const canInitiateAsEe = (roles.includes('ee') || roles.includes('je')) && !isSuperAdmin;
+  const canInitiateAsEe = (roles.includes('ee') || roles.includes('je') || roles.includes('ae')) && !isSuperAdmin;
   const canHqReview = canPerformHqReview(roles);
   const canForwardToTac = canForwardDprToTac(roles);
   const canTacReview = canPerformTacReview(roles);
@@ -191,7 +191,7 @@ export default function DprPlanningPage() {
         setCreateOpen(false);
         setCreateForm({ title: '', preliminaryEstimate: '', fundingSource: '', priority: 'medium' });
         setCreateSchemeJustification(EMPTY_BILINGUAL);
-        setSuccess(`Proposal initiated — ID: ${created.proposalNo}. Upload required documents and forward to HQ.`);
+        setSuccess(`Proposal initiated — ID: ${created.proposalNo}. Upload required documents and forward for review.`);
         setStage1Open(created.id);
         load();
       })
@@ -315,7 +315,7 @@ export default function DprPlanningPage() {
             End-to-end pipeline
           </Typography>
           <Typography variant="h6" fontWeight={800} sx={{ mb: 0.5, letterSpacing: '-0.02em' }}>
-            Division proposal → HQ → TAC → Secretariat → Sanction → Tender
+            Division proposal → State Review → TAC → Secretariat → Sanction → Tender
           </Typography>
           <Typography variant="body2" sx={{ color: 'rgba(248,250,252,0.85)', mb: 2, maxWidth: 720 }}>
             Track every DPR from initiation through administrative approval and procurement. Select a stage below to highlight it in the tracker.
@@ -332,7 +332,7 @@ export default function DprPlanningPage() {
         </Grid>
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Total Proposals" value={dashboard.total ?? 0} tone="blue" /></Grid>
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="DPR Preparation" value={dashboard.dprPreparationInProgress ?? 0} tone="blue" /></Grid>
-        <Grid item xs={6} sm={4} md={3}><KpiStatCard label="HQ Review Pending" value={dashboard.hqPending ?? 0} tone="amber" /></Grid>
+        <Grid item xs={6} sm={4} md={3}><KpiStatCard label="State Review Pending" value={dashboard.hqPending ?? 0} tone="amber" /></Grid>
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Returned to Division" value={dashboard.returnedFromHq ?? 0} tone="amber" /></Grid>
         <Grid item xs={12}>
           <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ letterSpacing: '0.08em', textTransform: 'uppercase', mt: 0.5, display: 'block' }}>
@@ -491,7 +491,7 @@ export default function DprPlanningPage() {
                     )}
                     {['hq_review', 'proposal_submitted'].includes(row.status) && canHqReview && (
                       <Button size="small" startIcon={<GavelOutlinedIcon />} onClick={() => setHqReviewOpen(row.id)}>
-                        HQ Review
+                        State Review
                       </Button>
                     )}
                     {['proposal_draft', 'proposal_returned'].includes(row.status) && (
@@ -535,7 +535,7 @@ export default function DprPlanningPage() {
         <DialogContent sx={dprDialogContentSx}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             The system will generate a unique Project Proposal ID (e.g. DPRP-2025-26-KPG-0001).
-            After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding to HQ.
+            After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding for review.
           </Typography>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12}>
@@ -590,8 +590,8 @@ export default function DprPlanningPage() {
         onSubmittedToTac={(id) => {
           setSuccess(
             canTacReview
-              ? 'DPR submitted — open TAC Review to perform HQ Round 1 review.'
-              : 'DPR submitted to HQ/TAC for review. Status will show as Under Review until HQ completes TAC review.',
+              ? 'DPR submitted — open TAC Review to perform Round 1 review.'
+              : 'DPR submitted for TAC review. Status will show as Under Review until Super Admin completes TAC review.',
           );
           if (canTacReview) setTacReviewOpen(id);
         }}
@@ -605,8 +605,8 @@ export default function DprPlanningPage() {
         onResubmitted={(id) => {
           setSuccess(
             canTacReview
-              ? 'Revised DPR resubmitted — open TAC Review for HQ re-review.'
-              : 'Revised DPR resubmitted to HQ/TAC. Status will show as Under Review until HQ re-reviews.',
+              ? 'Revised DPR resubmitted — open TAC Review for re-review.'
+              : 'Revised DPR resubmitted for TAC review. Status will show as Under Review until Super Admin re-reviews.',
           );
           if (canTacReview) setTacReviewOpen(id);
         }}

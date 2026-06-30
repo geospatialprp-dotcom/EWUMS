@@ -2,21 +2,21 @@
 
 export const DPR_PLANNING_STAGES = [
   { stage: 1, key: 'proposal-initiation', name: 'DPR Proposal Initiation (Division EE)' },
-  { stage: 2, key: 'hq-prep-approval', name: 'HQ DPR Preparation Approval' },
+  { stage: 2, key: 'hq-prep-approval', name: 'DPR Preparation Approval' },
   { stage: 3, key: 'dpr-preparation', name: 'DPR Preparation' },
   { stage: 4, key: 'tac-round1', name: 'TAC Review — First Round' },
   { stage: 5, key: 'dpr-revision', name: 'DPR Revision & Finalization' },
   { stage: 6, key: 'secretariat', name: 'Secretariat / Sachiwalaya Submission' },
   { stage: 7, key: 'tac-round2', name: 'Second Round TAC / Govt Technical Exam' },
   { stage: 8, key: 'sanction', name: 'Administrative Sanction & Budget Approval' },
-  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation (HQ)' },
+  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation' },
   { stage: 10, key: 'tender-processing', name: 'Tender Processing & Procurement' },
   { stage: 11, key: 'governance', name: 'Audit Trail & Governance' },
   { stage: 12, key: 'dashboard', name: 'Dashboard & Monitoring' },
 ] as const;
 
 export const DPR_ACTION_LABELS: Record<string, string> = {
-  submit: 'Forward to HQ',
+  submit: 'Forward for Review',
   approve: 'Approve',
   return: 'Return to Division EE',
   reject: 'Reject',
@@ -139,52 +139,56 @@ export const DPR_DOCUMENT_TYPES = [
   { type: 'nit', label: 'Notice Inviting Tender (NIT)' },
 ] as const;
 
-/** HQ officials who can perform Stage 2 proposal review (matches backend isHqReviewer; super_admin allowed for demo). */
-export const DPR_HQ_REVIEWER_ROLES = ['se', 'ce', 'cgm', 'md'] as const;
+/** HQ officials who can perform Stage 2 proposal review — Super Admin only in demo workflow. */
+export const DPR_HQ_REVIEWER_ROLES = [] as const;
 
-export const DPR_TAC_REVIEWER_ROLES = ['se', 'ce'] as const;
-export const DPR_TAC_ROUND2_REVIEWER_ROLES = ['se', 'ce', 'cgm'] as const;
-export const DPR_SECRETARIAT_FORWARD_ROLES = ['se', 'ce', 'cgm'] as const;
-export const DPR_SANCTION_ROLES = ['se', 'ce', 'cgm', 'md'] as const;
-export const DPR_TENDER_INIT_ROLES = ['se', 'ce'] as const;
+export const DPR_TAC_REVIEWER_ROLES = [] as const;
+export const DPR_TAC_ROUND2_REVIEWER_ROLES = [] as const;
+export const DPR_SECRETARIAT_FORWARD_ROLES = [] as const;
+export const DPR_SANCTION_ROLES = [] as const;
+export const DPR_TENDER_INIT_ROLES = [] as const;
 
 function hasDprRole(roles: string[], allowed: readonly string[]): boolean {
-  return roles.some((r) => (allowed as readonly string[]).includes(r));
+  return allowed.length > 0 && roles.some((r) => (allowed as readonly string[]).includes(r));
+}
+
+/** Super Admin = state reviewer (replaces HQ/TAC officials in this deployment). */
+export function isStateReviewer(roles: string[]): boolean {
+  return roles.includes('super_admin');
 }
 
 export function canPerformHqReview(roles: string[]): boolean {
-  return roles.includes('super_admin') || hasDprRole(roles, DPR_HQ_REVIEWER_ROLES);
+  return isStateReviewer(roles);
 }
 
 export function canForwardDprToTac(roles: string[]): boolean {
-  return hasDprRole(roles, DPR_HQ_REVIEWER_ROLES);
+  return isStateReviewer(roles);
 }
 
 export function canPerformTacReview(roles: string[]): boolean {
-  return roles.includes('super_admin') || hasDprRole(roles, DPR_HQ_REVIEWER_ROLES);
+  return isStateReviewer(roles);
 }
 
 export function canForwardToSecretariat(roles: string[]): boolean {
-  return hasDprRole(roles, DPR_SECRETARIAT_FORWARD_ROLES);
+  return isStateReviewer(roles);
 }
 
 export function canPerformTacRound2Review(roles: string[]): boolean {
-  return hasDprRole(roles, DPR_TAC_ROUND2_REVIEWER_ROLES);
+  return isStateReviewer(roles);
 }
 
 export function canRecordDprSanction(roles: string[]): boolean {
-  return hasDprRole(roles, DPR_SANCTION_ROLES);
+  return isStateReviewer(roles);
 }
 
 export function canInitiateDprTenderPrep(roles: string[]): boolean {
-  return hasDprRole(roles, DPR_TENDER_INIT_ROLES);
+  return isStateReviewer(roles);
 }
 
-/** Division users (EE/JE/AE) without HQ reviewer roles — read-only TAC tracking. */
+/** Division users (EE/JE/AE) without Super Admin — read-only TAC tracking. */
 export function isDivisionDprViewer(roles: string[]): boolean {
   const hasDivision = roles.some((r) => ['ee', 'je', 'ae'].includes(r));
-  const hasHq = canPerformHqReview(roles);
-  return hasDivision && !hasHq;
+  return hasDivision && !isStateReviewer(roles);
 }
 
 const DPR_DIVISION_VIEWER_STATUS_LABELS: Record<string, string> = {

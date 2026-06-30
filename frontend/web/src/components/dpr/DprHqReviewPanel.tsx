@@ -125,7 +125,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
       return;
     }
     if (action === 'approve' && !allVerified) {
-      setError('All HQ verification items must be confirmed before approval');
+      setError('All verification items must be confirmed before approval');
       return;
     }
     setBusy(true);
@@ -139,7 +139,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
       onUpdated();
       onClose();
     } catch (err) {
-      setError(getApiError(err, 'HQ review action failed'));
+      setError(getApiError(err, 'State review action failed'));
     } finally {
       setBusy(false);
     }
@@ -151,7 +151,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
       <DprDialogHeader
         stage={2}
-        title="HQ DPR Preparation Approval"
+        title="DPR Preparation Approval"
         proposalNo={detail?.proposalNo}
         statusLabel={detail?.statusLabel ?? detail?.status}
         busy={busy}
@@ -172,7 +172,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
             </Box>
 
             <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
-              Proposal Summary for HQ Review
+              Proposal Summary for State Review
             </Typography>
             <Grid container spacing={2} sx={{ mb: 3 }}>
               <Grid item xs={12} sm={6}>
@@ -202,7 +202,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
             {pending && canReview && (
               <>
                 <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                  Administrative HQ Verification
+                  Administrative Verification
                 </Typography>
                 <FormGroup sx={{ mb: 2 }}>
                   {DPR_HQ_VERIFICATION_ITEMS.map((item) => (
@@ -220,7 +220,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
                 </FormGroup>
 
                 <TextField
-                  select fullWidth size="small" label="HQ Decision" sx={{ mb: 2 }}
+                  select fullWidth size="small" label="Review Decision" sx={{ mb: 2 }}
                   value={action}
                   onChange={(e) => setAction(e.target.value as 'approve' | 'return' | 'reject')}
                   SelectProps={{ native: true }}
@@ -232,7 +232,7 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
 
                 <BilingualRemarkField
                   label={action === 'approve' ? 'Approval Remarks (optional)' : 'Remarks (required)'}
-                  pdfTitle="DPR HQ Review Remarks"
+                  pdfTitle="DPR State Review Remarks"
                   pdfSubtitle={detail ? `${detail.proposalNo} — ${detail.title}` : undefined}
                   value={remarks}
                   onChange={setRemarks}
@@ -258,11 +258,11 @@ export default function DprHqReviewPanel({ open, proposalId, onClose, onUpdated 
             )}
 
             {!pending && !detail.dprPrepOrderNo && detail.hqRemarks && (
-              <Alert severity="info">HQ Remarks: {detail.hqRemarks}</Alert>
+              <Alert severity="info">Review Remarks: {detail.hqRemarks}</Alert>
             )}
 
             {!canReview && pending && (
-              <Alert severity="info">This proposal is awaiting HQ review. Division EE can track status here; only HQ officials (SE, CE, CGM, MD) can approve or return.</Alert>
+              <Alert severity="info">This proposal is awaiting state review. Division EE can track status here; only Super Admin can approve or return.</Alert>
             )}
           </>
         )}

@@ -8,7 +8,7 @@ export function isSuperAdmin(roles?: string[] | null): boolean {
 export function assertNotSuperAdminForOperations(user: JwtPayload, action: string): void {
   if (isSuperAdmin(user.roles)) {
     throw new ForbiddenException(
-      `Super Admin cannot perform ${action}. Use an HQ or division account.`,
+      `Super Admin cannot perform ${action}. Use a division account for field operations.`,
     );
   }
 }
@@ -16,7 +16,7 @@ export function assertNotSuperAdminForOperations(user: JwtPayload, action: strin
 export function assertNotSuperAdminRolesForOperations(roles: string[] | null | undefined, action: string): void {
   if (isSuperAdmin(roles)) {
     throw new ForbiddenException(
-      `Super Admin cannot perform ${action}. Use an HQ or division account.`,
+      `Super Admin cannot perform ${action}. Use a division account for field operations.`,
     );
   }
 }
@@ -31,7 +31,7 @@ export function isReadPermission(permission: string): boolean {
   return permission.endsWith(':read');
 }
 
-/** Super Admin demo exceptions — complaints, DPR HQ approval, and PDF review for demos. */
+/** Super Admin demo exceptions — complaints, DPR state approval, and PDF review for demos. */
 const SUPER_ADMIN_DEMO_OPERATIONAL = new Set([
   'om:create',
   'om:update',

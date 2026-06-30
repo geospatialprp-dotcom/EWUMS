@@ -1,14 +1,14 @@
 export const DPR_PLANNING_STAGES = [
-  { stage: 1, key: 'proposal-initiation', name: 'DPR Proposal Initiation (Division EE)', ownerRoles: ['ee', 'je'] },
-  { stage: 2, key: 'hq-prep-approval', name: 'HQ DPR Preparation Approval', ownerRoles: ['se', 'ce', 'cgm', 'md'] },
-  { stage: 3, key: 'dpr-preparation', name: 'DPR Preparation', ownerRoles: ['ee', 'je', 'ae', 'se'] },
-  { stage: 4, key: 'tac-round1', name: 'TAC Review — First Round', ownerRoles: ['se', 'ce'] },
-  { stage: 5, key: 'dpr-revision', name: 'DPR Revision & Finalization', ownerRoles: ['ee', 'je', 'ae', 'se'] },
-  { stage: 6, key: 'secretariat', name: 'Secretariat / Sachiwalaya Submission', ownerRoles: ['se', 'ce', 'cgm'] },
-  { stage: 7, key: 'tac-round2', name: 'Second Round TAC / Govt Technical Exam', ownerRoles: ['se', 'ce', 'cgm'] },
-  { stage: 8, key: 'sanction', name: 'Administrative Sanction & Budget Approval', ownerRoles: ['se', 'ce', 'cgm', 'md'] },
-  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation (HQ)', ownerRoles: ['se', 'ce'] },
-  { stage: 10, key: 'tender-processing', name: 'Tender Processing & Procurement', ownerRoles: ['je', 'ae', 'ee', 'se', 'ce'] },
+  { stage: 1, key: 'proposal-initiation', name: 'DPR Proposal Initiation (Division EE)', ownerRoles: ['ee', 'je', 'ae'] },
+  { stage: 2, key: 'hq-prep-approval', name: 'DPR Preparation Approval', ownerRoles: ['super_admin'] },
+  { stage: 3, key: 'dpr-preparation', name: 'DPR Preparation', ownerRoles: ['ee', 'je', 'ae'] },
+  { stage: 4, key: 'tac-round1', name: 'TAC Review — First Round', ownerRoles: ['super_admin'] },
+  { stage: 5, key: 'dpr-revision', name: 'DPR Revision & Finalization', ownerRoles: ['ee', 'je', 'ae'] },
+  { stage: 6, key: 'secretariat', name: 'Secretariat / Sachiwalaya Submission', ownerRoles: ['super_admin'] },
+  { stage: 7, key: 'tac-round2', name: 'Second Round TAC / Govt Technical Exam', ownerRoles: ['super_admin'] },
+  { stage: 8, key: 'sanction', name: 'Administrative Sanction & Budget Approval', ownerRoles: ['super_admin'] },
+  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation', ownerRoles: ['super_admin'] },
+  { stage: 10, key: 'tender-processing', name: 'Tender Processing & Procurement', ownerRoles: ['je', 'ae', 'ee'] },
   { stage: 11, key: 'governance', name: 'Audit Trail & Governance', ownerRoles: [] },
   { stage: 12, key: 'dashboard', name: 'Dashboard & Monitoring', ownerRoles: [] },
 ] as const;
@@ -40,13 +40,13 @@ export type DprProposalStatus =
 
 export const DPR_STATUS_LABELS: Record<DprProposalStatus, string> = {
   proposal_draft: 'Proposal Draft',
-  proposal_submitted: 'Submitted to HQ',
-  hq_review: 'HQ Review',
+  proposal_submitted: 'Submitted for Review',
+  hq_review: 'State Review',
   proposal_returned: 'Returned to Division EE',
   proposal_rejected: 'Proposal Rejected',
   dpr_prep_approved: 'DPR Preparation Approved',
   dpr_preparation: 'DPR Preparation in Progress',
-  dpr_submitted: 'DPR Submitted to HQ',
+  dpr_submitted: 'DPR Submitted for TAC',
   tac_round1_review: 'TAC Review — Round 1',
   tac_corrections_required: 'TAC Corrections Required',
   tac_round1_cleared: 'TAC Cleared — First Stage',
@@ -90,7 +90,7 @@ export const DPR_STAGE_BY_STATUS: Record<DprProposalStatus, number> = {
   closed: 12,
 };
 
-/** Mandatory uploads before Division EE can forward proposal to HQ (Stage 1). */
+/** Mandatory uploads before Division can forward proposal for state review (Stage 1). */
 export const DPR_STAGE_1_REQUIRED_DOCUMENT_TYPES = [
   'concept_note',
   'preliminary_estimate',
@@ -101,7 +101,7 @@ export const DPR_STAGE_1_REQUIRED_DOCUMENT_TYPES = [
 
 export type DprStage1DocumentType = typeof DPR_STAGE_1_REQUIRED_DOCUMENT_TYPES[number];
 
-/** Mandatory DPR deliverables before submission to HQ (Stage 3). */
+/** Mandatory DPR deliverables before TAC submission (Stage 3). */
 export const DPR_STAGE_3_REQUIRED_DOCUMENT_TYPES = [
   'engineering_design',
   'hydraulic_design',
@@ -246,7 +246,7 @@ export const DPR_STAGE_8_SANCTION_DOCUMENT_TYPES = [
 
 export const DPR_SANCTION_RECORD_STATUSES = ['govt_technical_concurrence'] as const;
 
-/** Stage 9 — HQ tender preparation initiation checklist (division addressal) */
+/** Stage 9 — Tender preparation initiation checklist (division addressal) */
 export const DPR_TENDER_PREP_CHECKLIST = [
   { key: 'finalBoqPrep', label: 'Final BOQ preparation' },
   { key: 'sorVerification', label: 'Schedule of Rates verification' },
@@ -316,19 +316,26 @@ export const DPR_ADVANCE_ACTIONS = [
 
 export type DprAdvanceAction = typeof DPR_ADVANCE_ACTIONS[number];
 
+/** State-level reviewer — Super Admin only (no HQ circle roles in demo workflow). */
+export function isStateReviewer(roles: string[]): boolean {
+  return roles.includes('super_admin');
+}
+
+export function isDivisionFieldRole(roles: string[]): boolean {
+  return roles.some((r) => ['ee', 'je', 'ae'].includes(r));
+}
+
 export function getDprStatusLabel(status: string): string {
   return DPR_STATUS_LABELS[status as DprProposalStatus] ?? status.replace(/_/g, ' ');
 }
 
-/** Division-facing labels when proposal is with HQ/TAC (read-only tracking). */
+/** Division-facing labels when proposal is with state review (read-only tracking). */
 const DPR_DIVISION_VIEWER_STATUS_LABELS: Partial<Record<DprProposalStatus, string>> = {
   tac_round1_review: 'Under Review',
 };
 
 export function isDivisionDprViewer(roles: string[]): boolean {
-  const hasDivision = roles.some((r) => ['ee', 'je', 'ae'].includes(r));
-  const hasHq = roles.some((r) => r === 'super_admin' || ['se', 'ce', 'cgm', 'md'].includes(r));
-  return hasDivision && !hasHq;
+  return isDivisionFieldRole(roles) && !isStateReviewer(roles);
 }
 
 export function getDprViewerStatusLabel(status: string, roles: string[] = []): string {

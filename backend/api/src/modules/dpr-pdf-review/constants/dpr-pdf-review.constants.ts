@@ -33,17 +33,14 @@ export type DprPdfAnnotationType = (typeof DPR_PDF_ANNOTATION_TYPES)[number];
 
 export const DPR_PDF_PHASE1_TOOLS: DprPdfAnnotationType[] = ['freehand', 'highlight', 'sticky_note'];
 
-/** HQ/state roles that review at circle/HQ scope */
-export const DPR_PDF_HQ_ROLES = ['se', 'ce', 'cgm', 'md', 'super_admin'] as const;
+/** Super Admin performs state-level PDF review in the demo workflow. */
+export const DPR_PDF_STATE_REVIEWER_ROLES = ['super_admin'] as const;
 
 /** Division field roles */
 export const DPR_PDF_DIVISION_ROLES = ['ee', 'je', 'ae'] as const;
 
 export function resolveReviewerScope(roles: string[]): DprPdfReviewerScope {
-  if (roles.some((r) => DPR_PDF_HQ_ROLES.includes(r as typeof DPR_PDF_HQ_ROLES[number]))) {
-    return 'hq';
-  }
-  if (roles.includes('se') || roles.includes('ce')) {
+  if (roles.includes('super_admin')) {
     return 'circle';
   }
   return 'division';

@@ -249,7 +249,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
         stage={4}
         title={isTracking && !canReview
           ? (tac?.awaitingDivisionAction ? 'TAC Feedback — Division' : 'TAC Status — Under Review')
-          : 'TAC Review — First Round (HQ)'}
+          : 'TAC Review — First Round'}
         proposalNo={detail?.proposalNo}
         statusLabel={displayStatus || undefined}
         busy={busy}
@@ -276,7 +276,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
               <Alert severity="info" sx={{ mb: 2 }}>
                 <Typography variant="subtitle2">Under Review</Typography>
                 <Typography variant="body2">
-                  Your DPR is with HQ/TAC for Round 1 review. You will be notified here when feedback or corrections are returned.
+                  Your DPR is with TAC for Round 1 review. You will be notified here when feedback or corrections are returned.
                 </Typography>
               </Alert>
             )}
@@ -285,7 +285,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
               <Alert severity="warning" sx={{ mb: 2 }}>
                 <Typography variant="subtitle2">TAC feedback received — action required</Typography>
                 <Typography variant="body2">
-                  HQ has completed TAC review with comments below. Use <strong>Stage 5 — Revise DPR</strong> to address observations and resubmit.
+                  TAC has completed review with comments below. Use <strong>Stage 5 — Revise DPR</strong> to address observations and resubmit.
                 </Typography>
               </Alert>
             )}
@@ -301,7 +301,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
 
             {canForward && (
               <Alert severity="warning" icon={<ForwardToInboxOutlinedIcon />} sx={{ mb: 2 }}>
-                HQ: Confirm BOQ auto-validation passed, then forward the completed DPR to TAC Section.
+                Super Admin: Confirm BOQ auto-validation passed, then forward the completed DPR to TAC Section.
                 {detail.boqValidation?.status === 'failed' && (
                   <Typography variant="body2" sx={{ mt: 1 }}>
                     BOQ validation failed — division must fix Excel errors before forwarding.
@@ -312,7 +312,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
 
             {canReview && (
               <Alert severity="info" icon={<RateReviewOutlinedIcon />} sx={{ mb: 2 }}>
-                HQ / Super Admin: Review the DPR PDF online, complete the checklist, and record the TAC decision.
+                Super Admin: Review the DPR PDF online, complete the checklist, and record the TAC decision.
               </Alert>
             )}
 
@@ -480,7 +480,7 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
                   <HistoryOutlinedIcon sx={{ fontSize: 14, verticalAlign: 'middle', mr: 0.5 }} />
-                  {isTracking && !canReview ? 'HQ/TAC Comments & Observations' : 'Workflow Comments & Observations'}
+                  {isTracking && !canReview ? 'TAC Comments & Observations' : 'Workflow Comments & Observations'}
                 </Typography>
                 <List dense disablePadding>
                   {tacEvents.map((ev) => (

@@ -302,7 +302,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
                 {revisedPdfDoc && proposalId && (
                   <Button size="small" variant="outlined" color="error" startIcon={<RateReviewOutlinedIcon />}
                     sx={{ mb: 2 }} onClick={() => setPdfViewerOpen(true)}>
-                    View HQ PDF Markup &amp; Comments
+                    View PDF Markup &amp; Comments
                   </Button>
                 )}
               </>
@@ -437,7 +437,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
 
                 {boqValidationFailed && !uploadingBoq && (
                   <Alert severity="error" sx={{ mb: 2 }}>
-                    BOQ must pass validation before HQ submission. Fix highlighted errors and re-upload Excel.
+                    BOQ must pass validation before TAC submission. Fix highlighted errors and re-upload Excel.
                   </Alert>
                 )}
 
@@ -476,7 +476,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
                       <Typography variant="caption" display="block">• Upload BOQ Excel (required — auto-validated)</Typography>
                     )}
                     {readiness?.hasBoqExcel && !readiness?.boqValidationPassed && (
-                      <Typography variant="caption" display="block">• BOQ must pass validation before HQ submission</Typography>
+                      <Typography variant="caption" display="block">• BOQ must pass validation before TAC submission</Typography>
                     )}
                   </Alert>
                 )}

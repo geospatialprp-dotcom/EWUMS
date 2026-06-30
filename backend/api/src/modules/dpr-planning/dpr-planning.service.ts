@@ -32,6 +32,7 @@ import {
   getDprStatusLabel,
   getDprViewerStatusLabel,
   isDivisionDprViewer,
+  isStateReviewer,
 } from './constants/dpr-planning.constants';
 import { AdvanceDprProposalDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
 import { DprProposal } from './entities/dpr-proposal.entity';
@@ -134,7 +135,7 @@ export class DprPlanningService {
   ) {
     const proposal = await this.requireProposal(tenantId, proposalId);
     if (!['dpr_prep_approved', 'dpr_preparation'].includes(proposal.status)) {
-      throw new BadRequestException('HQ remarks can only be added while DPR preparation is in progress');
+      throw new BadRequestException('State review remarks can only be added while DPR preparation is in progress');
     }
     this.assertCanCommentStage3(roles);
 
@@ -234,7 +235,7 @@ export class DprPlanningService {
   ) {
     const proposal = await this.requireProposal(tenantId, proposalId);
     if (!['proposal_draft', 'proposal_returned'].includes(proposal.status)) {
-      throw new BadRequestException('Only draft or returned proposals can be forwarded to HQ');
+      throw new BadRequestException('Only draft or returned proposals can be forwarded for review');
     }
     this.assertCanInitiate(roles);
     await this.assertStage1Ready(tenantId, proposal);
@@ -255,7 +256,7 @@ export class DprPlanningService {
       saved.status,
       userId,
       actorRole,
-      dto.comments ?? 'Forwarded to HQ for DPR preparation approval',
+      dto.comments ?? 'Forwarded for DPR preparation approval',
     );
     return this.toRecord(tenantId, saved, true);
   }
@@ -269,7 +270,7 @@ export class DprPlanningService {
   ) {
     const proposal = await this.requireProposal(tenantId, proposalId);
     if (!['hq_review', 'proposal_submitted'].includes(proposal.status)) {
-      throw new BadRequestException('Proposal is not awaiting HQ review');
+      throw new BadRequestException('Proposal is not awaiting state review');
     }
     this.assertCanReviewHq(roles);
 
@@ -298,7 +299,7 @@ export class DprPlanningService {
       const missing = DPR_HQ_VERIFICATION_ITEMS.filter((item) => !verification[item.key]);
       if (missing.length) {
         throw new BadRequestException(
-          `All HQ verification items must be confirmed before approval: ${missing.map((m) => m.label).join(', ')}`,
+          `All verification items must be confirmed before approval: ${missing.map((m) => m.label).join(', ')}`,
         );
       }
       const orderNo = await this.generatePrepOrderNo(tenantId);
@@ -1453,7 +1454,7 @@ export class DprPlanningService {
   ) {
     const proposal = await this.requireProposal(tenantId, proposalId);
     if (proposal.status !== 'dpr_prep_approved') {
-      throw new BadRequestException('DPR preparation can only begin after HQ approval');
+      throw new BadRequestException('DPR preparation can only begin after state approval');
     }
     this.assertCanPrepare(roles);
 
@@ -1534,7 +1535,7 @@ export class DprPlanningService {
       actorRole,
       dto.comments ?? (directToTac
         ? 'DPR submitted to TAC after BOQ auto-validation'
-        : 'Completed DPR submitted to HQ for TAC review'),
+        : 'Completed DPR submitted for TAC review'),
     );
     return this.toRecord(tenantId, saved, true, roles);
   }
@@ -1990,8 +1991,8 @@ export class DprPlanningService {
       const issues = summary?.issues ?? [];
       throw new BadRequestException(
         issues.length
-          ? `BOQ must pass validation before HQ submission: ${issues.slice(0, 3).join('; ')}`
-          : 'BOQ must pass validation before HQ submission — fix Qty×Rate, subtotal and grand total errors and re-upload',
+          ? `BOQ must pass validation before TAC submission: ${issues.slice(0, 3).join('; ')}`
+          : 'BOQ must pass validation before TAC submission — fix Qty×Rate, subtotal and grand total errors and re-upload',
       );
     }
   }
@@ -2439,7 +2440,7 @@ export class DprPlanningService {
     laReadiness?: LaReadiness,
   ) {
     const canPrepare = this.isDivisionPreparer(roles);
-    const canReview = this.isHqReviewer(roles);
+    const canReview = this.isStateReviewerRole(roles);
     const uploadedTypes = new Set(documents.map((d) => d.documentType));
     const missingDocuments = DPR_STAGE_3_REQUIRED_DOCUMENT_TYPES
       .filter((t) => !uploadedTypes.has(t))
@@ -2497,7 +2498,7 @@ export class DprPlanningService {
         && tacPackageComplete
         && canPrepare
         && canSubmitLa,
-      canSaveRemarks: inPrepStatus && this.isHqReviewer(roles),
+      canSaveRemarks: inPrepStatus && this.isStateReviewerRole(roles),
       canReviewOnly: inPrepStatus && canReview && !canPrepare,
       inPreparation,
       tacPackage: {
@@ -2687,12 +2688,12 @@ export class DprPlanningService {
   }
 
   private canReviewTacRound2(roles: string[]) {
-    return roles.some((r) => ['se', 'ce', 'cgm'].includes(r));
+    return isStateReviewer(roles);
   }
 
   private assertCanReviewTacRound2(roles: string[]) {
     if (!this.canReviewTacRound2(roles)) {
-      throw new ForbiddenException('Only HQ / Secretariat officials (SE, CE, CGM) can conduct Round 2 TAC / Govt examination');
+      throw new ForbiddenException('Only Super Admin can conduct Round 2 TAC / Govt examination');
     }
   }
 
@@ -2873,12 +2874,12 @@ export class DprPlanningService {
   }
 
   private canBeginTenderProcessing(roles: string[]) {
-    return roles.some((r) => ['ee', 'se', 'ce'].includes(r));
+    return roles.some((r) => ['ee'].includes(r));
   }
 
   private assertCanBeginTenderProcessing(roles: string[]) {
     if (!this.canBeginTenderProcessing(roles)) {
-      throw new ForbiddenException('Only EE or HQ officials (SE, CE) can begin tender processing');
+      throw new ForbiddenException('Only Division EE can begin tender processing');
     }
   }
 
@@ -2892,52 +2893,52 @@ export class DprPlanningService {
   }
 
   private canPublishTender(roles: string[]) {
-    return roles.some((r) => ['ee', 'se', 'ce'].includes(r));
+    return roles.includes('ee') || isStateReviewer(roles);
   }
 
   private assertCanPublishTender(roles: string[]) {
     if (!this.canPublishTender(roles)) {
-      throw new ForbiddenException('Only EE or HQ officials (SE, CE) can publish tender');
+      throw new ForbiddenException('Only Division EE can publish tender');
     }
   }
 
   private canInitiateTenderPrep(roles: string[]) {
-    return roles.some((r) => ['se', 'ce'].includes(r));
+    return isStateReviewer(roles);
   }
 
   private assertCanInitiateTenderPrep(roles: string[]) {
     if (!this.canInitiateTenderPrep(roles)) {
-      throw new ForbiddenException('Only HQ officials (SE, CE) can initiate tender preparation');
+      throw new ForbiddenException('Only Super Admin can initiate tender preparation');
     }
   }
 
   private canUploadTenderPrep(roles: string[]) {
-    return roles.some((r) => ['ee', 'je', 'ae', 'se', 'ce'].includes(r));
+    return roles.some((r) => ['ee', 'je', 'ae'].includes(r));
   }
 
   private assertCanUploadTenderPrep(roles: string[]) {
     if (!this.canUploadTenderPrep(roles)) {
-      throw new ForbiddenException('Only division or HQ officials can upload tender preparation documents');
+      throw new ForbiddenException('Only division officials (EE, JE, AE) can upload tender preparation documents');
     }
   }
 
   private canRecordSanction(roles: string[]) {
-    return roles.some((r) => ['se', 'ce', 'cgm', 'md'].includes(r));
+    return isStateReviewer(roles);
   }
 
   private assertCanRecordSanction(roles: string[]) {
     if (!this.canRecordSanction(roles)) {
-      throw new ForbiddenException('Only Secretariat / HQ officials (SE, CE, CGM, MD) can record administrative sanction');
+      throw new ForbiddenException('Only Super Admin can record administrative sanction');
     }
   }
 
   private canForwardToSecretariat(roles: string[]) {
-    return roles.some((r) => ['se', 'ce', 'cgm'].includes(r));
+    return isStateReviewer(roles);
   }
 
   private assertCanForwardToSecretariat(roles: string[]) {
     if (!this.canForwardToSecretariat(roles)) {
-      throw new ForbiddenException('Only HQ officials (SE, CE, CGM) can forward DPR to Secretariat / Sachiwalaya');
+      throw new ForbiddenException('Only Super Admin can forward DPR to Secretariat / Sachiwalaya');
     }
   }
 
@@ -3006,12 +3007,12 @@ export class DprPlanningService {
     const readiness = await this.buildStage3Readiness(tenantId, proposal, documents, [], laReadiness);
     if (!readiness.complete) {
       throw new BadRequestException(
-        `Cannot submit DPR to HQ — missing documents: ${readiness.missingDocuments.join(', ')}`,
+        `Cannot submit DPR for TAC — missing documents: ${readiness.missingDocuments.join(', ')}`,
       );
     }
     if (!readiness.canSubmitToHq) {
       if (readiness.tacPackage?.hasBoqExcel && !readiness.tacPackage?.boqValidationPassed) {
-        throw new BadRequestException('BOQ must pass validation before HQ submission — fix highlighted errors and re-upload Excel');
+        throw new BadRequestException('BOQ must pass validation before TAC submission — fix highlighted errors and re-upload Excel');
       }
       if (laReadiness.missingActions.length) {
         throw new BadRequestException(
@@ -3050,7 +3051,7 @@ export class DprPlanningService {
       this.assertCanRecordSanction(roles);
     } else if (def.stage === 9) {
       if (!DPR_TENDER_PREP_STATUSES.includes(proposal.status as typeof DPR_TENDER_PREP_STATUSES[number])) {
-        throw new BadRequestException('Tender preparation documents can only be uploaded after HQ initiates tender preparation');
+        throw new BadRequestException('Tender preparation documents can only be uploaded after Super Admin initiates tender preparation');
       }
       this.assertCanUploadTenderPrep(roles);
     } else if (def.stage === 10) {
@@ -3086,22 +3087,22 @@ export class DprPlanningService {
   }
 
   private isDivisionPreparer(roles: string[]) {
-    return roles.some((r) => ['ee', 'je'].includes(r));
+    return roles.some((r) => ['ee', 'je', 'ae'].includes(r));
   }
 
-  private isHqReviewer(roles: string[]) {
-    return roles.some((r) => r === 'super_admin' || ['se', 'ce', 'cgm', 'md'].includes(r));
+  private isStateReviewerRole(roles: string[]) {
+    return isStateReviewer(roles);
   }
 
   private assertCanPrepare(roles: string[]) {
     if (!this.isDivisionPreparer(roles)) {
-      throw new ForbiddenException('Only Division EE or JE can prepare, upload, and submit Stage 3 DPR documents');
+      throw new ForbiddenException('Only Division EE, JE, or AE can prepare, upload, and submit Stage 3 DPR documents');
     }
   }
 
   private assertCanCommentStage3(roles: string[]) {
-    if (!this.isHqReviewer(roles)) {
-      throw new ForbiddenException('Only HQ officials (SE, CE, CGM, MD) can save Stage 3 review remarks');
+    if (!this.isStateReviewerRole(roles)) {
+      throw new ForbiddenException('Only Super Admin can save Stage 3 review remarks');
     }
   }
 
@@ -3144,7 +3145,7 @@ export class DprPlanningService {
         ...readiness.missingDocuments.map((d) => `Missing document: ${d}`),
         ...readiness.missingFields.map((f) => `Missing field: ${f}`),
       ];
-      throw new BadRequestException(`Cannot forward to HQ — ${parts.join('; ')}`);
+      throw new BadRequestException(`Cannot forward for review — ${parts.join('; ')}`);
     }
   }
 
@@ -3166,7 +3167,7 @@ export class DprPlanningService {
 
   private buildHqReviewState(proposal: DprProposal, roles: string[] = []) {
     const pending = ['hq_review', 'proposal_submitted'].includes(proposal.status);
-    const canReview = pending && this.isHqReviewer(roles);
+    const canReview = pending && this.isStateReviewerRole(roles);
     const verification = (proposal.hqVerification ?? {}) as Record<string, boolean>;
     const checklist = DPR_HQ_VERIFICATION_ITEMS.map((item) => ({
       key: item.key,
@@ -3229,40 +3230,40 @@ export class DprPlanningService {
   }
 
   private canForwardToTac(roles: string[]) {
-    return roles.some((r) => ['se', 'ce', 'cgm', 'md'].includes(r));
+    return isStateReviewer(roles);
   }
 
   private canReviewTac(roles: string[]) {
-    return this.isHqReviewer(roles);
+    return isStateReviewer(roles);
   }
 
   private assertCanForwardToTac(roles: string[]) {
     if (!this.canForwardToTac(roles)) {
-      throw new ForbiddenException('Only HQ officials can forward completed DPR to TAC Section');
+      throw new ForbiddenException('Only Super Admin can forward completed DPR to TAC Section');
     }
   }
 
   private assertCanReviewTac(roles: string[]) {
     if (!this.canReviewTac(roles)) {
-      throw new ForbiddenException('Only HQ officials (SE, CE, CGM, MD) or Super Admin can perform Round 1 TAC review');
+      throw new ForbiddenException('Only Super Admin can perform Round 1 TAC review');
     }
   }
 
   private assertCanReviewHq(roles: string[]) {
-    if (!this.isHqReviewer(roles)) {
-      throw new ForbiddenException('Only HQ officials (SE, CE, CGM, MD) or Super Admin (demo) can review and approve DPR proposals');
+    if (!this.isStateReviewerRole(roles)) {
+      throw new ForbiddenException('Only Super Admin can review and approve DPR proposals');
     }
   }
 
   private assertCanInitiate(roles: string[]) {
-    if (!roles.some((r) => ['ee', 'je'].includes(r))) {
-      throw new ForbiddenException('Only Division EE (or JE assisting) can initiate and prepare Stage 1 proposals');
+    if (!roles.some((r) => ['ee', 'je', 'ae'].includes(r))) {
+      throw new ForbiddenException('Only Division EE, JE, or AE can initiate and prepare Stage 1 proposals');
     }
   }
 
   private assertEditableDraft(proposal: DprProposal) {
     if (!['proposal_draft', 'proposal_returned'].includes(proposal.status)) {
-      throw new BadRequestException('Documents and draft fields can only be edited before HQ submission');
+      throw new BadRequestException('Documents and draft fields can only be edited before state review submission');
     }
   }
 
