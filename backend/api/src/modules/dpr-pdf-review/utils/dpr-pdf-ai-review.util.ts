@@ -107,10 +107,52 @@ function pushFinding(
   findings.push(finding);
 }
 
+function estimatePageCountFromBuffer(buffer: Buffer): number {
+  const raw = buffer.toString('latin1');
+  const typedPages = (raw.match(/\/Type\s*\/Page\b/g) ?? []).length;
+  if (typedPages > 0) return typedPages;
+  return Math.max(1, Math.floor((raw.match(/\/Page\b/g) ?? []).length / 3));
+}
+
+/** Fallback when pdf-parse chokes on malformed PDF metadata (JSON.parse(null) etc.) */
+function extractTextFallback(buffer: Buffer): { text: string; pageCount: number } {
+  const raw = buffer.toString('latin1');
+  const pageCount = estimatePageCountFromBuffer(buffer);
+  const chunks: string[] = [];
+  const parenRegex = /\(([^\\)]*(?:\\.[^\\)]*)*)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = parenRegex.exec(raw)) !== null) {
+    const t = m[1]
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\\(/g, '(')
+      .replace(/\\\)/g, ')')
+      .replace(/\\\\/g, '\\');
+    if (t.length > 1 && /[A-Za-z0-9]/.test(t)) chunks.push(t);
+  }
+  return { text: chunks.join(' '), pageCount };
+}
+
 export async function parsePdfToPages(buffer: Buffer): Promise<PageSlice[]> {
-  const parsed = await pdfParse(buffer);
-  const fullText = parsed.text ?? '';
-  const pageCount = Math.max(parsed.numpages ?? 1, 1);
+  let fullText = '';
+  let pageCount = 1;
+  try {
+    const parsed = await pdfParse(buffer);
+    fullText = parsed.text ?? '';
+    pageCount = Math.max(parsed.numpages ?? 1, 1);
+  } catch {
+    const fb = extractTextFallback(buffer);
+    fullText = fb.text;
+    pageCount = fb.pageCount;
+  }
+  if (!fullText.trim()) {
+    const fb = extractTextFallback(buffer);
+    fullText = fb.text;
+    pageCount = fb.pageCount;
+  }
+  if (!fullText.trim()) {
+    throw new Error('Could not extract text from this PDF — it may be scanned/image-only');
+  }
 
   if (fullText.includes('\f')) {
     const parts = fullText.split('\f');

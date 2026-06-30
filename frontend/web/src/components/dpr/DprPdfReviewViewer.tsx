@@ -67,7 +67,8 @@ interface Props {
 
 async function parseBlobErrorMessage(blob: Blob, fallback: string): Promise<string> {
   try {
-    const text = await blob.slice(0, 4096).text();
+    const text = (await blob.slice(0, 4096).text()).trim();
+    if (!text || text === 'null') return fallback;
     const parsed = JSON.parse(text) as { message?: string | string[] };
     if (typeof parsed.message === 'string') return parsed.message;
     if (Array.isArray(parsed.message)) return parsed.message.join(', ');
@@ -424,7 +425,7 @@ export default function DprPdfReviewViewer({
         setComments((prev) => [...prev, data.summaryComment as PdfComment]);
       }
     } catch (err) {
-      setError(getApiError(err, 'AI review failed'));
+      setError(await resolveApiError(err, 'AI review failed'));
     } finally {
       setAiReviewLoading(false);
     }

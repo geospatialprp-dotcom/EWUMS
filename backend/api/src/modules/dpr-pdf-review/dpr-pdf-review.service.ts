@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -356,7 +357,17 @@ export class DprPdfReviewService {
       documentId,
     );
     const buffer = readFileSync(absolutePath);
-    const result = await runDprPdfAiReview(buffer);
+    let result;
+    try {
+      result = await runDprPdfAiReview(buffer);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(
+        msg.includes('valid JSON') || msg.includes('pdf-parse')
+          ? 'AI review could not parse this PDF — try re-exporting the DPR as a standard text PDF'
+          : `AI review failed: ${msg}`,
+      );
+    }
 
     await this.deleteAiAnnotations(tenantId, review.id);
 
