@@ -11,7 +11,6 @@ import {
   isTotalCostLabel,
   isGrandTotalLabel,
 } from './dpr-boq-validation.util';
-import { resolveUnitColumn } from '../../construction/utils/boq-unit.util';
 import type {
   DprAuditError,
   DprAuditSeverity,
@@ -158,10 +157,6 @@ function isTotalLabel(text: string): boolean {
   return isSubTotalLabel(text) || isSectionTotalLabel(text) || isTotalCostLabel(text) || isGrandTotalLabel(text);
 }
 
-function isSkipLabel(text: string): boolean {
-  return isTotalLabel(text);
-}
-
 function auditFormulasOnSheet(
   sheet: XLSX.WorkSheet,
   sheetName: string,
@@ -224,187 +219,6 @@ function auditFormulasOnSheet(
   }
 
   return { errors, rows, verified, unverified };
-}
-
-function isTharaliHeaderMap(headerMap: Record<string, number>): boolean {
-  return headerMap.ujn !== undefined
-    || (headerMap.dsr !== undefined && headerMap.total_amount !== undefined);
-}
-
-function tharaliColumnKeys(headerMap: Record<string, number>): Array<{ key: string; label: string; col: number }> {
-  const cols: Array<{ key: string; label: string; col: number }> = [];
-  if (headerMap.dsr !== undefined) cols.push({ key: 'dsr', label: 'DSR', col: headerMap.dsr });
-  if (headerMap.ujn !== undefined) cols.push({ key: 'ujn', label: 'UJN', col: headerMap.ujn });
-  if (headerMap.sor_pwd !== undefined) cols.push({ key: 'sor_pwd', label: 'SOR(PWD)', col: headerMap.sor_pwd });
-  if (headerMap.nsi !== undefined) cols.push({ key: 'nsi', label: 'NSI', col: headerMap.nsi });
-  if (headerMap.total_amount !== undefined) cols.push({ key: 'total_amount', label: 'Total Amount', col: headerMap.total_amount });
-  return cols;
-}
-
-function isDescriptionOnlyAuditRow(cells: string[], headerMap: Record<string, number>): boolean {
-  const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
-  const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
-  if (qty > 0 || rate > 0) return false;
-  const tharaliCols = tharaliColumnKeys(headerMap);
-  if (tharaliCols.length > 0) {
-    if (tharaliCols.some(({ col }) => parseNumber(cells[col]) > 0)) return false;
-  } else if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) {
-    return false;
-  }
-  const desc = headerMap.description !== undefined ? cells[headerMap.description] : cells.filter(Boolean).join(' ');
-  return (desc ?? '').trim().length >= 3;
-}
-
-function auditVerticalAmountColumn(
-  sheet: XLSX.WorkSheet,
-  sheetName: string,
-  pageNo: number,
-  headerMap: Record<string, number>,
-  headerRowIdx: number,
-  rows: (string | number)[][],
-): DprAuditError[] {
-  const errors: DprAuditError[] = [];
-  const headerCells = rows[headerRowIdx]?.map((c) => String(c ?? '').trim()) ?? [];
-  const map = { ...headerMap };
-  const unitIdx = resolveUnitColumn(map, headerCells);
-  if (unitIdx !== undefined) map.unit = unitIdx;
-
-  const tharali = isTharaliHeaderMap(map);
-  const columns = tharali ? tharaliColumnKeys(map) : (
-    map.amount !== undefined
-      ? [{ key: 'amount', label: 'Amount', col: map.amount }]
-      : []
-  );
-  if (!columns.length) return errors;
-
-  const runningSums = new Map<string, number>();
-  columns.forEach(({ key }) => runningSums.set(key, 0));
-  let totalCostSums = new Map<string, number>();
-  columns.forEach(({ key }) => totalCostSums.set(key, 0));
-  let afterSubtotalForTotalCost = false;
-
-  for (let i = headerRowIdx + 1; i < rows.length; i += 1) {
-    const cells = rows[i].map((c) => String(c ?? '').trim());
-    const joined = cells.filter(Boolean).join(' ');
-    const desc = map.description !== undefined ? cells[map.description] : joined;
-
-    if (isDescriptionOnlyAuditRow(cells, map)) continue;
-
-    const isItem = columns.some(({ col }) => parseNumber(cells[col]) > 0)
-      || (map.qty !== undefined && parseNumber(cells[map.qty]) > 0)
-      || (map.rate !== undefined && parseNumber(cells[map.rate]) > 0);
-    // Use description column only for skip — joined text includes amount cells and causes false exclusions.
-    if (isItem && !isSkipLabel(desc) && !isSectionTotalLabel(desc)) {
-      for (const { key, col } of columns) {
-        const val = parseNumber(cells[col]);
-        runningSums.set(key, (runningSums.get(key) ?? 0) + val);
-        if (afterSubtotalForTotalCost) {
-          totalCostSums.set(key, (totalCostSums.get(key) ?? 0) + val);
-        }
-      }
-    }
-
-    if (isSubTotalLabel(joined) || isSubTotalLabel(desc)) {
-      for (const { key, label, col } of columns) {
-        const declared = parseNumber(cells[col]);
-        const computed = runningSums.get(key) ?? 0;
-        totalCostSums.set(key, declared);
-        if (declared <= 0 && computed <= 0) continue;
-        if (Math.abs(declared - computed) > totalRowTolerance(Math.max(declared, computed))) {
-          errors.push({
-            sheetName, pageNo, rowNo: i + 1,
-            column: label,
-            cellRef: cellRef(col, i),
-            errorType: 'Sub Total mismatch',
-            category: 'vertical', severity: 'major',
-            checkOrder: 6,
-            expectedValue: computed, actualValue: declared,
-            difference: round2(declared - computed),
-            message: `Step 6 — Sub Total row ${i + 1}, ${label}: Excel ₹${declared.toLocaleString('en-IN')} ≠ calculated ₹${computed.toLocaleString('en-IN')}`,
-          });
-        }
-      }
-      afterSubtotalForTotalCost = true;
-
-      if (tharali && map.total_amount !== undefined) {
-        const dsr = map.dsr !== undefined ? parseNumber(cells[map.dsr]) : 0;
-        const ujn = map.ujn !== undefined ? parseNumber(cells[map.ujn]) : 0;
-        const sorPwd = map.sor_pwd !== undefined ? parseNumber(cells[map.sor_pwd]) : 0;
-        const nsi = map.nsi !== undefined ? parseNumber(cells[map.nsi]) : 0;
-        const totalAmt = parseNumber(cells[map.total_amount]);
-        const componentSum = dsr + ujn + sorPwd + nsi;
-        if (totalAmt > 0 && (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0)
-          && Math.abs(totalAmt - componentSum) > totalRowTolerance(totalAmt)) {
-          errors.push({
-            sheetName, pageNo, rowNo: i + 1,
-            column: 'Total Amount',
-            cellRef: cellRef(map.total_amount, i),
-            errorType: 'Component sum ≠ Total Amount',
-            category: 'horizontal', severity: 'major',
-            checkOrder: 6,
-            expectedValue: componentSum, actualValue: totalAmt,
-            difference: round2(totalAmt - componentSum),
-            message: `Step 6 — Sub Total row ${i + 1}: DSR+UJN+SOR(PWD)+NSI = ${componentSum} ≠ Total Amount ${totalAmt}`,
-          });
-        }
-      }
-
-      columns.forEach(({ key }) => runningSums.set(key, 0));
-      continue;
-    }
-
-    if (isTotalCostLabel(joined) || isTotalCostLabel(desc)) {
-      const stepLabel = /total\s*cost/i.test(joined) || /total\s*cost/i.test(desc) ? 'Total Cost' : 'Grand Total';
-      for (const { key, label, col } of columns) {
-        const declared = parseNumber(cells[col]);
-        const computed = totalCostSums.get(key) ?? 0;
-        if (declared <= 0 && computed <= 0) continue;
-        if (Math.abs(declared - computed) > totalRowTolerance(Math.max(declared, computed))) {
-          errors.push({
-            sheetName, pageNo, rowNo: i + 1,
-            column: label,
-            cellRef: cellRef(col, i),
-            errorType: `${stepLabel} mismatch`,
-            category: 'vertical', severity: 'critical',
-            checkOrder: 7,
-            expectedValue: computed, actualValue: declared,
-            difference: round2(declared - computed),
-            message: `Step 7 — ${stepLabel} row ${i + 1}, ${label}: Excel ₹${declared.toLocaleString('en-IN')} ≠ calculated ₹${computed.toLocaleString('en-IN')}`,
-          });
-        }
-      }
-
-      if (tharali && map.total_amount !== undefined) {
-        const dsr = map.dsr !== undefined ? parseNumber(cells[map.dsr]) : 0;
-        const ujn = map.ujn !== undefined ? parseNumber(cells[map.ujn]) : 0;
-        const sorPwd = map.sor_pwd !== undefined ? parseNumber(cells[map.sor_pwd]) : 0;
-        const nsi = map.nsi !== undefined ? parseNumber(cells[map.nsi]) : 0;
-        const totalAmt = parseNumber(cells[map.total_amount]);
-        const componentSum = dsr + ujn + sorPwd + nsi;
-        if (totalAmt > 0 && (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0)
-          && Math.abs(totalAmt - componentSum) > totalRowTolerance(totalAmt)) {
-          errors.push({
-            sheetName, pageNo, rowNo: i + 1,
-            column: 'Total Amount',
-            cellRef: cellRef(map.total_amount, i),
-            errorType: 'Component sum ≠ Total Amount',
-            category: 'horizontal', severity: 'major',
-            checkOrder: 7,
-            expectedValue: componentSum, actualValue: totalAmt,
-            difference: round2(totalAmt - componentSum),
-            message: `Step 7 — ${stepLabel} row ${i + 1}: DSR+UJN+SOR(PWD)+NSI = ${componentSum} ≠ Total Amount ${totalAmt}`,
-          });
-        }
-      }
-
-      totalCostSums = new Map<string, number>();
-      columns.forEach(({ key }) => totalCostSums.set(key, 0));
-      columns.forEach(({ key }) => runningSums.set(key, 0));
-      afterSubtotalForTotalCost = false;
-    }
-  }
-
-  return errors;
 }
 
 function auditDataQuality(
@@ -819,14 +633,7 @@ export function buildExcelAudit(
     // Store only issues for DB/API payload — full audit available in Excel export
     formulaAudits.push(...formulaAudit.rows.filter((r) => r.status !== 'verified'));
     errors.push(...formulaAudit.errors);
-
-    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1, defval: '', raw: true });
-    const headerRowIdx = (page.headerRowNo ?? 1) - 1;
-    const headerMap = page.headerMap ?? {};
-    if ((page.totalChecks ?? []).length === 0) {
-      errors.push(...auditVerticalAmountColumn(sheet, page.sheetName, page.pageNo, headerMap, headerRowIdx, rows));
-    }
-    // Skip duplicate-description, blank-description, and missing-formula heuristics — they caused false positives.
+    // Step 6/7 vertical totals: validateTotalRows → totalCheckToErrors (single source of truth).
   }
 
   for (const check of crossChecks) {

@@ -14,7 +14,8 @@
     "db:backup": "node scripts/backup-database.js",
     "db:restore": "node scripts/restore-database.js",
     "setup:postgres-owner": "node scripts/setup-postgres-owner.js",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "test:boq-section-totals": "npm run build && node dist/modules/dpr-planning/utils/dpr-boq-section-totals.test.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",

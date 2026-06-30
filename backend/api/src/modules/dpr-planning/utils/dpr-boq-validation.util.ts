@@ -505,11 +505,10 @@ function isDescriptionOnlyRow(cells: string[], headerMap: Record<string, number>
   const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
   const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
   if (qty > 0 || rate > 0) return false;
+  if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) return false;
   if (isTharaliLayout(headerMap)) {
     const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
     if (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0 || totalAmount > 0) return false;
-  } else if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) {
-    return false;
   }
   const desc = headerMap.description !== undefined
     ? String(cells[headerMap.description] ?? '').trim()
@@ -522,17 +521,34 @@ function isContributingItemRow(cells: string[], headerMap: Record<string, number
   return isBoqItemRow(cells, headerMap);
 }
 
-/** Raw per-column amounts for Step 6/7 vertical sums (no totalAmount→ujn aliasing). */
+/** Raw per-column amounts for Step 6/7 vertical sums. */
 function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
   if (isTharaliLayout(headerMap)) {
     const c = tharaliComponentsFromRow(cells, headerMap);
+    let { dsr, ujn, sorPwd, nsi, totalAmount } = c;
+    const fallbackAmount = headerMap.amount !== undefined ? parseNumber(cells[headerMap.amount]) : 0;
+    const componentSum = dsr + ujn + sorPwd + nsi;
+    if (fallbackAmount > 0 && componentSum <= 0 && totalAmount <= 0) {
+      if (headerMap.ujn !== undefined) {
+        ujn = fallbackAmount;
+        if (headerMap.total_amount !== undefined) totalAmount = fallbackAmount;
+      } else if (headerMap.total_amount !== undefined) {
+        totalAmount = fallbackAmount;
+      } else {
+        ujn = fallbackAmount;
+      }
+    } else if (totalAmount > 0 && componentSum <= 0 && headerMap.ujn !== undefined && ujn <= 0) {
+      ujn = totalAmount;
+    } else if (ujn > 0 && totalAmount <= 0 && headerMap.total_amount !== undefined) {
+      totalAmount = ujn;
+    }
     return {
-      dsr: c.dsr,
-      ujn: c.ujn,
-      sorPwd: c.sorPwd,
-      nsi: c.nsi,
-      totalAmount: c.totalAmount,
-      amount: c.totalAmount > 0 ? c.totalAmount : c.ujn,
+      dsr,
+      ujn,
+      sorPwd,
+      nsi,
+      totalAmount,
+      amount: totalAmount > 0 ? totalAmount : ujn,
     };
   }
   return rowColumnAmounts(cells, headerMap);
@@ -556,7 +572,9 @@ function isSectionContributingRow(
     const c = tharaliComponentsFromRow(cells, headerMap);
     const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
     const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+    const fallbackAmount = headerMap.amount !== undefined ? parseNumber(cells[headerMap.amount]) : 0;
     return c.dsr > 0 || c.ujn > 0 || c.sorPwd > 0 || c.nsi > 0 || c.totalAmount > 0
+      || fallbackAmount > 0
       || (qty > 0 && rate > 0);
   }
   return isBoqItemRow(cells, headerMap);
@@ -588,7 +606,7 @@ function isDataRow(cells: string[], headerMap: Record<string, number>): boolean 
   return isBoqItemRow(cells, headerMap);
 }
 
-function validateTotalRows(
+export function validateTotalRows(
   rows: (string | number)[][],
   headerMap: Record<string, number>,
   headerRowNo: number | null,
@@ -1337,7 +1355,7 @@ function validateWorkbookPages(workbook: XLSX.WorkBook, visibleSheetNames?: stri
     else if (failedItems > 0 || failedTotals.length > 0 || pageTotalMatch === false) status = 'failed';
     else if (warningItems > 0) status = 'warning';
 
-    pages.push(slimPage({
+    pages.push({
       pageNo: pageIdx + 1,
       sheetName,
       sheetType,
@@ -1354,14 +1372,14 @@ function validateWorkbookPages(workbook: XLSX.WorkBook, visibleSheetNames?: stri
       hasIssues: status === 'failed' || status === 'warning',
       issues,
       keyTotals,
-        headerLabels: headerInfo.headerLabels,
-        headerRowNo: headerInfo.headerRowNo,
-        headerValid: headerInfo.headerValid,
-        headerIssues: headerInfo.headerIssues,
-        headerMap: headerInfo.headerMap,
-        totalChecks,
+      headerLabels: headerInfo.headerLabels,
+      headerRowNo: headerInfo.headerRowNo,
+      headerValid: headerInfo.headerValid,
+      headerIssues: headerInfo.headerIssues,
+      headerMap: headerInfo.headerMap,
+      totalChecks,
       lines,
-    }));
+    });
   });
 
   return pages;
@@ -1449,8 +1467,8 @@ export function validateBoqExcelBuffer(buffer: Buffer): DprExcelAuditReport {
     grandTotalMatch,
     firstCalculationPageNo,
     pages,
-    lines: slimLines(allLines),
-    crossChecks: slimmedCrossChecks,
+    lines: allLines,
+    crossChecks,
     summary: {
       message: summaryMessage,
       readyForTac,
@@ -1458,5 +1476,11 @@ export function validateBoqExcelBuffer(buffer: Buffer): DprExcelAuditReport {
     },
   };
 
-  return attachExcelAudit(workbook, sheetNames, hidden, baseReport);
+  const audited = attachExcelAudit(workbook, sheetNames, hidden, baseReport);
+  return {
+    ...audited,
+    pages: audited.pages.map(slimPage),
+    lines: slimLines(allLines),
+    crossChecks: slimmedCrossChecks,
+  };
 }
