@@ -191,7 +191,7 @@ const TOTAL_LABEL_PATTERNS: Array<{ key: string; pattern: RegExp; priority: numb
 ];
 
 export function isSubTotalLabel(text: string): boolean {
-  return /sub[\s-]*total/i.test(text);
+  return /^sub[\s-]*total\s*$/i.test(String(text ?? '').trim());
 }
 
 export function isSectionTotalLabel(text: string): boolean {
@@ -219,6 +219,25 @@ function addColumnSums(a: BoqAmountColumns, b: BoqAmountColumns): BoqAmountColum
     totalAmount: a.totalAmount + b.totalAmount,
     amount: a.amount + b.amount,
   };
+}
+
+/** Mislabeled Sub Total (cwra row 8): add item amounts without duplicating rollup columns already in section. */
+function addPrematureSubtotalRow(section: BoqAmountColumns, row: BoqAmountColumns): BoqAmountColumns {
+  const keys: (keyof BoqAmountColumns)[] = ['dsr', 'ujn', 'sorPwd', 'nsi', 'totalAmount'];
+  const result = { ...section };
+  for (const key of keys) {
+    const prior = section[key];
+    const next = row[key];
+    if (next <= 0) continue;
+    const tol = totalRowTolerance(Math.max(prior, next));
+    if (prior > 0 && Math.abs(next - prior) <= tol) {
+      result[key] = next;
+      continue;
+    }
+    result[key] = round2(prior + next);
+  }
+  result.amount = result.totalAmount > 0 ? result.totalAmount : result.ujn;
+  return result;
 }
 
 function tharaliDirectColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
@@ -525,7 +544,7 @@ function cwraLumpSumNeeded(
   if (componentSum > 0 || direct.totalAmount > 0) return false;
   if (headerMap.rate !== undefined && parseNumber(cells[headerMap.rate]) > 0) return true;
   if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) return true;
-  return false;
+  return cwraSectionLumpSumFallback(cells, headerMap) > 0;
 }
 
 function assignTharaliLumpSum(
@@ -655,8 +674,30 @@ function resolveSubTotalLabel(descCol: string, joined: string): boolean {
   return isSubTotalLabel(joined);
 }
 
-/** Item rows below a premature Sub Total label — real subtotal row comes later (cwra rows 8–10). */
-function hasItemRowsBelow(
+/** Another Sub Total label below before Total Cost — current row is premature (cwra row 11). */
+function hasSubTotalRowBelow(
+  rows: (string | number)[][],
+  headerMap: Record<string, number>,
+  fromIdx: number,
+): boolean {
+  for (let j = fromIdx + 1; j < rows.length; j += 1) {
+    const cells = rows[j].map((c) => String(c ?? '').trim());
+    const joined = rowLabel(cells);
+    if (!joined) continue;
+
+    const descCol = headerMap.description !== undefined
+      ? String(cells[headerMap.description] ?? '').trim()
+      : joined;
+
+    if (isTotalCostLabel(joined) || isTotalCostLabel(descCol)) break;
+    if (isGrandTotalLabel(joined) || isGrandTotalLabel(descCol)) break;
+    if (resolveSubTotalLabel(descCol, joined)) return true;
+  }
+  return false;
+}
+
+/** Item rows below a premature Sub Total label — real subtotal row comes later (cwra rows 8–11). */
+function hasContributingItemRowsBelow(
   rows: (string | number)[][],
   headerMap: Record<string, number>,
   fromIdx: number,
@@ -677,6 +718,15 @@ function hasItemRowsBelow(
     if (sectionRowHasAmounts(cells, headerMap) && !isDescriptionOnlyRow(cells, headerMap)) return true;
   }
   return false;
+}
+
+function hasItemRowsBelow(
+  rows: (string | number)[][],
+  headerMap: Record<string, number>,
+  fromIdx: number,
+): boolean {
+  return hasContributingItemRowsBelow(rows, headerMap, fromIdx)
+    || hasSubTotalRowBelow(rows, headerMap, fromIdx);
 }
 
 /** Rows that contribute to Step 6/7 vertical column sums — direct column amounts, not qty/rate gates. */
@@ -755,19 +805,7 @@ export function validateTotalRows(
     const isSubTotal = hasSubTotalLabel && !prematureSubTotal;
     const isTotalCost = isTotalCostLabel(joined) || isTotalCostLabel(descCol);
 
-    /** cwra row 8 + so&Tra: mislabeled Sub Total starts a new sum block; prior rows (1–7) excluded. */
-    if (prematureSubTotal) {
-      sectionItemSums = emptyColumnSums();
-      if (sectionRowHasAmounts(cells, headerMap)) {
-        const rowAmts = sectionRowColumnAmounts(cells, headerMap);
-        sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
-        totalCostContributors = rowAmts;
-        afterSubtotalForTotalCost = true;
-      }
-      continue;
-    }
-
-    if (!isSubTotal && !isTotalCost) {
+    if (!isSubTotal && !isTotalCost && !prematureSubTotal) {
       const contributes = isSectionContributingRow(cells, headerMap, joined, descCol, false);
       if (contributes) {
         const rowAmts = sectionRowColumnAmounts(cells, headerMap);
@@ -778,8 +816,29 @@ export function validateTotalRows(
       }
     }
 
+    if (prematureSubTotal) {
+      if (sectionRowHasAmounts(cells, headerMap)) {
+        const rowAmts = sectionRowColumnAmounts(cells, headerMap);
+        const realSubtotalBelow = hasSubTotalRowBelow(rows, headerMap, i);
+        const itemsBelow = hasContributingItemRowsBelow(rows, headerMap, i);
+        if (realSubtotalBelow && itemsBelow) {
+          /** cwra row 8 — mislabeled Sub Total starts a fresh block; rows 1–7 excluded. */
+          sectionItemSums = addColumnSums(emptyColumnSums(), rowAmts);
+        } else if (realSubtotalBelow) {
+          /** cwra row 11 — mislabeled Sub Total; contribute as item before real subtotal row. */
+          sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
+        } else {
+          /** so&Tra/sma/dsa — sole premature Sub Total before Total Cost; Step 7 base. */
+          sectionItemSums = addPrematureSubtotalRow(sectionItemSums, rowAmts);
+          totalCostContributors = rowAmts;
+          afterSubtotalForTotalCost = true;
+        }
+      }
+      continue;
+    }
+
     if (isSubTotal) {
-      const declared = rowColumnAmounts(cells, headerMap);
+      const declared = sectionRowColumnAmounts(cells, headerMap);
       const hasDeclared = activeColumns.some((col) => declared[col.key] > 0);
       if (!hasDeclared) continue;
 
