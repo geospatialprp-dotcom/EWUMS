@@ -11,13 +11,11 @@ import HighlightOutlinedIcon from '@mui/icons-material/HighlightOutlined';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import CommentOutlinedIcon from '@mui/icons-material/CommentOutlined';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import axios from 'axios';
 import { dprPdfReviewApi, dprPlanningApi } from '../../services/api';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 type AnnotationTool = 'freehand' | 'highlight' | 'sticky_note';
 
@@ -49,23 +47,77 @@ interface Props {
   onClose: () => void;
 }
 
-function getApiError(err: unknown, fallback: string): string {
+async function parseBlobErrorMessage(blob: Blob, fallback: string): Promise<string> {
+  try {
+    const text = await blob.slice(0, 4096).text();
+    const parsed = JSON.parse(text) as { message?: string | string[] };
+    if (typeof parsed.message === 'string') return parsed.message;
+    if (Array.isArray(parsed.message)) return parsed.message.join(', ');
+  } catch {
+    /* not JSON */
+  }
+  return fallback;
+}
+
+async function resolveApiError(err: unknown, fallback: string): Promise<string> {
   if (axios.isAxiosError(err)) {
     const msg = err.response?.data?.message;
     if (typeof msg === 'string') return msg;
     if (Array.isArray(msg)) return msg.join(', ');
     if (err.response?.data instanceof Blob) {
-      return fallback;
+      return parseBlobErrorMessage(
+        err.response.data,
+        err.response.status === 404
+          ? 'File not found on server — re-upload the DPR PDF from Stage 3'
+          : fallback,
+      );
+    }
+    if (err.response?.status === 404) {
+      return 'File not found on server — re-upload the DPR PDF from Stage 3';
     }
   }
+  if (err instanceof Error && err.message) return err.message;
   return fallback;
 }
 
+function getApiError(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const msg = err.response?.data?.message;
+    if (typeof msg === 'string') return msg;
+    if (Array.isArray(msg)) return msg.join(', ');
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
+async function assertPdfBlob(blob: Blob): Promise<void> {
+  if (!blob.size) {
+    throw new Error('PDF file is empty — re-upload the DPR PDF from Stage 3');
+  }
+  const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+  const magic = String.fromCharCode(...head);
+  if (magic.startsWith('%PDF')) return;
+  throw new Error(await parseBlobErrorMessage(
+    blob,
+    'Server did not return a valid PDF — try Download DPR PDF or re-upload from Stage 3',
+  ));
+}
+
 async function loadPdfBlob(proposalId: string, documentId: string): Promise<Blob> {
+  let planningErr: unknown;
   try {
-    return await dprPlanningApi.fetchDocumentFile(proposalId, documentId);
-  } catch {
-    return dprPdfReviewApi.fetchPdfStream(proposalId, documentId);
+    const blob = await dprPlanningApi.fetchDocumentFile(proposalId, documentId);
+    await assertPdfBlob(blob);
+    return blob;
+  } catch (err) {
+    planningErr = err;
+  }
+  try {
+    const blob = await dprPdfReviewApi.fetchPdfStream(proposalId, documentId);
+    await assertPdfBlob(blob);
+    return blob;
+  } catch (streamErr) {
+    throw planningErr ?? streamErr;
   }
 }
 
@@ -119,7 +171,7 @@ export default function DprPdfReviewViewer({
       setPageCount(pdf.numPages);
       setPageNumber(1);
     } catch (err) {
-      setError(getApiError(err, 'Failed to load PDF review'));
+      setError(await resolveApiError(err, 'Failed to load PDF review'));
     } finally {
       setLoading(false);
     }

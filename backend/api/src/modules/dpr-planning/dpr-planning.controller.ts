@@ -110,7 +110,16 @@ export class DprPlanningController {
     const { doc, absolutePath, mimeType } = await this.service.getDocumentFile(user.tenantId, id, documentId);
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `inline; filename="${doc.fileName ?? 'document'}"`);
-    createReadStream(absolutePath).pipe(res);
+    const stream = createReadStream(absolutePath);
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(404).json({
+          statusCode: 404,
+          message: 'File not found on server — re-upload the document',
+        });
+      }
+    });
+    stream.pipe(res);
   }
 
   @Get('proposals/:id/documents/:documentType/versions')
