@@ -680,7 +680,7 @@ export default function BoqValidationReportView({
           )}
           {tharaliPages.length > 0 && (
             <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
-              Tharali/UJS layout on {tharaliPages.length} sheet(s) — per row: Description → Qty → Unit → Rate → Step 4 Qty×Rate=Total Amount → Step 5 DSR+UJN+SOR(PWD)+NSI=Total Amount. Step 6 Sub Total and Step 7 Total Cost validate vertical sums per amount column only (DSR, UJN, SOR, NSI, Total Amount — Unit excluded).
+              Tharali/UJS layout on {tharaliPages.length} sheet(s) — per row: Description → Qty → Unit → Rate → Step 4 Qty×Rate=Total Amount → Step 5 DSR+UJN+SOR(PWD)+NSI=Total Amount. Step 6 Sub Total and Step 7 Total Cost validate vertical sums per amount column (DSR, UJN, SOR, NSI, Total Amount — Unit excluded) and horizontal DSR+UJN+SOR+NSI=Total Amount on the total row.
             </Alert>
           )}
 

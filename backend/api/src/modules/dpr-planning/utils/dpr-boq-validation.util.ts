@@ -202,31 +202,49 @@ function emptyColumnSums(): BoqAmountColumns {
 
 function addColumnSums(a: BoqAmountColumns, b: BoqAmountColumns): BoqAmountColumns {
   return {
-    dsr: round2(a.dsr + b.dsr),
-    ujn: round2(a.ujn + b.ujn),
-    sorPwd: round2(a.sorPwd + b.sorPwd),
-    nsi: round2(a.nsi + b.nsi),
-    totalAmount: round2(a.totalAmount + b.totalAmount),
-    amount: round2(a.amount + b.amount),
+    dsr: a.dsr + b.dsr,
+    ujn: a.ujn + b.ujn,
+    sorPwd: a.sorPwd + b.sorPwd,
+    nsi: a.nsi + b.nsi,
+    totalAmount: a.totalAmount + b.totalAmount,
+    amount: a.amount + b.amount,
   };
 }
 
 function rowColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
   if (isTharaliLayout(headerMap)) {
     const c = tharaliComponentsFromRow(cells, headerMap);
-    const totalAmount = round2(c.totalAmount);
-    const ujn = round2(c.ujn);
+    const totalAmount = c.totalAmount;
+    const ujn = c.ujn;
     return {
-      dsr: round2(c.dsr),
+      dsr: c.dsr,
       ujn,
-      sorPwd: round2(c.sorPwd),
-      nsi: round2(c.nsi),
+      sorPwd: c.sorPwd,
+      nsi: c.nsi,
       totalAmount: totalAmount > 0 ? totalAmount : ujn,
       amount: totalAmount > 0 ? totalAmount : ujn,
     };
   }
-  const amt = amountFromRow(cells, headerMap);
+  const amt = parseNumber(headerMap.amount !== undefined ? cells[headerMap.amount] : 0)
+    || amountFromRow(cells, headerMap);
   return { dsr: 0, ujn: 0, sorPwd: 0, nsi: 0, totalAmount: amt, amount: amt };
+}
+
+function tharaliRowHorizontalCheck(
+  declared: BoqAmountColumns,
+  tharali: boolean,
+): Pick<BoqTotalRowCheck, 'horizontalMatch' | 'horizontalDeclared' | 'horizontalComputed'> {
+  if (!tharali || declared.totalAmount <= 0) {
+    return { horizontalMatch: null };
+  }
+  const hasComponents = declared.dsr > 0 || declared.ujn > 0 || declared.sorPwd > 0 || declared.nsi > 0;
+  if (!hasComponents) {
+    return { horizontalMatch: null };
+  }
+  const horizontalDeclared = declared.totalAmount;
+  const horizontalComputed = declared.dsr + declared.ujn + declared.sorPwd + declared.nsi;
+  const horizontalMatch = Math.abs(horizontalDeclared - horizontalComputed) <= SECTION_TOTAL_TOLERANCE;
+  return { horizontalMatch, horizontalDeclared, horizontalComputed };
 }
 
 type ActiveColumn = { key: keyof BoqAmountColumns; label: string };
@@ -494,6 +512,25 @@ function isContributingItemRow(cells: string[], headerMap: Record<string, number
   return isBoqItemRow(cells, headerMap);
 }
 
+/** Rows that contribute to Step 6/7 vertical column sums — uses amount columns, not qty/rate alignment. */
+function isSectionContributingRow(
+  cells: string[],
+  headerMap: Record<string, number>,
+  joined: string,
+  descCol: string,
+): boolean {
+  if (isDescriptionOnlyRow(cells, headerMap)) return false;
+  if (isSubTotalLabel(joined) || isSubTotalLabel(descCol)) return false;
+  if (isTotalCostLabel(joined) || isTotalCostLabel(descCol)) return false;
+  if (Object.keys(headerMap).length === 0) return false;
+
+  if (isTharaliLayout(headerMap)) {
+    const amts = rowColumnAmounts(cells, headerMap);
+    return amts.dsr > 0 || amts.ujn > 0 || amts.sorPwd > 0 || amts.nsi > 0 || amts.totalAmount > 0;
+  }
+  return isBoqItemRow(cells, headerMap);
+}
+
 function isBoqItemRow(cells: string[], headerMap: Record<string, number>): boolean {
   const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
   const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
@@ -504,7 +541,8 @@ function isBoqItemRow(cells: string[], headerMap: Record<string, number>): boole
       return false;
     }
     if (isTharaliMisalignedRow(qty, rate, totalAmount, ujn)) return false;
-    return qty > 0 || rate > 0 || amount > 0 || ujn > 0 || totalAmount > 0;
+    return qty > 0 || rate > 0 || amount > 0 || ujn > 0 || totalAmount > 0
+      || dsr > 0 || sorPwd > 0 || nsi > 0;
   }
   return qty > 0 || rate > 0 || amount > 0;
 }
@@ -543,19 +581,29 @@ function validateTotalRows(
 
     if (isDescriptionOnlyRow(cells, headerMap)) continue;
 
-    if (Object.keys(headerMap).length > 0 && isContributingItemRow(cells, headerMap)) {
+    const isSubTotal = isSubTotalLabel(joined) || isSubTotalLabel(descCol);
+    const isTotalCost = isTotalCostLabel(joined) || isTotalCostLabel(descCol);
+
+    if (!isSubTotal && !isTotalCost
+      && isSectionContributingRow(cells, headerMap, joined, descCol)) {
       const rowAmts = rowColumnAmounts(cells, headerMap);
       sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
       totalCostContributors = addColumnSums(totalCostContributors, rowAmts);
     }
 
-    if (isSubTotalLabel(joined) || isSubTotalLabel(descCol)) {
+    if (isSubTotal) {
       const declared = rowColumnAmounts(cells, headerMap);
       const hasDeclared = activeColumns.some((col) => declared[col.key] > 0);
       if (!hasDeclared) continue;
 
       const columnChecks = buildColumnChecks(declared, sectionItemSums, activeColumns, i + 1, 6, 'Sub Total');
-      const allMatch = columnChecks.length === 0 || columnChecks.every((c) => c.match);
+      let allMatch = columnChecks.length === 0 || columnChecks.every((c) => c.match);
+      const {
+        horizontalMatch,
+        horizontalDeclared,
+        horizontalComputed,
+      } = tharaliRowHorizontalCheck(declared, tharali);
+      if (horizontalMatch === false) allMatch = false;
 
       checks.push({
         label: 'Sub Total',
@@ -566,9 +614,17 @@ function validateTotalRows(
         computedAmount: primaryAmount(sectionItemSums),
         match: allMatch,
         columnChecks,
+        horizontalMatch,
+        horizontalDeclared,
+        horizontalComputed,
         message: allMatch
           ? undefined
-          : columnChecks.filter((c) => !c.match).map((c) => c.message).filter(Boolean).join('; '),
+          : [
+            ...columnChecks.filter((c) => !c.match).map((c) => c.message),
+            horizontalMatch === false
+              ? `Step 6 — Sub Total row ${i + 1}: DSR+UJN+SOR(PWD)+NSI = ${horizontalComputed} ≠ Total Amount ${horizontalDeclared}`
+              : null,
+          ].filter(Boolean).join('; '),
       });
 
       totalCostContributors = addColumnSums(totalCostContributors, declared);
@@ -576,7 +632,7 @@ function validateTotalRows(
       continue;
     }
 
-    if (isTotalCostLabel(joined) || isTotalCostLabel(descCol)) {
+    if (isTotalCost) {
       const declared = rowColumnAmounts(cells, headerMap);
       const hasDeclared = activeColumns.some((col) => declared[col.key] > 0);
       if (!hasDeclared) continue;
@@ -591,19 +647,12 @@ function validateTotalRows(
 
       const columnChecks = buildColumnChecks(declared, computedSums, activeColumns, i + 1, 7, label);
       let allMatch = columnChecks.length === 0 || columnChecks.every((c) => c.match);
-
-      let horizontalMatch: boolean | null = null;
-      let horizontalDeclared: number | undefined;
-      let horizontalComputed: number | undefined;
-      if (tharali && declared.totalAmount > 0) {
-        const hasComponents = declared.dsr > 0 || declared.ujn > 0 || declared.sorPwd > 0 || declared.nsi > 0;
-        if (hasComponents) {
-          horizontalDeclared = declared.totalAmount;
-          horizontalComputed = round2(declared.dsr + declared.ujn + declared.sorPwd + declared.nsi);
-          horizontalMatch = Math.abs(horizontalDeclared - horizontalComputed) <= SECTION_TOTAL_TOLERANCE;
-          if (!horizontalMatch) allMatch = false;
-        }
-      }
+      const {
+        horizontalMatch,
+        horizontalDeclared,
+        horizontalComputed,
+      } = tharaliRowHorizontalCheck(declared, tharali);
+      if (horizontalMatch === false) allMatch = false;
 
       checks.push({
         label,

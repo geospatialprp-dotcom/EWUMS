@@ -295,10 +295,8 @@ function auditVerticalAmountColumn(
     if (isItem && !isSkipLabel(joined) && !isSkipLabel(desc)) {
       for (const { key, col } of columns) {
         const val = parseNumber(cells[col]);
-        if (val > 0) {
-          runningSums.set(key, round2((runningSums.get(key) ?? 0) + val));
-          totalCostSums.set(key, round2((totalCostSums.get(key) ?? 0) + val));
-        }
+        runningSums.set(key, (runningSums.get(key) ?? 0) + val);
+        totalCostSums.set(key, (totalCostSums.get(key) ?? 0) + val);
       }
     }
 
@@ -321,9 +319,33 @@ function auditVerticalAmountColumn(
           });
         }
         if (declared > 0) {
-          totalCostSums.set(key, round2((totalCostSums.get(key) ?? 0) + declared));
+          totalCostSums.set(key, (totalCostSums.get(key) ?? 0) + declared);
         }
       }
+
+      if (tharali && map.total_amount !== undefined) {
+        const dsr = map.dsr !== undefined ? parseNumber(cells[map.dsr]) : 0;
+        const ujn = map.ujn !== undefined ? parseNumber(cells[map.ujn]) : 0;
+        const sorPwd = map.sor_pwd !== undefined ? parseNumber(cells[map.sor_pwd]) : 0;
+        const nsi = map.nsi !== undefined ? parseNumber(cells[map.nsi]) : 0;
+        const totalAmt = parseNumber(cells[map.total_amount]);
+        const componentSum = dsr + ujn + sorPwd + nsi;
+        if (totalAmt > 0 && (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0)
+          && Math.abs(totalAmt - componentSum) > TOTAL_TOLERANCE) {
+          errors.push({
+            sheetName, pageNo, rowNo: i + 1,
+            column: 'Total Amount',
+            cellRef: cellRef(map.total_amount, i),
+            errorType: 'Component sum ≠ Total Amount',
+            category: 'horizontal', severity: 'major',
+            checkOrder: 6,
+            expectedValue: componentSum, actualValue: totalAmt,
+            difference: round2(totalAmt - componentSum),
+            message: `Step 6 — Sub Total row ${i + 1}: DSR+UJN+SOR(PWD)+NSI = ${componentSum} ≠ Total Amount ${totalAmt}`,
+          });
+        }
+      }
+
       columns.forEach(({ key }) => runningSums.set(key, 0));
       continue;
     }
@@ -355,8 +377,9 @@ function auditVerticalAmountColumn(
         const sorPwd = map.sor_pwd !== undefined ? parseNumber(cells[map.sor_pwd]) : 0;
         const nsi = map.nsi !== undefined ? parseNumber(cells[map.nsi]) : 0;
         const totalAmt = parseNumber(cells[map.total_amount]);
-        const componentSum = round2(dsr + ujn + sorPwd + nsi);
-        if (totalAmt > 0 && componentSum > 0 && Math.abs(totalAmt - componentSum) > TOTAL_TOLERANCE) {
+        const componentSum = dsr + ujn + sorPwd + nsi;
+        if (totalAmt > 0 && (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0)
+          && Math.abs(totalAmt - componentSum) > TOTAL_TOLERANCE) {
           errors.push({
             sheetName, pageNo, rowNo: i + 1,
             column: 'Total Amount',
@@ -699,7 +722,7 @@ function totalCheckToErrors(page: BoqPageValidation, check: BoqTotalRowCheck): D
         : null,
       message: check.message?.includes('DSR+UJN')
         ? check.message.split('; ').find((m) => m.includes('DSR+UJN')) ?? check.message
-        : `Step 7 — ${check.label} row ${check.rowNo}: DSR+UJN+SOR(PWD)+NSI = ${check.horizontalComputed} ≠ Total Amount ${check.horizontalDeclared}`,
+        : `Step ${step} — ${check.label} row ${check.rowNo}: DSR+UJN+SOR(PWD)+NSI = ${check.horizontalComputed} ≠ Total Amount ${check.horizontalDeclared}`,
     });
   }
 
