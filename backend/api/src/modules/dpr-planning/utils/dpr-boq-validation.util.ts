@@ -512,21 +512,41 @@ function isContributingItemRow(cells: string[], headerMap: Record<string, number
   return isBoqItemRow(cells, headerMap);
 }
 
+/** Raw per-column amounts for Step 6/7 vertical sums (no totalAmount→ujn aliasing). */
+function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
+  if (isTharaliLayout(headerMap)) {
+    const c = tharaliComponentsFromRow(cells, headerMap);
+    return {
+      dsr: c.dsr,
+      ujn: c.ujn,
+      sorPwd: c.sorPwd,
+      nsi: c.nsi,
+      totalAmount: c.totalAmount,
+      amount: c.totalAmount > 0 ? c.totalAmount : c.ujn,
+    };
+  }
+  return rowColumnAmounts(cells, headerMap);
+}
+
 /** Rows that contribute to Step 6/7 vertical column sums — uses amount columns, not qty/rate alignment. */
 function isSectionContributingRow(
   cells: string[],
   headerMap: Record<string, number>,
-  joined: string,
+  _joined: string,
   descCol: string,
 ): boolean {
   if (isDescriptionOnlyRow(cells, headerMap)) return false;
-  if (isSubTotalLabel(joined) || isSubTotalLabel(descCol)) return false;
-  if (isTotalCostLabel(joined) || isTotalCostLabel(descCol)) return false;
+  // Match total labels on description only — joined text includes amount cells and causes false exclusions.
+  if (isSubTotalLabel(descCol)) return false;
+  if (isTotalCostLabel(descCol)) return false;
   if (Object.keys(headerMap).length === 0) return false;
 
   if (isTharaliLayout(headerMap)) {
-    const amts = rowColumnAmounts(cells, headerMap);
-    return amts.dsr > 0 || amts.ujn > 0 || amts.sorPwd > 0 || amts.nsi > 0 || amts.totalAmount > 0;
+    const c = tharaliComponentsFromRow(cells, headerMap);
+    const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
+    const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+    return c.dsr > 0 || c.ujn > 0 || c.sorPwd > 0 || c.nsi > 0 || c.totalAmount > 0
+      || (qty > 0 && rate > 0);
   }
   return isBoqItemRow(cells, headerMap);
 }
@@ -568,7 +588,9 @@ function validateTotalRows(
   const activeColumns = getActiveColumns(headerMap, tharali);
 
   let sectionItemSums = emptyColumnSums();
+  /** Step 7 base = Sub Total row amounts; post-subtotal item rows are added on top. */
   let totalCostContributors = emptyColumnSums();
+  let afterSubtotalForTotalCost = false;
 
   for (let i = startIdx; i < rows.length; i += 1) {
     const cells = rows[i].map((c) => String(c ?? '').trim());
@@ -586,9 +608,11 @@ function validateTotalRows(
 
     if (!isSubTotal && !isTotalCost
       && isSectionContributingRow(cells, headerMap, joined, descCol)) {
-      const rowAmts = rowColumnAmounts(cells, headerMap);
+      const rowAmts = sectionRowColumnAmounts(cells, headerMap);
       sectionItemSums = addColumnSums(sectionItemSums, rowAmts);
-      totalCostContributors = addColumnSums(totalCostContributors, rowAmts);
+      if (afterSubtotalForTotalCost) {
+        totalCostContributors = addColumnSums(totalCostContributors, rowAmts);
+      }
     }
 
     if (isSubTotal) {
@@ -627,7 +651,8 @@ function validateTotalRows(
           ].filter(Boolean).join('; '),
       });
 
-      totalCostContributors = addColumnSums(totalCostContributors, declared);
+      totalCostContributors = declared;
+      afterSubtotalForTotalCost = true;
       sectionItemSums = emptyColumnSums();
       continue;
     }
@@ -677,6 +702,7 @@ function validateTotalRows(
       });
 
       totalCostContributors = emptyColumnSums();
+      afterSubtotalForTotalCost = false;
       sectionItemSums = emptyColumnSums();
     }
   }

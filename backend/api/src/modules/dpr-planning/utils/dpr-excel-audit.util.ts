@@ -281,6 +281,7 @@ function auditVerticalAmountColumn(
   columns.forEach(({ key }) => runningSums.set(key, 0));
   let totalCostSums = new Map<string, number>();
   columns.forEach(({ key }) => totalCostSums.set(key, 0));
+  let afterSubtotalForTotalCost = false;
 
   for (let i = headerRowIdx + 1; i < rows.length; i += 1) {
     const cells = rows[i].map((c) => String(c ?? '').trim());
@@ -292,11 +293,14 @@ function auditVerticalAmountColumn(
     const isItem = columns.some(({ col }) => parseNumber(cells[col]) > 0)
       || (map.qty !== undefined && parseNumber(cells[map.qty]) > 0)
       || (map.rate !== undefined && parseNumber(cells[map.rate]) > 0);
-    if (isItem && !isSkipLabel(joined) && !isSkipLabel(desc)) {
+    // Use description column only for skip — joined text includes amount cells and causes false exclusions.
+    if (isItem && !isSkipLabel(desc)) {
       for (const { key, col } of columns) {
         const val = parseNumber(cells[col]);
         runningSums.set(key, (runningSums.get(key) ?? 0) + val);
-        totalCostSums.set(key, (totalCostSums.get(key) ?? 0) + val);
+        if (afterSubtotalForTotalCost) {
+          totalCostSums.set(key, (totalCostSums.get(key) ?? 0) + val);
+        }
       }
     }
 
@@ -304,6 +308,7 @@ function auditVerticalAmountColumn(
       for (const { key, label, col } of columns) {
         const declared = parseNumber(cells[col]);
         const computed = runningSums.get(key) ?? 0;
+        totalCostSums.set(key, declared);
         if (declared <= 0 && computed <= 0) continue;
         if (Math.abs(declared - computed) > TOTAL_TOLERANCE) {
           errors.push({
@@ -318,10 +323,8 @@ function auditVerticalAmountColumn(
             message: `Step 6 — Sub Total row ${i + 1}, ${label}: Excel ₹${declared.toLocaleString('en-IN')} ≠ calculated ₹${computed.toLocaleString('en-IN')}`,
           });
         }
-        if (declared > 0) {
-          totalCostSums.set(key, (totalCostSums.get(key) ?? 0) + declared);
-        }
       }
+      afterSubtotalForTotalCost = true;
 
       if (tharali && map.total_amount !== undefined) {
         const dsr = map.dsr !== undefined ? parseNumber(cells[map.dsr]) : 0;
@@ -397,6 +400,7 @@ function auditVerticalAmountColumn(
       totalCostSums = new Map<string, number>();
       columns.forEach(({ key }) => totalCostSums.set(key, 0));
       columns.forEach(({ key }) => runningSums.set(key, 0));
+      afterSubtotalForTotalCost = false;
     }
   }
 
