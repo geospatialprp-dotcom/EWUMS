@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "predev": "node scripts/copy-pdf-worker.mjs",
     "build": "vite build",
+    "prebuild": "node scripts/copy-pdf-worker.mjs",
     "build:check": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview"

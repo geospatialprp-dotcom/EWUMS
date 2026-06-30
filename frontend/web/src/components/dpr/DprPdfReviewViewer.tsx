@@ -11,11 +11,11 @@ import HighlightOutlinedIcon from '@mui/icons-material/HighlightOutlined';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import CommentOutlinedIcon from '@mui/icons-material/CommentOutlined';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import axios from 'axios';
 import { dprPdfReviewApi, dprPlanningApi } from '../../services/api';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+// Stable path in public/ (copied at build) — hashed ?url assets fail on some nginx/CSP setups
+pdfjsLib.GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min.mjs`;
 
 type AnnotationTool = 'freehand' | 'highlight' | 'sticky_note';
 
