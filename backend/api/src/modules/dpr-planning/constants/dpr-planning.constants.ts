@@ -320,6 +320,24 @@ export function getDprStatusLabel(status: string): string {
   return DPR_STATUS_LABELS[status as DprProposalStatus] ?? status.replace(/_/g, ' ');
 }
 
+/** Division-facing labels when proposal is with HQ/TAC (read-only tracking). */
+const DPR_DIVISION_VIEWER_STATUS_LABELS: Partial<Record<DprProposalStatus, string>> = {
+  tac_round1_review: 'Under Review',
+};
+
+export function isDivisionDprViewer(roles: string[]): boolean {
+  const hasDivision = roles.some((r) => ['ee', 'je', 'ae'].includes(r));
+  const hasHq = roles.some((r) => r === 'super_admin' || ['se', 'ce', 'cgm', 'md'].includes(r));
+  return hasDivision && !hasHq;
+}
+
+export function getDprViewerStatusLabel(status: string, roles: string[] = []): string {
+  if (isDivisionDprViewer(roles) && DPR_DIVISION_VIEWER_STATUS_LABELS[status as DprProposalStatus]) {
+    return DPR_DIVISION_VIEWER_STATUS_LABELS[status as DprProposalStatus]!;
+  }
+  return getDprStatusLabel(status);
+}
+
 export function getDprStageForStatus(status: string): number {
   return DPR_STAGE_BY_STATUS[status as DprProposalStatus] ?? 1;
 }

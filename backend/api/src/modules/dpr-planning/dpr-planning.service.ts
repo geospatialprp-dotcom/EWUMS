@@ -30,6 +30,8 @@ import {
   DprAdvanceAction,
   getDprStageForStatus,
   getDprStatusLabel,
+  getDprViewerStatusLabel,
+  isDivisionDprViewer,
 } from './constants/dpr-planning.constants';
 import { AdvanceDprProposalDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
 import { DprProposal } from './entities/dpr-proposal.entity';
@@ -114,7 +116,7 @@ export class DprPlanningService {
     if (filters.divisionId) qb.andWhere('p.division_id = :divisionId', { divisionId: filters.divisionId });
     if (filters.status) qb.andWhere('p.status = :status', { status: filters.status });
     const rows = await qb.getMany();
-    return Promise.all(rows.map((r) => this.toRecord(tenantId, r)));
+    return Promise.all(rows.map((r) => this.toRecord(tenantId, r, false, user.roles ?? [])));
   }
 
   async getProposal(tenantId: string, id: string, roles: string[] = []) {
@@ -2316,7 +2318,7 @@ export class DprPlanningService {
       currentStage: row.currentStage,
       stageLabel: DPR_PLANNING_STAGES.find((s) => s.stage === row.currentStage)?.name ?? `Stage ${row.currentStage}`,
       status: row.status,
-      statusLabel: getDprStatusLabel(row.status),
+      statusLabel: getDprViewerStatusLabel(row.status, roles),
       preliminaryEstimate: row.preliminaryEstimate,
       fundingSource: row.fundingSource,
       priority: row.priority,
@@ -3206,12 +3208,17 @@ export class DprPlanningService {
       'tac_round1_cleared',
     ].includes(proposal.status);
     const observations = Array.isArray(tacData.observations) ? tacData.observations : [];
+    const divisionTracking = inTacStage && !canReview && !canForward && isDivisionDprViewer(roles);
     return {
       pending,
       inTacStage,
       canReview,
       canForward,
       viewMode: canForward ? 'forward' as const : canReview ? 'review' as const : inTacStage ? 'track' as const : 'read' as const,
+      trackingStatusLabel: proposal.status === 'tac_round1_review' && divisionTracking ? 'Under Review' : null,
+      awaitingDivisionAction: divisionTracking
+        && ['tac_corrections_required', 'dpr_revision'].includes(proposal.status),
+      hasFeedback: observations.length > 0,
       checklist,
       allReviewed,
       complianceNotes: (tacData.complianceNotes as string | null) ?? null,

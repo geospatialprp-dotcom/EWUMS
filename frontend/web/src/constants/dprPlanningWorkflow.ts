@@ -179,3 +179,26 @@ export function canRecordDprSanction(roles: string[]): boolean {
 export function canInitiateDprTenderPrep(roles: string[]): boolean {
   return hasDprRole(roles, DPR_TENDER_INIT_ROLES);
 }
+
+/** Division users (EE/JE/AE) without HQ reviewer roles — read-only TAC tracking. */
+export function isDivisionDprViewer(roles: string[]): boolean {
+  const hasDivision = roles.some((r) => ['ee', 'je', 'ae'].includes(r));
+  const hasHq = canPerformHqReview(roles);
+  return hasDivision && !hasHq;
+}
+
+const DPR_DIVISION_VIEWER_STATUS_LABELS: Record<string, string> = {
+  tac_round1_review: 'Under Review',
+};
+
+/** Role-aware status label for list chips and tracking panels. */
+export function getDprDisplayStatusLabel(
+  status: string,
+  roles: string[],
+  apiLabel?: string,
+): string {
+  if (isDivisionDprViewer(roles) && DPR_DIVISION_VIEWER_STATUS_LABELS[status]) {
+    return DPR_DIVISION_VIEWER_STATUS_LABELS[status];
+  }
+  return apiLabel ?? status.replace(/_/g, ' ');
+}

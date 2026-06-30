@@ -16,7 +16,8 @@ import BilingualRemarkField from '../forms/BilingualRemarkField';
 import DprPdfReviewViewer from './DprPdfReviewViewer';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
 import { hasBilingualContent, parseBilingualText, serializeBilingualText, type BilingualText } from '../../utils/bilingualText';
-import { DPR_STAGE_3_DOCUMENT_TYPES, DPR_TAC_ACTION_LABELS, DPR_TAC_ROUND1_CHECKLIST } from '../../constants/dprPlanningWorkflow';
+import { useAuth } from '../../context/AuthContext';
+import { DPR_STAGE_3_DOCUMENT_TYPES, DPR_TAC_ACTION_LABELS, DPR_TAC_ROUND1_CHECKLIST, getDprDisplayStatusLabel } from '../../constants/dprPlanningWorkflow';
 import { DprDialogHeader, dprDialogActionsSx, dprDialogContentSx, dprDialogPaperSx } from './dprUi';
 
 type TacReviewState = {
@@ -25,6 +26,9 @@ type TacReviewState = {
   canReview?: boolean;
   canForward?: boolean;
   viewMode?: 'forward' | 'review' | 'track' | 'read';
+  trackingStatusLabel?: string | null;
+  awaitingDivisionAction?: boolean;
+  hasFeedback?: boolean;
   checklist?: Array<{ key: string; label: string; reviewed: boolean }>;
   allReviewed?: boolean;
   complianceNotes?: string | null;
@@ -94,6 +98,8 @@ interface Props {
 }
 
 export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated }: Props) {
+  const { user } = useAuth();
+  const roles = user?.roles ?? [];
   const [detail, setDetail] = useState<ProposalDetail | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -150,7 +156,11 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
   const canForward = tac?.canForward === true;
   const canReview = tac?.canReview === true;
   const isTracking = tac?.viewMode === 'track';
+  const displayStatus = detail
+    ? getDprDisplayStatusLabel(detail.status, roles, detail.statusLabel ?? detail.status)
+    : '';
   const allReviewed = DPR_TAC_ROUND1_CHECKLIST.every((item) => checklist[item.key as keyof typeof checklist]);
+  const hasObservations = (tac?.observations?.length ?? 0) > 0;
 
   const slotMap = new Map((detail?.documentSlots ?? []).map((s) => [s.documentType, s]));
   const pdfDoc = slotMap.get('dpr_complete_pdf')?.document;
@@ -237,9 +247,11 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
       <DprDialogHeader
         stage={4}
-        title={isTracking && !canReview ? 'TAC Status — Division Tracking' : 'TAC Review — First Round (HQ)'}
+        title={isTracking && !canReview
+          ? (tac?.awaitingDivisionAction ? 'TAC Feedback — Division' : 'TAC Status — Under Review')
+          : 'TAC Review — First Round (HQ)'}
         proposalNo={detail?.proposalNo}
-        statusLabel={detail?.statusLabel ?? detail?.status}
+        statusLabel={displayStatus || undefined}
         busy={busy}
       />
       <DialogContent sx={dprDialogContentSx}>
@@ -249,12 +261,34 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
           <>
             <Typography variant="subtitle1" fontWeight={600} gutterBottom>{detail.title}</Typography>
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
-              <Chip size="small" label={detail.statusLabel ?? detail.status} />
+              <Chip
+                size="small"
+                label={displayStatus}
+                color={isTracking && detail.status === 'tac_round1_review' ? 'info' : undefined}
+              />
               {tac?.lastAction && (
                 <Chip size="small" variant="outlined"
                   label={`Last: ${DPR_TAC_ACTION_LABELS[tac.lastAction] ?? tac.lastAction}`} />
               )}
             </Box>
+
+            {isTracking && !canReview && detail.status === 'tac_round1_review' && !hasObservations && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2">Under Review</Typography>
+                <Typography variant="body2">
+                  Your DPR is with HQ/TAC for Round 1 review. You will be notified here when feedback or corrections are returned.
+                </Typography>
+              </Alert>
+            )}
+
+            {isTracking && tac?.awaitingDivisionAction && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2">TAC feedback received — action required</Typography>
+                <Typography variant="body2">
+                  HQ has completed TAC review with comments below. Use <strong>Stage 5 — Revise DPR</strong> to address observations and resubmit.
+                </Typography>
+              </Alert>
+            )}
 
             {isCleared && (
               <Alert severity="success" sx={{ mb: 2 }}>
@@ -276,13 +310,6 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
               </Alert>
             )}
 
-            {isTracking && !canReview && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                DPR is with HQ/TAC for Round 1 review. Division can track status and download documents below.
-                PDF redline review and TAC approval are performed by HQ officials (SE, CE, CGM, MD) or Super Admin.
-              </Alert>
-            )}
-
             {canReview && (
               <Alert severity="info" icon={<RateReviewOutlinedIcon />} sx={{ mb: 2 }}>
                 HQ / Super Admin: Review the DPR PDF online, complete the checklist, and record the TAC decision.
@@ -297,6 +324,12 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
                 <Button size="small" variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
                   onClick={() => setPdfViewerOpen(true)}>
                   Review PDF Online
+                </Button>
+              )}
+              {pdfDoc && isTracking && !canReview && (
+                <Button size="small" variant="outlined" color="error" startIcon={<RateReviewOutlinedIcon />}
+                  onClick={() => setPdfViewerOpen(true)}>
+                  View PDF Markup &amp; Comments
                 </Button>
               )}
               {pdfDoc && (
@@ -442,12 +475,12 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
               </Alert>
             )}
 
-            {(tacEvents.length > 0 || (tac?.observations?.length ?? 0) > 0) && (
+            {(tacEvents.length > 0 || hasObservations) && (
               <>
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
                   <HistoryOutlinedIcon sx={{ fontSize: 14, verticalAlign: 'middle', mr: 0.5 }} />
-                  Workflow Comments &amp; Observations
+                  {isTracking && !canReview ? 'HQ/TAC Comments & Observations' : 'Workflow Comments & Observations'}
                 </Typography>
                 <List dense disablePadding>
                   {tacEvents.map((ev) => (

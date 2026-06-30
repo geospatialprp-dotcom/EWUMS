@@ -299,6 +299,12 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
                     </ListItem>
                   ))}
                 </List>
+                {revisedPdfDoc && proposalId && (
+                  <Button size="small" variant="outlined" color="error" startIcon={<RateReviewOutlinedIcon />}
+                    sx={{ mb: 2 }} onClick={() => setPdfViewerOpen(true)}>
+                    View HQ PDF Markup &amp; Comments
+                  </Button>
+                )}
               </>
             )}
 
@@ -494,7 +500,7 @@ export default function DprRevisionPanel({ open, proposalId, onClose, onUpdated,
           proposalId={proposalId}
           documentId={revisedPdfDoc.id}
           fileName={revisedPdfDoc.fileName ?? 'dpr-revised.pdf'}
-          readOnly={false}
+          readOnly={detail?.status === 'tac_corrections_required'}
           onClose={() => setPdfViewerOpen(false)}
         />
       )}

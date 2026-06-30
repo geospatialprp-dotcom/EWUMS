@@ -46,6 +46,7 @@ import {
   canRecordDprSanction,
   DPR_ACTION_LABELS,
   DPR_DOCUMENT_TYPES,
+  getDprDisplayStatusLabel,
 } from '../constants/dprPlanningWorkflow';
 import { useDivisionScopeKey } from '../context/DivisionContext';
 import {
@@ -397,7 +398,7 @@ export default function DprPlanningPage() {
                     </Typography>
                     <DprStageProgress currentStage={row.currentStage} />
                   </TableCell>
-                  <TableCell><DprStatusChip status={row.statusLabel ?? row.status} /></TableCell>
+                  <TableCell><DprStatusChip status={getDprDisplayStatusLabel(row.status, roles, row.statusLabel)} /></TableCell>
                   <TableCell align="right">
                     <Box display="flex" flexWrap="wrap" gap={0.5} justifyContent="flex-end">
                     {['tac_corrections_required', 'dpr_revision'].includes(row.status) && (
@@ -469,13 +470,13 @@ export default function DprPlanningPage() {
                       </Button>
                     )}
                     {row.status === 'tac_round1_review' && !canTacReview && (
-                      <Button size="small" variant="outlined" startIcon={<FactCheckOutlinedIcon />} onClick={() => setTacReviewOpen(row.id)}>
-                        Track TAC Status
+                      <Button size="small" variant="outlined" color="info" startIcon={<FactCheckOutlinedIcon />} onClick={() => setTacReviewOpen(row.id)}>
+                        Under Review — Track Status
                       </Button>
                     )}
                     {['tac_corrections_required', 'dpr_revision'].includes(row.status) && !canTacReview && (
                       <Button size="small" variant="outlined" startIcon={<FactCheckOutlinedIcon />} onClick={() => setTacReviewOpen(row.id)}>
-                        Track TAC Status
+                        View TAC Feedback
                       </Button>
                     )}
                     {['tac_corrections_required', 'dpr_revision', 'tac_round1_cleared'].includes(row.status) && canTacReview && (
@@ -590,7 +591,7 @@ export default function DprPlanningPage() {
           setSuccess(
             canTacReview
               ? 'DPR submitted — open TAC Review to perform HQ Round 1 review.'
-              : 'DPR submitted to HQ/TAC for review. You can track status from Track TAC Status.',
+              : 'DPR submitted to HQ/TAC for review. Status will show as Under Review until HQ completes TAC review.',
           );
           if (canTacReview) setTacReviewOpen(id);
         }}
@@ -605,7 +606,7 @@ export default function DprPlanningPage() {
           setSuccess(
             canTacReview
               ? 'Revised DPR resubmitted — open TAC Review for HQ re-review.'
-              : 'Revised DPR resubmitted to HQ/TAC. Track status from Track TAC Status.',
+              : 'Revised DPR resubmitted to HQ/TAC. Status will show as Under Review until HQ re-reviews.',
           );
           if (canTacReview) setTacReviewOpen(id);
         }}
