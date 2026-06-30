@@ -546,24 +546,6 @@ function isTharaliMisalignedRow(qty: number, rate: number, totalAmount: number, 
   return false;
 }
 
-function isDescriptionOnlyRow(cells: string[], headerMap: Record<string, number>): boolean {
-  if (sectionRowHasAmounts(cells, headerMap)) return false;
-
-  const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
-  const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
-  if (qty > 0 && rate > 0) return false;
-  if (rate > 0 && qty <= 0) return false;
-  if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) return false;
-  if (isTharaliLayout(headerMap)) {
-    const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
-    if (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0 || totalAmount > 0) return false;
-  }
-  const desc = headerMap.description !== undefined
-    ? String(cells[headerMap.description] ?? '').trim()
-    : rowLabel(cells);
-  return desc.length >= 3;
-}
-
 function isContributingItemRow(cells: string[], headerMap: Record<string, number>): boolean {
   if (isDescriptionOnlyRow(cells, headerMap)) return false;
   return isBoqItemRow(cells, headerMap);
@@ -668,6 +650,24 @@ function sectionRowHasAmounts(cells: string[], headerMap: Record<string, number>
   const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
   const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
   return qty > 0 || rate > 0;
+}
+
+function isDescriptionOnlyRow(cells: string[], headerMap: Record<string, number>): boolean {
+  if (sectionRowHasAmounts(cells, headerMap)) return false;
+
+  const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
+  const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+  if (qty > 0 && rate > 0) return false;
+  if (rate > 0 && qty <= 0) return false;
+  if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) return false;
+  if (isTharaliLayout(headerMap)) {
+    const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
+    if (dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0 || totalAmount > 0) return false;
+  }
+  const desc = headerMap.description !== undefined
+    ? String(cells[headerMap.description] ?? '').trim()
+    : rowLabel(cells);
+  return desc.length >= 3;
 }
 
 /** Sub Total label in description, or in joined text only when description is blank (not item rows). */
