@@ -54,7 +54,7 @@ export type BoqLineIssue = {
 /** Line-level Qty×Rate / component sums — 2-decimal rounding slack. */
 const QTY_RATE_AMOUNT_TOLERANCE = 0.05;
 /** Sub Total / Total Cost row checks — allow small column rounding on large totals. */
-const SECTION_TOTAL_TOLERANCE = 1.0;
+const SECTION_TOTAL_TOLERANCE = 5.0;
 
 function totalRowTolerance(amount: number): number {
   const base = Math.abs(amount);
@@ -365,7 +365,7 @@ function buildHeaderMap(cells: string[]): Record<string, number> {
     else if (/sor.*pwd|pwd.*sor|sor_pwd/.test(key) || /sor\s*\(?\s*pwd\s*\)?/i.test(raw)) map.sor_pwd = idx;
     else if (key === 'nsi' || raw === 'nsi') map.nsi = idx;
     else if ((key.includes('total') && key.includes('amount')) || raw === 'total amount') map.total_amount = idx;
-    else if (key === 'amt' || key.includes('amount') || key.includes('cost')) map.amount = idx;
+    else if (key === 'amt' || key.startsWith('amt') || key.includes('amount') || key.includes('cost')) map.amount = idx;
   });
   return map;
 }
@@ -463,16 +463,46 @@ function amountFromRow(cells: string[], headerMap: Record<string, number>): numb
   if (isTharaliLayout(headerMap)) {
     const tharaliTotal = tharaliRowTotal(cells, headerMap);
     if (tharaliTotal > 0) return tharaliTotal;
+    const lumpSum = tharaliLumpSumFromRow(cells, headerMap);
+    if (lumpSum > 0) return lumpSum;
   }
   const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
   const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
   if (qty > 0 && rate > 0) return round2(qty * rate);
+  if (rate > 0 && qty <= 0) return round2(rate);
 
   const skip = nonAmountColumnIndices(headerMap);
   const nums = cells
     .map((cell, idx) => (skip.has(idx) ? 0 : parseNumber(cell)))
     .filter((n) => n > 0);
   return nums.length ? round2(Math.max(...nums)) : 0;
+}
+
+/** Lump-sum / LS rows: amount in Rate, Amt, or other unmapped numeric columns when Tharali cols are blank. */
+function tharaliLumpSumFromRow(cells: string[], headerMap: Record<string, number>): number {
+  const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
+  const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+
+  if (headerMap.amount !== undefined) {
+    const mapped = parseNumber(cells[headerMap.amount]);
+    if (mapped > 0) return round2(mapped);
+  }
+
+  if (rate > 0 && qty <= 0) return round2(rate);
+  if (qty > 0 && rate > 0) return 0;
+
+  const skip = new Set(nonAmountColumnIndices(headerMap));
+  for (const key of ['dsr', 'ujn', 'sor_pwd', 'nsi', 'total_amount', 'amount'] as const) {
+    if (headerMap[key] !== undefined) skip.add(headerMap[key]);
+  }
+
+  let sum = 0;
+  for (let idx = 0; idx < cells.length; idx += 1) {
+    if (skip.has(idx)) continue;
+    const n = parseNumber(cells[idx]);
+    if (n > 0) sum += n;
+  }
+  return round2(sum);
 }
 
 function tharaliComponentsFromRow(row: (string | number)[], headerMap: Record<string, number>) {
@@ -504,7 +534,8 @@ function isTharaliMisalignedRow(qty: number, rate: number, totalAmount: number, 
 function isDescriptionOnlyRow(cells: string[], headerMap: Record<string, number>): boolean {
   const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
   const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
-  if (qty > 0 || rate > 0) return false;
+  if (qty > 0 && rate > 0) return false;
+  if (rate > 0 && qty <= 0) return false;
   if (headerMap.amount !== undefined && parseNumber(cells[headerMap.amount]) > 0) return false;
   if (isTharaliLayout(headerMap)) {
     const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
@@ -521,39 +552,39 @@ function isContributingItemRow(cells: string[], headerMap: Record<string, number
   return isBoqItemRow(cells, headerMap);
 }
 
+function assignTharaliLumpSum(
+  lumpSum: number,
+  headerMap: Record<string, number>,
+): Pick<BoqAmountColumns, 'ujn' | 'totalAmount'> {
+  if (headerMap.ujn !== undefined) {
+    return {
+      ujn: lumpSum,
+      totalAmount: headerMap.total_amount !== undefined ? lumpSum : 0,
+    };
+  }
+  if (headerMap.total_amount !== undefined) {
+    return { ujn: 0, totalAmount: lumpSum };
+  }
+  return { ujn: lumpSum, totalAmount: 0 };
+}
+
 /** Raw per-column amounts for Step 6/7 vertical sums. */
 function sectionRowColumnAmounts(cells: string[], headerMap: Record<string, number>): BoqAmountColumns {
   if (isTharaliLayout(headerMap)) {
-    const c = tharaliComponentsFromRow(cells, headerMap);
-    let { dsr, ujn, sorPwd, nsi, totalAmount } = c;
-    const fallbackAmount = headerMap.amount !== undefined ? parseNumber(cells[headerMap.amount]) : 0;
+    let { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
     let componentSum = dsr + ujn + sorPwd + nsi;
-    if (fallbackAmount > 0 && componentSum <= 0 && totalAmount <= 0) {
-      if (headerMap.ujn !== undefined) {
-        ujn = fallbackAmount;
-        if (headerMap.total_amount !== undefined) totalAmount = fallbackAmount;
-      } else if (headerMap.total_amount !== undefined) {
-        totalAmount = fallbackAmount;
-      } else {
-        ujn = fallbackAmount;
-      }
-    } else if (totalAmount > 0 && componentSum <= 0 && headerMap.ujn !== undefined && ujn <= 0) {
+    if (totalAmount > 0 && componentSum <= 0 && headerMap.ujn !== undefined && ujn <= 0) {
       ujn = totalAmount;
     } else if (ujn > 0 && totalAmount <= 0 && headerMap.total_amount !== undefined) {
       totalAmount = ujn;
     }
     componentSum = dsr + ujn + sorPwd + nsi;
     if (componentSum <= 0 && totalAmount <= 0) {
-      const scanned = amountFromRow(cells, headerMap);
-      if (scanned > 0) {
-        if (headerMap.ujn !== undefined) {
-          ujn = scanned;
-          if (headerMap.total_amount !== undefined) totalAmount = scanned;
-        } else if (headerMap.total_amount !== undefined) {
-          totalAmount = scanned;
-        } else {
-          ujn = scanned;
-        }
+      const lumpSum = tharaliLumpSumFromRow(cells, headerMap);
+      if (lumpSum > 0) {
+        const assigned = assignTharaliLumpSum(lumpSum, headerMap);
+        ujn = assigned.ujn;
+        if (assigned.totalAmount > 0) totalAmount = assigned.totalAmount;
       }
     }
     return {
