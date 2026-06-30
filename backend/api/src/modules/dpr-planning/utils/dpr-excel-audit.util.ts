@@ -411,8 +411,7 @@ function issueToErrorType(checkType: string): string {
   if (checkType === 'description') return 'Missing / invalid description';
   if (checkType === 'quantity') return 'Invalid quantity';
   if (checkType === 'rate') return 'Invalid rate';
-  if (checkType === 'qty_rate_ujn') return 'Qty × Rate ≠ UJN';
-  if (checkType === 'qty_rate_amount') return 'Qty × Rate ≠ Total Amount';
+  if (checkType === 'qty_rate_ujn' || checkType === 'qty_rate_amount') return 'Qty × Rate ≠ Total Amount';
   if (checkType === 'component_sum') return 'Component sum ≠ Total Amount';
   if (checkType === 'cross_check') return 'Qty×Rate ≠ component sum';
   return 'Data warning';
@@ -431,7 +430,7 @@ function cellRefForIssue(
     description: 'description',
     quantity: 'qty',
     rate: 'rate',
-    qty_rate_ujn: 'ujn',
+    qty_rate_ujn: map.total_amount !== undefined ? 'total_amount' : 'ujn',
     qty_rate_amount: map.total_amount !== undefined ? 'total_amount' : 'amount',
     component_sum: 'total_amount',
     cross_check: 'total_amount',
@@ -473,14 +472,17 @@ function lineToAuditErrors(page: BoqPageValidation, line: BoqPageValidation['lin
 
   const severity: DprAuditSeverity = line.status === 'fail' ? 'major' : 'minor';
   const tharali = line.layoutFormat === 'tharali' && line.tharali;
-  const failUjn = tharali && !tharali.ujnMatch && line.qty > 0 && line.rate > 0 && tharali.ujn > 0;
+  const failQtyRate = tharali && !tharali.qtyRateTotalMatch && line.qty > 0 && line.rate > 0 && tharali.totalAmount > 0;
   const failComponent = tharali && !tharali.componentSumMatch && tharali.totalAmount > 0;
   const failCross = tharali && !tharali.crossCheckMatch && line.qty > 0 && line.rate > 0;
 
   let column = 'Amount';
   let cellRefStr = '';
-  if (failUjn && page.headerMap?.ujn !== undefined && line.sheetRow) {
-    column = 'UJN';
+  if (failQtyRate && page.headerMap?.total_amount !== undefined && line.sheetRow) {
+    column = 'Total Amount';
+    cellRefStr = cellRef(page.headerMap.total_amount, line.sheetRow - 1);
+  } else if (failQtyRate && page.headerMap?.ujn !== undefined && line.sheetRow) {
+    column = 'Total Amount';
     cellRefStr = cellRef(page.headerMap.ujn, line.sheetRow - 1);
   } else if (failComponent && page.headerMap?.total_amount !== undefined && line.sheetRow) {
     column = 'Total Amount';
@@ -500,11 +502,11 @@ function lineToAuditErrors(page: BoqPageValidation, line: BoqPageValidation['lin
       : (page.headerMap?.qty !== undefined ? columnLabel(page.headerMap.qty, page.headerMap, 'qty') : refColumn(qtyRef));
   }
 
-  const errorType = failUjn ? 'Qty × Rate ≠ UJN'
+  const errorType = failQtyRate ? 'Qty × Rate ≠ Total Amount'
     : failComponent ? 'Component sum ≠ Total Amount'
       : failCross ? 'Qty×Rate ≠ component sum'
         : line.status === 'fail' ? 'Qty × Rate ≠ Amount' : 'Data warning';
-  const checkOrder = failUjn ? 4 : failComponent ? 5 : failCross ? 6 : line.status === 'fail' ? 4 : 1;
+  const checkOrder = failQtyRate ? 4 : failComponent ? 5 : failCross ? 6 : line.status === 'fail' ? 4 : 1;
 
   return [{
     sheetName: page.sheetName,
@@ -516,11 +518,11 @@ function lineToAuditErrors(page: BoqPageValidation, line: BoqPageValidation['lin
     checkOrder,
     category: line.status === 'fail' ? 'horizontal' : 'data',
     severity,
-    expectedValue: failUjn ? tharali?.qtyRateTotal
+    expectedValue: failQtyRate ? tharali?.qtyRateTotal
       : failComponent ? tharali?.componentSum
         : failCross ? tharali?.qtyRateTotal
           : line.computedAmount,
-    actualValue: failUjn ? tharali?.ujn
+    actualValue: failQtyRate ? tharali?.totalAmount
       : failComponent ? tharali?.totalAmount
         : failCross ? tharali?.componentSum
           : line.declaredAmount,

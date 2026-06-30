@@ -293,21 +293,44 @@ function tharaliComponentsFromRow(cells: string[], headerMap: Record<string, num
   };
 }
 
+/** Skip Tharali rows where qty/rate columns likely hold serial numbers or misaligned data. */
+function isTharaliMisalignedRow(qty: number, rate: number, totalAmount: number, ujn: number): boolean {
+  if (qty <= 0 && rate <= 0) return false;
+  const qtyRate = qty > 0 && rate > 0 ? round2(qty * rate) : 0;
+  const refTotal = totalAmount > 0 ? totalAmount : ujn > 0 ? ujn : 0;
+
+  if (rate >= 10_000 && Number.isInteger(rate) && (refTotal <= 0 || rate > refTotal * 5)) {
+    return true;
+  }
+  if (qtyRate > 0 && refTotal > 0) {
+    const ratio = Math.max(qtyRate, refTotal) / Math.min(qtyRate, refTotal);
+    if (ratio > 50) return true;
+  }
+  return false;
+}
+
+function isBoqItemRow(cells: string[], headerMap: Record<string, number>): boolean {
+  const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
+  const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+  const amount = amountFromRow(cells, headerMap);
+  if (isTharaliLayout(headerMap)) {
+    const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
+    if (qty <= 0 && rate <= 0 && totalAmount <= 0 && ujn <= 0 && dsr <= 0 && sorPwd <= 0 && nsi <= 0) {
+      return false;
+    }
+    if (isTharaliMisalignedRow(qty, rate, totalAmount, ujn)) return false;
+    return qty > 0 || rate > 0 || amount > 0 || ujn > 0 || totalAmount > 0;
+  }
+  return qty > 0 || rate > 0 || amount > 0;
+}
+
 function isDataRow(cells: string[], headerMap: Record<string, number>): boolean {
   const desc = headerMap.description !== undefined ? String(cells[headerMap.description] ?? '').trim() : rowLabel(cells);
   if (!desc || desc.length < 3) return false;
   const lower = desc.toLowerCase();
   if (/grand\s*total|gross\s*total|section\s*total|sub\s*total|abstract|^\s*total\s*$/i.test(lower)) return false;
   if (/^\d+(\.\d+)?$/.test(desc)) return false;
-  const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
-  const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
-  const amount = amountFromRow(cells, headerMap);
-  if (isTharaliLayout(headerMap)) {
-    const { dsr, ujn, sorPwd, nsi, totalAmount } = tharaliComponentsFromRow(cells, headerMap);
-    if (qty <= 0 && rate <= 0 && totalAmount <= 0 && ujn <= 0 && dsr <= 0 && sorPwd <= 0 && nsi <= 0) return false;
-    return qty > 0 || rate > 0 || amount > 0 || ujn > 0 || totalAmount > 0;
-  }
-  return qty > 0 || rate > 0 || amount > 0;
+  return isBoqItemRow(cells, headerMap);
 }
 
 function validateTotalRows(
@@ -462,11 +485,11 @@ function validateTharaliLineValues(
   const componentSum = round2(dsr + ujn + sorPwd + nsi);
   const declaredAmount = totalAmount > 0 ? totalAmount : ujn > 0 ? ujn : qtyRateTotal;
   const hasComponentSum = dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0;
-  const ujnMatch = !(roundedQty > 0 && roundedRate > 0 && ujn > 0)
-    || Math.abs(qtyRateTotal - ujn) <= AMOUNT_TOLERANCE;
+  const qtyRateTotalMatch = !(roundedQty > 0 && roundedRate > 0 && totalAmount > 0)
+    || Math.abs(qtyRateTotal - totalAmount) <= AMOUNT_TOLERANCE;
   const componentSumMatch = totalAmount <= 0 || !hasComponentSum
     || Math.abs(componentSum - totalAmount) <= AMOUNT_TOLERANCE;
-  const crossCheckMatch = ujnMatch && componentSumMatch;
+  const crossCheckMatch = qtyRateTotalMatch && componentSumMatch;
   const isItemRow = roundedQty > 0 || roundedRate > 0 || totalAmount > 0 || ujn > 0
     || dsr > 0 || sorPwd > 0 || nsi > 0;
   const rowRef = sheetRow ? `Row ${sheetRow}, ` : '';
@@ -530,17 +553,17 @@ function validateTharaliLineValues(
     });
   }
 
-  if (roundedQty > 0 && roundedRate > 0 && ujn > 0) {
-    if (!ujnMatch) {
+  if (roundedQty > 0 && roundedRate > 0 && totalAmount > 0) {
+    if (!qtyRateTotalMatch) {
       issues.push({
-        order: 4, checkType: 'qty_rate_ujn', column: 'UJN', status: 'fail',
-        message: `${rowRef}Step 4 — Qty×Rate=UJN: ${roundedQty} × ${roundedRate} = ${qtyRateTotal} ≠ UJN ${ujn}`,
-        expectedValue: qtyRateTotal, actualValue: ujn, difference: round2(ujn - qtyRateTotal),
+        order: 4, checkType: 'qty_rate_amount', column: 'Total Amount', status: 'fail',
+        message: `${rowRef}Step 4 — Qty×Rate=Total Amount: ${roundedQty} × ${roundedRate} = ${qtyRateTotal} ≠ Total Amount ${totalAmount}`,
+        expectedValue: qtyRateTotal, actualValue: totalAmount, difference: round2(totalAmount - qtyRateTotal),
       });
     } else {
       issues.push({
-        order: 4, checkType: 'qty_rate_ujn', column: 'UJN', status: 'pass',
-        message: 'Step 4 — Qty×Rate=UJN: OK',
+        order: 4, checkType: 'qty_rate_amount', column: 'Total Amount', status: 'pass',
+        message: 'Step 4 — Qty×Rate=Total Amount: OK',
       });
     }
   }
@@ -608,12 +631,12 @@ function validateTharaliLineValues(
     tharali: {
       dsr, ujn, sorPwd, nsi, totalAmount,
       qtyRateTotal, componentSum,
-      qtyRateTotalMatch: ujnMatch,
+      qtyRateTotalMatch,
       componentSumMatch,
       crossCheckMatch,
       ujnComputed: qtyRateTotal,
       totalComputed: componentSum,
-      ujnMatch,
+      ujnMatch: qtyRateTotalMatch,
       totalAmountMatch: componentSumMatch,
     },
   };

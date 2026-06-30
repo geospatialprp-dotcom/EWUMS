@@ -168,8 +168,7 @@ function checkTypeLabel(errorType: string, checkOrder?: number) {
   if (errorType === 'Missing / invalid description') return `${prefix}Description`;
   if (errorType === 'Invalid quantity') return `${prefix}Quantity`;
   if (errorType === 'Invalid rate') return `${prefix}Rate`;
-  if (errorType === 'Qty × Rate ≠ UJN') return `${prefix}Qty×Rate = UJN`;
-  if (errorType === 'Qty × Rate ≠ Total Amount') return `${prefix}Qty×Rate = Total Amount`;
+  if (errorType === 'Qty × Rate ≠ UJN' || errorType === 'Qty × Rate ≠ Total Amount') return `${prefix}Qty×Rate = Total Amount`;
   if (errorType === 'Component sum ≠ Total Amount') return `${prefix}DSR+UJN+SOR(PWD)+NSI = Total Amount`;
   if (errorType === 'Qty×Rate ≠ component sum') return `${prefix}Qty×Rate vs component sum`;
   if (errorType === 'Qty × Rate ≠ Amount') return `${prefix}Qty×Rate = Amount`;
