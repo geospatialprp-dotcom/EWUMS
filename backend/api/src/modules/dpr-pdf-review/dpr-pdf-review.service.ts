@@ -1,10 +1,14 @@
 import {
-  ForbiddenException, Injectable, NotFoundException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createReadStream } from 'fs';
 import type { Response } from 'express';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { AuditService } from '../../common/services/audit.service';
 import { DprPlanningService } from '../dpr-planning/dpr-planning.service';
 import { DprProposalDocument } from '../dpr-planning/entities/dpr-planning-support.entity';
@@ -41,32 +45,16 @@ export class DprPdfReviewService {
     proposalId: string,
     documentId: string,
   ) {
-    await this.requireDocument(tenantId, proposalId, documentId);
-    let review = await this.reviewRepo.findOne({
-      where: { tenantId, proposalId, documentId },
-    });
-    if (!review) {
-      review = this.reviewRepo.create({
-        tenantId,
-        proposalId,
-        documentId,
-        status: 'open',
-        reviewerScope: resolveReviewerScope(roles),
-        createdBy: userId,
-      });
-      review = await this.reviewRepo.save(review);
-      await this.audit.log(
-        tenantId,
-        userId,
-        'dpr_pdf_review.created',
-        'dpr_pdf_review',
-        review.id,
-        { proposalId, documentId },
-      );
-    }
+    const review = await this.ensureReviewSession(
+      tenantId,
+      userId,
+      roles,
+      proposalId,
+      documentId,
+    );
     const [annotationCount, commentCount] = await Promise.all([
-      this.annotationRepo.count({ where: { tenantId, reviewId: review.id } }),
-      this.commentRepo.count({ where: { tenantId, reviewId: review.id } }),
+      this.countAnnotations(tenantId, review.id),
+      this.countComments(tenantId, review.id),
     ]);
     return {
       id: review.id,
@@ -95,15 +83,35 @@ export class DprPdfReviewService {
     );
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `inline; filename="${doc.fileName ?? 'document.pdf'}"`);
-    createReadStream(absolutePath).pipe(res);
+    const stream = createReadStream(absolutePath);
+    stream.on('error', (err) => {
+      if (!res.headersSent) {
+        res.status(404).json({
+          statusCode: 404,
+          message: 'File not found on server — re-upload the document',
+        });
+        return;
+      }
+      res.destroy(err);
+    });
+    stream.pipe(res);
   }
 
-  async listAnnotations(tenantId: string, proposalId: string, documentId: string) {
-    const review = await this.requireReview(tenantId, proposalId, documentId);
-    const rows = await this.annotationRepo.find({
-      where: { tenantId, reviewId: review.id },
-      order: { pageNumber: 'ASC', createdAt: 'ASC' },
-    });
+  async listAnnotations(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    documentId: string,
+  ) {
+    const review = await this.ensureReviewSession(
+      tenantId,
+      userId,
+      roles,
+      proposalId,
+      documentId,
+    );
+    const rows = await this.findAnnotations(tenantId, review.id);
     return rows.map((a) => this.mapAnnotation(a));
   }
 
@@ -187,12 +195,21 @@ export class DprPdfReviewService {
     return { deleted: true };
   }
 
-  async listComments(tenantId: string, proposalId: string, documentId: string) {
-    const review = await this.requireReview(tenantId, proposalId, documentId);
-    const rows = await this.commentRepo.find({
-      where: { tenantId, reviewId: review.id },
-      order: { createdAt: 'ASC' },
-    });
+  async listComments(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    documentId: string,
+  ) {
+    const review = await this.ensureReviewSession(
+      tenantId,
+      userId,
+      roles,
+      proposalId,
+      documentId,
+    );
+    const rows = await this.findComments(tenantId, review.id);
     return rows.map((c) => this.mapComment(c));
   }
 
@@ -283,8 +300,20 @@ export class DprPdfReviewService {
     return { deleted: true };
   }
 
-  async listVersions(tenantId: string, proposalId: string, documentId: string) {
-    const review = await this.requireReview(tenantId, proposalId, documentId);
+  async listVersions(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    documentId: string,
+  ) {
+    const review = await this.ensureReviewSession(
+      tenantId,
+      userId,
+      roles,
+      proposalId,
+      documentId,
+    );
     const doc = await this.requireDocument(tenantId, proposalId, documentId);
     const snapshots = await this.versionRepo.find({
       where: { tenantId, reviewId: review.id },
@@ -302,6 +331,43 @@ export class DprPdfReviewService {
     };
   }
 
+  private async ensureReviewSession(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    documentId: string,
+  ): Promise<DprPdfReview> {
+    await this.requireDocument(tenantId, proposalId, documentId);
+    try {
+      let review = await this.reviewRepo.findOne({
+        where: { tenantId, proposalId, documentId },
+      });
+      if (!review) {
+        review = this.reviewRepo.create({
+          tenantId,
+          proposalId,
+          documentId,
+          status: 'open',
+          reviewerScope: resolveReviewerScope(roles),
+          createdBy: userId,
+        });
+        review = await this.reviewRepo.save(review);
+        await this.audit.log(
+          tenantId,
+          userId,
+          'dpr_pdf_review.created',
+          'dpr_pdf_review',
+          review.id,
+          { proposalId, documentId },
+        );
+      }
+      return review;
+    } catch (err) {
+      this.rethrowPdfReviewDbError(err);
+    }
+  }
+
   private async requireDocument(tenantId: string, proposalId: string, documentId: string) {
     const doc = await this.docRepo.findOne({ where: { id: documentId, tenantId, proposalId } });
     if (!doc) throw new NotFoundException('DPR document not found');
@@ -310,11 +376,67 @@ export class DprPdfReviewService {
 
   private async requireReview(tenantId: string, proposalId: string, documentId: string) {
     await this.requireDocument(tenantId, proposalId, documentId);
-    const review = await this.reviewRepo.findOne({ where: { tenantId, proposalId, documentId } });
-    if (!review) {
-      throw new NotFoundException('PDF review session not found — open the review viewer first');
+    try {
+      const review = await this.reviewRepo.findOne({ where: { tenantId, proposalId, documentId } });
+      if (!review) {
+        throw new NotFoundException('PDF review session not found — open the review viewer first');
+      }
+      return review;
+    } catch (err) {
+      if (err instanceof NotFoundException) throw err;
+      this.rethrowPdfReviewDbError(err);
     }
-    return review;
+  }
+
+  private async countAnnotations(tenantId: string, reviewId: string) {
+    try {
+      return await this.annotationRepo.count({ where: { tenantId, reviewId } });
+    } catch (err) {
+      this.rethrowPdfReviewDbError(err);
+    }
+  }
+
+  private async countComments(tenantId: string, reviewId: string) {
+    try {
+      return await this.commentRepo.count({ where: { tenantId, reviewId } });
+    } catch (err) {
+      this.rethrowPdfReviewDbError(err);
+    }
+  }
+
+  private async findAnnotations(tenantId: string, reviewId: string) {
+    try {
+      return await this.annotationRepo.find({
+        where: { tenantId, reviewId },
+        order: { pageNumber: 'ASC', createdAt: 'ASC' },
+      });
+    } catch (err) {
+      this.rethrowPdfReviewDbError(err);
+    }
+  }
+
+  private async findComments(tenantId: string, reviewId: string) {
+    try {
+      return await this.commentRepo.find({
+        where: { tenantId, reviewId },
+        order: { createdAt: 'ASC' },
+      });
+    } catch (err) {
+      this.rethrowPdfReviewDbError(err);
+    }
+  }
+
+  private rethrowPdfReviewDbError(err: unknown): never {
+    if (err instanceof QueryFailedError) {
+      const message = err.message ?? '';
+      if (/relation "dpr_pdf_/i.test(message)) {
+        throw new ServiceUnavailableException(
+          'DPR PDF review is not initialized on this server. Apply database migration 094_dpr_pdf_review.sql and redeploy.',
+        );
+      }
+    }
+    if (err instanceof Error) throw err;
+    throw new InternalServerErrorException('DPR PDF review request failed');
   }
 
   private mapAnnotation(a: DprPdfAnnotation) {

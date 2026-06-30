@@ -12,7 +12,7 @@ import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import CommentOutlinedIcon from '@mui/icons-material/CommentOutlined';
 import * as pdfjsLib from 'pdfjs-dist';
 import axios from 'axios';
-import { dprPdfReviewApi } from '../../services/api';
+import { dprPdfReviewApi, dprPlanningApi } from '../../services/api';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -54,8 +54,19 @@ function getApiError(err: unknown, fallback: string): string {
     const msg = err.response?.data?.message;
     if (typeof msg === 'string') return msg;
     if (Array.isArray(msg)) return msg.join(', ');
+    if (err.response?.data instanceof Blob) {
+      return fallback;
+    }
   }
   return fallback;
+}
+
+async function loadPdfBlob(proposalId: string, documentId: string): Promise<Blob> {
+  try {
+    return await dprPlanningApi.fetchDocumentFile(proposalId, documentId);
+  } catch {
+    return dprPdfReviewApi.fetchPdfStream(proposalId, documentId);
+  }
 }
 
 export default function DprPdfReviewViewer({
@@ -93,12 +104,13 @@ export default function DprPdfReviewViewer({
     setError('');
     try {
       const reviewRes = await dprPdfReviewApi.getReview(proposalId, documentId);
-      const [annRes, comRes, blob] = await Promise.all([
-        dprPdfReviewApi.listAnnotations(proposalId, documentId),
-        dprPdfReviewApi.listComments(proposalId, documentId),
-        dprPdfReviewApi.fetchPdfStream(proposalId, documentId),
-      ]);
       setReviewStatus(reviewRes.data.status ?? 'open');
+
+      const [annRes, comRes, blob] = await Promise.all([
+        dprPdfReviewApi.listAnnotations(proposalId, documentId).catch(() => ({ data: [] })),
+        dprPdfReviewApi.listComments(proposalId, documentId).catch(() => ({ data: [] })),
+        loadPdfBlob(proposalId, documentId),
+      ]);
       setAnnotations(annRes.data ?? []);
       setComments(comRes.data ?? []);
       const buffer = await blob.arrayBuffer();

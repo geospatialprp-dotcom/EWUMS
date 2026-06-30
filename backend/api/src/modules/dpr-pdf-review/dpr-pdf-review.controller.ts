@@ -26,7 +26,7 @@ export class DprPdfReviewController {
   constructor(private readonly service: DprPdfReviewService) {}
 
   @Get('proposals/:id/review')
-  @RequirePermissions('dpr_pdf_review:read')
+  @RequirePermissions('dpr_pdf_review:read', 'dpr_proposal:read')
   @ApiOperation({ summary: 'Get or create PDF review session for a DPR document' })
   getReview(
     @CurrentUser() user: JwtPayload,
@@ -43,7 +43,7 @@ export class DprPdfReviewController {
   }
 
   @Get('proposals/:id/pdf-stream')
-  @RequirePermissions('dpr_pdf_review:read')
+  @RequirePermissions('dpr_pdf_review:read', 'dpr_proposal:read')
   @ApiOperation({ summary: 'Stream secured DPR PDF for inline viewer' })
   async streamPdf(
     @CurrentUser() user: JwtPayload,
@@ -55,13 +55,19 @@ export class DprPdfReviewController {
   }
 
   @Get('proposals/:id/annotations')
-  @RequirePermissions('dpr_pdf_review:read')
+  @RequirePermissions('dpr_pdf_review:read', 'dpr_proposal:read')
   listAnnotations(
     @CurrentUser() user: JwtPayload,
     @Param('id') proposalId: string,
     @Query() query: DocumentIdQueryDto,
   ) {
-    return this.service.listAnnotations(user.tenantId, proposalId, query.documentId);
+    return this.service.listAnnotations(
+      user.tenantId,
+      user.sub,
+      user.roles ?? [],
+      proposalId,
+      query.documentId,
+    );
   }
 
   @Post('proposals/:id/annotations')
@@ -96,13 +102,19 @@ export class DprPdfReviewController {
   }
 
   @Get('proposals/:id/comments')
-  @RequirePermissions('dpr_pdf_review:read')
+  @RequirePermissions('dpr_pdf_review:read', 'dpr_proposal:read')
   listComments(
     @CurrentUser() user: JwtPayload,
     @Param('id') proposalId: string,
     @Query() query: DocumentIdQueryDto,
   ) {
-    return this.service.listComments(user.tenantId, proposalId, query.documentId);
+    return this.service.listComments(
+      user.tenantId,
+      user.sub,
+      user.roles ?? [],
+      proposalId,
+      query.documentId,
+    );
   }
 
   @Post('proposals/:id/comments')
@@ -137,12 +149,18 @@ export class DprPdfReviewController {
   }
 
   @Get('proposals/:id/versions')
-  @RequirePermissions('dpr_pdf_review:read')
+  @RequirePermissions('dpr_pdf_review:read', 'dpr_proposal:read')
   listVersions(
     @CurrentUser() user: JwtPayload,
     @Param('id') proposalId: string,
     @Query() query: DocumentIdQueryDto,
   ) {
-    return this.service.listVersions(user.tenantId, proposalId, query.documentId);
+    return this.service.listVersions(
+      user.tenantId,
+      user.sub,
+      user.roles ?? [],
+      proposalId,
+      query.documentId,
+    );
   }
 }

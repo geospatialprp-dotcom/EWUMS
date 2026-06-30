@@ -80,8 +80,8 @@ INSERT INTO permissions (resource, action, description) VALUES
   ('dpr_pdf_review', 'comment', 'Add discussion comments on PDF review')
 ON CONFLICT (resource, action) DO NOTHING;
 
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
+INSERT INTO role_permissions (role_id, permission_id, scope)
+SELECT r.id, p.id, 'organization'
 FROM roles r
 CROSS JOIN permissions p
 WHERE r.tenant_id = 'a0000000-0000-0000-0000-000000000001'
