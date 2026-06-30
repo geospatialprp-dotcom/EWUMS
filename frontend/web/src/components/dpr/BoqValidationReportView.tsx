@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, LinearProgress, Paper, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Divider,
+  LinearProgress, Paper, Table, TableBody, TableCell, TableHead, TableRow, Typography,
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { dprPlanningApi } from '../../services/api';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 
@@ -28,7 +31,14 @@ export type BoqPageData = {
     rowNo: number;
     match: boolean;
     message?: string;
-    columnChecks?: Array<{ columnLabel: string; match: boolean; message?: string }>;
+    checkStep?: 6 | 7;
+    columnChecks?: Array<{
+      columnLabel: string;
+      match: boolean;
+      declaredAmount?: number;
+      computedAmount?: number;
+      message?: string;
+    }>;
     horizontalMatch?: boolean | null;
   }>;
   lines?: Array<{
@@ -70,6 +80,41 @@ export type DprSheetSummary = {
   errorCount?: number;
 };
 
+export type DprSheetLineReport = {
+  lineNo: number;
+  sheetRow?: number;
+  description: string;
+  status: 'pass' | 'fail' | 'warning';
+  step4?: {
+    match: boolean;
+    message?: string;
+    qty?: number;
+    rate?: number;
+    declared?: number;
+    computed?: number;
+  };
+  step5?: {
+    match: boolean;
+    message?: string;
+    declared?: number;
+    computed?: number;
+    dsr?: number;
+    ujn?: number;
+    sorPwd?: number;
+    nsi?: number;
+  };
+};
+
+export type DprSheetReport = {
+  sheetName: string;
+  pageNo: number;
+  status: 'passed' | 'failed' | 'warning' | 'skipped';
+  lineCount: number;
+  step6Checks: BoqPageData['totalChecks'];
+  step7Checks: BoqPageData['totalChecks'];
+  lines: DprSheetLineReport[];
+};
+
 export type DprAuditSummary = {
   visibleSheetsChecked?: number;
   hiddenSheetsSkipped?: number;
@@ -80,10 +125,12 @@ export type DprAuditSummary = {
   errors?: DprAuditError[];
   firstErrorCellRef?: string | null;
   sheetsSummary?: DprSheetSummary[];
+  sheetReports?: DprSheetReport[];
 };
 
 export type BoqValidationData = {
   status?: string;
+  fileName?: string;
   totalItems?: number;
   failedItems?: number;
   warningItems?: number;
@@ -105,53 +152,223 @@ interface Props {
   proposalId?: string | null;
 }
 
-function resolveSheetsSummary(validation: BoqValidationData): DprSheetSummary[] {
-  const fromAudit = validation.audit?.sheetsSummary;
+function formatInr(n?: number | null): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+function formatTimestamp(iso?: string): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
+
+function CheckIcon({ ok }: { ok: boolean }) {
+  return ok
+    ? <CheckCircleOutlineIcon color="success" fontSize="inherit" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+    : <ErrorOutlineIcon color="error" fontSize="inherit" sx={{ verticalAlign: 'middle', mr: 0.5 }} />;
+}
+
+function resolveSheetReports(validation: BoqValidationData): DprSheetReport[] {
+  const fromAudit = validation.audit?.sheetReports;
   if (fromAudit && fromAudit.length > 0) return fromAudit;
 
   return (validation.pages ?? [])
-    .filter((p) => p.isCalculationSheet !== false && p.status !== 'skipped')
+    .filter((p) => p.isCalculationSheet !== false)
     .map((p) => ({
       sheetName: p.sheetName,
-      status: (p.failedItems ?? 0) > 0 || p.hasIssues ? 'failed' as const : 'passed' as const,
-      itemCount: (p.totalItems ?? 0) + (p.totalChecks?.length ?? 0),
-      errorCount: p.failedItems ?? 0,
+      pageNo: p.pageNo,
+      status: (p.status === 'skipped' ? 'skipped' : p.status === 'failed' ? 'failed' : p.status === 'warning' ? 'warning' : 'passed') as DprSheetReport['status'],
+      lineCount: p.totalItems ?? 0,
+      step6Checks: (p.totalChecks ?? []).filter((c) => c.checkStep === 6),
+      step7Checks: (p.totalChecks ?? []).filter((c) => c.checkStep === 7),
+      lines: (p.lines ?? []).map((l) => ({
+        lineNo: l.lineNo,
+        sheetRow: l.sheetRow,
+        description: l.description,
+        status: (l.status === 'fail' ? 'fail' : l.status === 'warning' ? 'warning' : 'pass') as DprSheetLineReport['status'],
+      })),
     }));
 }
 
-function SheetStatusRow({ sheet, failed = false }: { sheet: DprSheetSummary; failed?: boolean }) {
-  const isPassed = sheet.status === 'passed';
-  const Icon = isPassed ? CheckCircleOutlineIcon : ErrorOutlineIcon;
-  const iconColor = isPassed ? 'success' : 'error';
+function resolveSheetsSummary(validation: BoqValidationData, sheetReports: DprSheetReport[]): DprSheetSummary[] {
+  const fromAudit = validation.audit?.sheetsSummary;
+  if (fromAudit && fromAudit.length > 0) return fromAudit;
+
+  return sheetReports.map((s) => ({
+    sheetName: s.sheetName,
+    status: s.status === 'skipped' ? 'skipped' as const : s.status === 'failed' ? 'failed' as const : 'passed' as const,
+    itemCount: s.lineCount + (s.step6Checks?.length ?? 0) + (s.step7Checks?.length ?? 0),
+    errorCount: s.status === 'failed' ? 1 : 0,
+  }));
+}
+
+function TotalCheckTable({ checks, step }: { checks: NonNullable<BoqPageData['totalChecks']>; step: 6 | 7 }) {
+  if (!checks.length) return null;
+  const label = step === 6 ? 'Step 6 — Sub Total' : 'Step 7 — Total Cost';
 
   return (
-    <Box
-      display="flex"
-      alignItems="flex-start"
-      gap={1}
+    <Box sx={{ mb: 1.5 }}>
+      <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.5 }}>
+        {label}
+      </Typography>
+      {checks.map((check) => (
+        <Paper key={`${step}-${check.rowNo}`} variant="outlined" sx={{ p: 1, mb: 0.75, bgcolor: check.match ? 'rgba(46,125,50,0.04)' : 'rgba(211,47,47,0.04)' }}>
+          <Typography variant="body2" fontWeight={500} sx={{ mb: 0.5 }}>
+            <CheckIcon ok={check.match} />
+            Row {check.rowNo} — {check.label}
+            {check.match ? ' ✓' : ''}
+          </Typography>
+          {(check.columnChecks ?? []).length > 0 ? (
+            <Table size="small" sx={{ ...dataTableSx, mt: 0.5 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Column</TableCell>
+                  <TableCell>Excel</TableCell>
+                  <TableCell>Calculated</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(check.columnChecks ?? []).map((col) => (
+                  <TableRow key={col.columnLabel}>
+                    <TableCell>{col.columnLabel}</TableCell>
+                    <TableCell>{formatInr(col.declaredAmount)}</TableCell>
+                    <TableCell>{formatInr(col.computedAmount)}</TableCell>
+                    <TableCell>
+                      <CheckIcon ok={col.match} />
+                      {col.match ? 'Match' : 'Mismatch'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <Typography variant="caption" color="text.secondary">
+              Excel {formatInr(check.declaredAmount)} vs Calculated {formatInr(check.computedAmount)}
+            </Typography>
+          )}
+        </Paper>
+      ))}
+    </Box>
+  );
+}
+
+function SheetAccordion({ sheet }: { sheet: DprSheetReport }) {
+  const isPassed = sheet.status === 'passed';
+  const isSkipped = sheet.status === 'skipped';
+  const Icon = isPassed ? CheckCircleOutlineIcon : isSkipped ? CheckCircleOutlineIcon : ErrorOutlineIcon;
+  const iconColor = isPassed ? 'success' : isSkipped ? 'disabled' : 'error';
+
+  return (
+    <Accordion
+      disableGutters
       sx={{
-        py: 0.75,
-        px: 1,
-        borderRadius: 1,
-        bgcolor: failed ? 'rgba(211,47,47,0.06)' : isPassed ? 'rgba(46,125,50,0.06)' : undefined,
+        border: '1px solid',
+        borderColor: isPassed ? 'success.light' : isSkipped ? 'divider' : 'error.light',
+        '&:before': { display: 'none' },
+        mb: 0.75,
       }}
     >
-      <Icon color={iconColor} fontSize="small" sx={{ mt: 0.15 }} />
-      <Box flex={1} minWidth={0}>
-        <Typography variant="body2" fontWeight={failed ? 600 : 500}>
-          {sheet.sheetName}
-          {' — '}
-          {isPassed
-            ? 'All items OK'
-            : `${sheet.errorCount ?? 0} error${(sheet.errorCount ?? 0) === 1 ? '' : 's'}`}
-        </Typography>
-        {(sheet.itemCount ?? 0) > 0 && (
-          <Typography variant="caption" color="text.secondary">
-            {sheet.itemCount} item{sheet.itemCount === 1 ? '' : 's'} validated
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Box display="flex" alignItems="center" gap={1} flex={1} minWidth={0}>
+          <Icon color={iconColor} fontSize="small" />
+          <Typography variant="body2" fontWeight={600} noWrap sx={{ flex: 1 }}>
+            {sheet.sheetName}
           </Typography>
+          <Chip
+            size="small"
+            color={isPassed ? 'success' : isSkipped ? 'default' : 'error'}
+            variant="outlined"
+            label={isSkipped ? 'Skipped' : isPassed ? 'PASSED' : 'FAILED'}
+          />
+          {!isSkipped && (
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              {sheet.lineCount} item row{sheet.lineCount === 1 ? '' : 's'}
+            </Typography>
+          )}
+        </Box>
+      </AccordionSummary>
+      <AccordionDetails sx={{ pt: 0 }}>
+        {isSkipped ? (
+          <Typography variant="body2" color="text.secondary">Non-calculation sheet — skipped.</Typography>
+        ) : (
+          <>
+            {isPassed && (
+              <Alert severity="success" icon={<CheckCircleOutlineIcon />} sx={{ mb: 1.5, py: 0 }}>
+                All items OK — {sheet.lineCount} row{sheet.lineCount === 1 ? '' : 's'} validated
+              </Alert>
+            )}
+            <TotalCheckTable checks={sheet.step6Checks ?? []} step={6} />
+            <TotalCheckTable checks={sheet.step7Checks ?? []} step={7} />
+            {sheet.lines.length > 0 && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.5 }}>
+                  Item rows checked
+                </Typography>
+                <Table size="small" sx={{ ...dataTableSx, maxHeight: 280 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Row</TableCell>
+                      <TableCell>Description</TableCell>
+                      <TableCell>Step 4 Qty×Rate</TableCell>
+                      <TableCell>Step 5 Components</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {sheet.lines.map((line) => (
+                      <TableRow
+                        key={`${line.lineNo}-${line.sheetRow}`}
+                        sx={{ bgcolor: line.status === 'fail' ? 'rgba(211,47,47,0.06)' : undefined }}
+                      >
+                        <TableCell>{line.sheetRow ?? line.lineNo}</TableCell>
+                        <TableCell>
+                          <Typography variant="body2" noWrap title={line.description}>
+                            {line.description}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          {line.step4 ? (
+                            <Typography variant="caption" component="span">
+                              <CheckIcon ok={line.step4.match} />
+                              {line.step4.qty != null && line.step4.rate != null
+                                ? `${line.step4.qty} × ${line.step4.rate} = ${formatInr(line.step4.computed)}`
+                                : line.step4.match ? 'OK' : 'Mismatch'}
+                            </Typography>
+                          ) : '—'}
+                        </TableCell>
+                        <TableCell>
+                          {line.step5 ? (
+                            <Typography variant="caption" component="span">
+                              <CheckIcon ok={line.step5.match} />
+                              {[line.step5.dsr, line.step5.ujn, line.step5.sorPwd, line.step5.nsi].some((v) => (v ?? 0) > 0)
+                                ? `DSR ${line.step5.dsr ?? 0}+UJN ${line.step5.ujn ?? 0}+SOR ${line.step5.sorPwd ?? 0}+NSI ${line.step5.nsi ?? 0}`
+                                : line.step5.match ? 'OK' : 'Mismatch'}
+                            </Typography>
+                          ) : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            color={line.status === 'pass' ? 'success' : line.status === 'warning' ? 'warning' : 'error'}
+                            label={line.status.toUpperCase()}
+                            variant="outlined"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+          </>
         )}
-      </Box>
-    </Box>
+      </AccordionDetails>
+    </Accordion>
   );
 }
 
@@ -162,6 +379,15 @@ export default function BoqValidationReportView({
   proposalId,
 }: Props) {
   const [exporting, setExporting] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
+  const sheetReports = useMemo(
+    () => (validation ? resolveSheetReports(validation) : []),
+    [validation],
+  );
+  const sheetsSummary = useMemo(
+    () => (validation ? resolveSheetsSummary(validation, sheetReports) : []),
+    [validation, sheetReports],
+  );
 
   const downloadReport = async () => {
     if (!proposalId) return;
@@ -177,6 +403,11 @@ export default function BoqValidationReportView({
     } finally {
       setExporting(false);
     }
+  };
+
+  const downloadPdfSummary = () => {
+    printRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+    window.print();
   };
 
   if (validating) {
@@ -199,99 +430,88 @@ export default function BoqValidationReportView({
   const audit = validation.audit;
   const errors = audit?.errors ?? [];
   const totalErrors = audit?.totalErrors ?? errors.length;
-  const errorSheetCount = audit?.errorSheetCount
-    ?? new Set(errors.map((e) => e.sheetName).filter(Boolean)).size;
+  const warningCount = validation.warningItems ?? 0;
   const passed = validation.status === 'passed' && totalErrors === 0;
-  const summaryText = audit?.summaryMessage
-    ?? validation.summary?.message
-    ?? (passed ? 'BOQ validation PASSED' : `${totalErrors} error${totalErrors === 1 ? '' : 's'} in ${errorSheetCount} sheet${errorSheetCount === 1 ? '' : 's'}`);
-
-  const allSheets = resolveSheetsSummary(validation);
-  const validatedSheets = allSheets.filter((s) => s.status !== 'skipped');
-  const passedSheets = validatedSheets.filter((s) => s.status === 'passed');
-  const failedSheets = validatedSheets.filter((s) => s.status === 'failed');
-
-  if (passed) {
-    const sheetCount = validatedSheets.length
-      || audit?.visibleSheetsChecked
-      || validation.pages?.filter((p) => p.isCalculationSheet !== false && p.status !== 'skipped').length
-      || 0;
-
-    return (
-      <Box>
-        <Alert severity="success" icon={<CheckCircleOutlineIcon />} sx={{ mb: 1.5 }}>
-          <Typography variant="body2" fontWeight={600}>BOQ validation PASSED</Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-            All {sheetCount} calculation sheet{sheetCount === 1 ? '' : 's'} checked — no errors found.
-          </Typography>
-        </Alert>
-
-        {validatedSheets.length > 0 && (
-          <Paper variant="outlined" sx={{ p: 1.5, mb: 1 }}>
-            <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 1 }}>
-              Sheets validated
-            </Typography>
-            <Box
-              display="grid"
-              gridTemplateColumns={{ xs: '1fr', sm: '1fr 1fr' }}
-              gap={0.5}
-            >
-              {validatedSheets.map((sheet) => (
-                <SheetStatusRow key={sheet.sheetName} sheet={sheet} />
-              ))}
-            </Box>
-          </Paper>
-        )}
-
-        {proposalId && (
-          <Button size="small" variant="text" startIcon={<DownloadOutlinedIcon />}
-            disabled={exporting || !audit} onClick={downloadReport} sx={{ mt: 0.5 }}>
-            Download full audit Excel
-          </Button>
-        )}
-      </Box>
-    );
-  }
+  const validatedSheets = sheetsSummary.filter((s) => s.status !== 'skipped');
+  const sheetCount = validatedSheets.length || audit?.visibleSheetsChecked || sheetReports.filter((s) => s.status !== 'skipped').length;
 
   return (
-    <Box>
-      <Alert severity={validation.status === 'warning' ? 'warning' : 'error'} sx={{ mb: 1.5 }}>
-        <Typography variant="body2" fontWeight={600}>{summaryText}</Typography>
-      </Alert>
-
-      <Box display="flex" gap={1} alignItems="center" flexWrap="wrap" sx={{ mb: 1 }}>
-        {proposalId && (
-          <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
-            disabled={exporting || !audit} onClick={downloadReport}>
-            Download Excel Audit Report
-          </Button>
-        )}
-        {(audit?.hiddenSheetsSkipped ?? 0) > 0 && (
+    <Box ref={printRef}>
+      <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
+          <Chip
+            icon={passed ? <CheckCircleOutlineIcon /> : <ErrorOutlineIcon />}
+            color={passed ? 'success' : validation.status === 'warning' ? 'warning' : 'error'}
+            label={passed ? 'PASSED' : validation.status === 'warning' ? 'PASSED WITH WARNINGS' : 'FAILED'}
+          />
+          <Typography variant="body2" color="text.secondary">
+            {validation.fileName ?? 'BOQ workbook'}
+          </Typography>
           <Typography variant="caption" color="text.secondary">
+            · {formatTimestamp(validation.validatedAt)}
+          </Typography>
+        </Box>
+        <Box display="grid" gridTemplateColumns={{ xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }} gap={1}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Sheets validated</Typography>
+            <Typography variant="body2" fontWeight={600}>{sheetCount}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Item rows checked</Typography>
+            <Typography variant="body2" fontWeight={600}>{validation.totalItems ?? 0}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Errors</Typography>
+            <Typography variant="body2" fontWeight={600} color={totalErrors > 0 ? 'error.main' : 'success.main'}>
+              {totalErrors}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Warnings</Typography>
+            <Typography variant="body2" fontWeight={600} color={warningCount > 0 ? 'warning.main' : 'text.primary'}>
+              {warningCount}
+            </Typography>
+          </Box>
+        </Box>
+        {(audit?.hiddenSheetsSkipped ?? 0) > 0 && (
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
             {audit?.hiddenSheetsSkipped} hidden sheet(s) skipped
           </Typography>
         )}
+      </Paper>
+
+      <Box display="flex" gap={1} flexWrap="wrap" sx={{ mb: 1.5 }} className="no-print">
+        {proposalId && (
+          <>
+            <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
+              disabled={exporting || !audit} onClick={downloadReport}>
+              Download Excel Audit Report
+            </Button>
+            <Button size="small" variant="text" startIcon={<PictureAsPdfOutlinedIcon />}
+              disabled={!audit} onClick={downloadPdfSummary}>
+              Download PDF Summary Report
+            </Button>
+          </>
+        )}
       </Box>
 
-      {validatedSheets.length > 0 && (
-        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
-          <Box
-            display="grid"
-            gridTemplateColumns={{ xs: '1fr', sm: '1fr 1fr' }}
-            gap={0.5}
-          >
-            {failedSheets.map((sheet) => (
-              <SheetStatusRow key={sheet.sheetName} sheet={sheet} failed />
-            ))}
-            {passedSheets.map((sheet) => (
-              <SheetStatusRow key={sheet.sheetName} sheet={sheet} />
-            ))}
-          </Box>
-        </Paper>
+      {sheetReports.length > 0 && (
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 1 }}>
+            Per-sheet breakdown ({sheetReports.length} sheet{sheetReports.length === 1 ? '' : 's'})
+          </Typography>
+          {sheetReports.map((sheet) => (
+            <SheetAccordion key={sheet.sheetName} sheet={sheet} />
+          ))}
+        </Box>
       )}
 
-      {errors.length > 0 ? (
+      {errors.length > 0 && (
         <>
+          <Divider sx={{ my: 1.5 }} />
+          <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 1 }}>
+            Errors ({errors.length})
+          </Typography>
           <Table size="small" sx={{ ...dataTableSx, maxHeight: 420 }}>
             <TableHead>
               <TableRow>
@@ -329,7 +549,9 @@ export default function BoqValidationReportView({
             </Typography>
           )}
         </>
-      ) : (
+      )}
+
+      {!passed && errors.length === 0 && (
         <Typography variant="body2" color="text.secondary">
           Validation failed but no detailed error list is available — re-upload the workbook or download the audit report.
         </Typography>

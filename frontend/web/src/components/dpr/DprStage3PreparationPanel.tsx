@@ -532,7 +532,7 @@ export default function DprStage3PreparationPanel({ open, proposalId, onClose, o
 
             {boqValidationPassed && !uploadingBoq && boqValidation?.status === 'passed' && (
               <Alert severity="success" sx={{ mb: 2 }}>
-                BOQ validation PASSED — you may submit to TAC once all other deliverables are complete.
+                BOQ validation PASSED — review the full report above, then submit to TAC when all deliverables are complete.
               </Alert>
             )}
 

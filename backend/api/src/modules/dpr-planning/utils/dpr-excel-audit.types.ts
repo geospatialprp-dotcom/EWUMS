@@ -1,4 +1,7 @@
-import type { BoqValidationReport } from './dpr-boq-validation.util';
+import type {
+  BoqTotalRowCheck,
+  BoqValidationReport,
+} from './dpr-boq-validation.util';
 
 export type DprAuditSeverity = 'critical' | 'major' | 'minor';
 export type DprAuditCategory =
@@ -49,6 +52,38 @@ export type DprSheetSummary = {
   errorCount?: number;
 };
 
+export type DprSheetLineStepCheck = {
+  match: boolean;
+  message?: string;
+  declared?: number;
+  computed?: number;
+  qty?: number;
+  rate?: number;
+  dsr?: number;
+  ujn?: number;
+  sorPwd?: number;
+  nsi?: number;
+};
+
+export type DprSheetLineReport = {
+  lineNo: number;
+  sheetRow?: number;
+  description: string;
+  status: 'pass' | 'fail' | 'warning';
+  step4?: DprSheetLineStepCheck;
+  step5?: DprSheetLineStepCheck;
+};
+
+export type DprSheetReport = {
+  sheetName: string;
+  pageNo: number;
+  status: 'passed' | 'failed' | 'warning' | 'skipped';
+  lineCount: number;
+  step6Checks: BoqTotalRowCheck[];
+  step7Checks: BoqTotalRowCheck[];
+  lines: DprSheetLineReport[];
+};
+
 export type DprExcelAuditSummary = {
   visibleSheetsChecked: number;
   hiddenSheetsSkipped: number;
@@ -70,6 +105,8 @@ export type DprExcelAuditSummary = {
   summaryMessage: string;
   /** Per-sheet pass/fail for UI — no full line-level pass payload */
   sheetsSummary: DprSheetSummary[];
+  /** Full per-sheet validation detail for UI accordion (includes pass rows/checks) */
+  sheetReports?: DprSheetReport[];
 };
 
 export type DprExcelAuditReport = BoqValidationReport & {

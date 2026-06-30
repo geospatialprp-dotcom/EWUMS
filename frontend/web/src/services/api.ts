@@ -898,7 +898,8 @@ export const dprPlanningApi = {
       timeout: 300000,
     });
   },
-  getBoqValidation: (id: string) => api.get(`/dpr-planning/proposals/${id}/boq-validation`),
+  getBoqValidation: (id: string, detail: 'full' | 'summary' = 'full') =>
+    api.get(`/dpr-planning/proposals/${id}/boq-validation`, { params: { detail } }),
   listBoqValidationHistory: (id: string) => api.get(`/dpr-planning/proposals/${id}/boq-validation/history`),
   downloadBoqValidationExport: async (id: string) => {
     const { data } = await api.get(`/dpr-planning/proposals/${id}/boq-validation/export`, { responseType: 'blob' });

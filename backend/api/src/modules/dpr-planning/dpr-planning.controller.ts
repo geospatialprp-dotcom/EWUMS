@@ -397,8 +397,12 @@ export class DprPlanningController {
   @Get('proposals/:id/boq-validation')
   @RequirePermissions('dpr_proposal:read')
   @ApiOperation({ summary: 'Latest BOQ auto-validation report for TAC review' })
-  getBoqValidation(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    return this.service.getBoqValidation(user.tenantId, id);
+  getBoqValidation(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Query('detail') detail?: string,
+  ) {
+    return this.service.getBoqValidation(user.tenantId, id, detail);
   }
 
   @Get('proposals/:id/boq-validation/history')

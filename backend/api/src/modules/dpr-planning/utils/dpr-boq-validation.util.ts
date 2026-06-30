@@ -267,10 +267,22 @@ function tharaliRowHorizontalCheck(
 }
 
 /** Step 6 Total Amount when lump sums sit in UJN/NSI columns but not Total Amount column (cwra). */
-function tharaliSubtotalComputedSums(sums: BoqAmountColumns): BoqAmountColumns {
+function tharaliSubtotalComputedSums(
+  sums: BoqAmountColumns,
+  declared?: BoqAmountColumns,
+): BoqAmountColumns {
   const fromCol = round2(sums.totalAmount);
   const withoutSor = round2(sums.dsr + sums.ujn + sums.nsi);
   const withSor = round2(sums.dsr + sums.ujn + sums.sorPwd + sums.nsi);
+
+  if (declared && declared.totalAmount > 0) {
+    const d = declared.totalAmount;
+    const tol = totalRowTolerance(d);
+    if (Math.abs(d - withoutSor) <= tol) return { ...sums, totalAmount: withoutSor };
+    if (Math.abs(d - withSor) <= tol) return { ...sums, totalAmount: withSor };
+    if (Math.abs(d - fromCol) <= tol) return { ...sums, totalAmount: fromCol };
+  }
+
   if (fromCol > 0 && Math.abs(fromCol - withSor) <= totalRowTolerance(withSor)) {
     return { ...sums, totalAmount: fromCol };
   }
@@ -535,6 +547,8 @@ function isTharaliMisalignedRow(qty: number, rate: number, totalAmount: number, 
 }
 
 function isDescriptionOnlyRow(cells: string[], headerMap: Record<string, number>): boolean {
+  if (sectionRowHasAmounts(cells, headerMap)) return false;
+
   const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
   const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
   if (qty > 0 && rate > 0) return false;
@@ -781,7 +795,7 @@ export function validateTotalRows(
       const hasDeclared = activeColumns.some((col) => declared[col.key] > 0);
       if (!hasDeclared) continue;
 
-      const computedSums = tharali ? tharaliSubtotalComputedSums(sectionItemSums) : sectionItemSums;
+      const computedSums = tharali ? tharaliSubtotalComputedSums(sectionItemSums, declared) : sectionItemSums;
       const columnChecks = buildColumnChecks(declared, computedSums, activeColumns, i + 1, 6, 'Sub Total');
       let allMatch = columnChecks.length === 0 || columnChecks.every((c) => c.match);
       const {

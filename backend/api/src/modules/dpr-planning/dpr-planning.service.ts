@@ -1716,7 +1716,7 @@ export class DprPlanningService {
     );
     return {
       document: doc,
-      validation: this.toBoqValidationRecord(validationRow, validationReport),
+      validation: this.toBoqValidationRecord(validationRow, validationReport, { detail: 'full' }),
     };
   }
 
@@ -1796,14 +1796,14 @@ export class DprPlanningService {
     return tac.pdfValidation ?? null;
   }
 
-  async getBoqValidation(tenantId: string, proposalId: string) {
+  async getBoqValidation(tenantId: string, proposalId: string, detail?: string) {
     await this.requireProposal(tenantId, proposalId);
     const row = await this.boqValidationRepo.findOne({
       where: { tenantId, proposalId },
       order: { validatedAt: 'DESC' },
     });
     if (!row) return null;
-    return this.toBoqValidationRecord(row);
+    return this.toBoqValidationRecord(row, undefined, { detail: detail === 'summary' ? 'summary' : 'full' });
   }
 
   async listBoqValidationHistory(tenantId: string, proposalId: string) {
@@ -1827,14 +1827,12 @@ export class DprPlanningService {
     });
     if (!row) throw new NotFoundException('No BOQ validation report found — upload BOQ Excel first');
 
-    const record = this.toBoqValidationRecord(row) as DprExcelAuditReport & {
-      audit?: DprExcelAuditReport['audit'];
-    };
+    const record = this.toBoqValidationRecord(row, undefined, { detail: 'full' }) as unknown as DprExcelAuditReport;
     if (!record.audit) {
       throw new BadRequestException('Validation audit data missing — re-upload BOQ Excel to regenerate report');
     }
 
-    const buffer = buildDprValidationExcelExport(record as DprExcelAuditReport, {
+    const buffer = buildDprValidationExcelExport(record, {
       proposalNo: proposal.proposalNo,
       fileName: row.fileName ?? undefined,
       validatedAt: row.validatedAt?.toISOString(),
@@ -1862,7 +1860,7 @@ export class DprPlanningService {
   private toBoqValidationRecord(
     row: DprBoqValidation,
     report?: ReturnType<typeof validateBoqExcelBuffer>,
-    options?: { summaryOnly?: boolean },
+    options?: { summaryOnly?: boolean; detail?: 'full' | 'summary' },
   ) {
     const stored = row.validationReport as unknown as {
       pages?: unknown[];
@@ -1870,13 +1868,27 @@ export class DprPlanningService {
       crossChecks?: unknown[];
       firstCalculationPageNo?: number | null;
       audit?: unknown;
+      sheetReports?: unknown[];
     } | unknown[] | null;
     const storedPages = Array.isArray(stored) ? undefined : stored?.pages;
     const storedLines = Array.isArray(stored) ? stored : stored?.lines;
     const storedCrossChecks = Array.isArray(stored) ? undefined : stored?.crossChecks;
     const storedFirstPage = Array.isArray(stored) ? undefined : stored?.firstCalculationPageNo;
     const storedAudit = Array.isArray(stored) ? undefined : stored?.audit;
+    const storedSheetReports = Array.isArray(stored)
+      ? undefined
+      : stored?.sheetReports
+        ?? (storedAudit as { sheetReports?: unknown[] } | undefined)?.sheetReports;
     const summaryOnly = options?.summaryOnly === true;
+    const detailFull = options?.detail === 'full';
+    const sheetReports = report?.audit?.sheetReports ?? storedSheetReports ?? [];
+    const auditBase = this.slimAuditForApi(report?.audit ?? storedAudit ?? null) as Record<string, unknown> | null;
+    const audit = summaryOnly
+      ? null
+      : {
+        ...(auditBase ?? {}),
+        sheetReports: detailFull ? sheetReports : [],
+      };
     return {
       id: row.id,
       documentId: row.documentId,
@@ -1889,11 +1901,11 @@ export class DprPlanningService {
       computedGrandTotal: row.computedGrandTotal,
       declaredGrandTotal: row.declaredGrandTotal,
       grandTotalMatch: row.grandTotalMatch,
-      pages: summaryOnly ? [] : (report?.pages ?? storedPages ?? []),
-      lines: summaryOnly ? [] : (report?.lines ?? storedLines ?? []),
+      pages: summaryOnly || !detailFull ? [] : (report?.pages ?? storedPages ?? []),
+      lines: summaryOnly || !detailFull ? [] : (report?.lines ?? storedLines ?? []),
       crossChecks: report?.crossChecks ?? storedCrossChecks ?? [],
       firstCalculationPageNo: summaryOnly ? null : (report?.firstCalculationPageNo ?? storedFirstPage ?? null),
-      audit: summaryOnly ? null : this.slimAuditForApi(report?.audit ?? storedAudit ?? null),
+      audit,
       summary: report?.summary ?? row.summary,
       validatedAt: row.validatedAt,
     };
@@ -1925,6 +1937,7 @@ export class DprPlanningService {
         crossChecks: report.crossChecks,
         firstCalculationPageNo: report.firstCalculationPageNo,
         audit: report.audit,
+        sheetReports: report.audit?.sheetReports ?? [],
       } as unknown as Record<string, unknown>[],
       summary: report.summary as Record<string, unknown>,
       validatedAt: new Date(),

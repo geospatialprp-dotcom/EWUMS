@@ -66,6 +66,8 @@ function testSoTraStep7TotalCostRow11(): void {
 
     [2, 'Sub Total', '', '', '', DSR, UJN, SOR, 0, TOTAL],
 
+    // Description col blank; "Total Cost" only in joined text — auditVerticalAmountColumn used to double-count this row.
+
     [11, '', 'Total Cost', '', '', DSR, UJN, SOR, 0, TOTAL],
 
   ];
@@ -110,23 +112,29 @@ function testSoTraStep7TotalCostRow11(): void {
 
 
 
-/** cwra — single lump sum in UJN column (direct vertical sum). */
+/** cwra-style amount-only rows in Amount column must contribute to Step 6 UJN subtotal. */
 
 function testCwraAmountOnlyRowsStep6(): void {
 
   const UJN = 951892;
 
-  const header: Record<string, number> = { ...THARALI_HEADER };
+  const header: Record<string, number> = {
+
+    ...THARALI_HEADER,
+
+    amount: 10,
+
+  };
 
 
 
   const rows: (string | number)[][] = [
 
-    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount', 'Amount'],
 
-    [1, 'Lump sum item', 'LS', 0, 0, 0, UJN, 0, 0, 0],
+    [1, 'Lump sum item', 'LS', 0, 0, 0, 0, 0, 0, 0, UJN],
 
-    [2, 'Sub Total', '', '', '', 0, UJN, 0, 0, UJN],
+    [2, 'Sub Total', '', '', '', 0, UJN, 0, 0, UJN, ''],
 
   ];
 
@@ -150,7 +158,93 @@ function testCwraAmountOnlyRowsStep6(): void {
 
 
 
-/** cwra — two UJN lump-sum rows + NSI item rows. */
+/** cwra production — row 8 item + row 9 description-only + row 10 SOR items → row 11 Sub Total. */
+
+function testCwraRows8_10_11Step6(): void {
+
+  const UJN = 951892;
+
+  const NSI = 13400;
+
+  const SOR1 = 57917.48;
+
+  const SOR2 = 38611.65;
+
+  const SOR = 96529.13;
+
+  const TOTAL = 965292;
+
+  const header: Record<string, number> = { ...THARALI_HEADER };
+
+
+
+  const rows: (string | number)[][] = [
+
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+
+    [8, 'Main lump sum item', 'LS', 0, 0, 0, UJN, 0, NSI, UJN + NSI],
+
+    [9, 'Protection works for substructure and foundation', '', '', '', 0, 0, 0, 0, 0],
+
+    [10, 'SOR rated item A', 'Nos', 1, SOR1, 0, 0, SOR1, 0, SOR1],
+
+    [10, 'SOR rated item B', 'Nos', 1, SOR2, 0, 0, SOR2, 0, SOR2],
+
+    [11, 'Sub Total', '', '', '', 0, UJN, SOR, NSI, TOTAL],
+
+  ];
+
+
+
+  const checks = validateTotalRows(rows, header, 1, TOTAL);
+
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 6);
+
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 11 (index 6)');
+
+  assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
+
+
+
+  const ujnCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'UJN');
+
+  assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
+
+
+
+  const sorCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'SOR(PWD)');
+
+  assert(
+
+    Math.abs((sorCol?.computedAmount ?? 0) - SOR) <= 0.05,
+
+    `SOR(PWD) calculated must be ${SOR}, got ${sorCol?.computedAmount}`,
+
+  );
+
+
+
+  const nsiCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'NSI');
+
+  assert(nsiCol?.computedAmount === NSI, `NSI calculated must be ${NSI}, got ${nsiCol?.computedAmount}`);
+
+
+
+  const totalCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'Total Amount');
+
+  assert(
+
+    totalCol?.computedAmount === TOTAL,
+
+    `Total Amount calculated must be ${TOTAL}, got ${totalCol?.computedAmount}`,
+
+  );
+
+}
+
+
+
+/** cwra row 11 — lump sums in unmapped Amt column + NSI; prior items rows 1–7, subtotal at row 11. */
 
 function testCwraUnmappedAmtColumnStep6(): void {
 
@@ -166,15 +260,17 @@ function testCwraUnmappedAmtColumnStep6(): void {
 
   const rows: (string | number)[][] = [
 
-    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount', 'Amt'],
 
-    [1, 'Lump sum item A', 'LS', 0, 0, 0, 500_000, 0, 0, 0],
+    [1, 'Lump sum item A', 'LS', 0, 0, 0, 0, 0, 0, 0, 500_000],
 
-    [2, 'Lump sum item B', 'LS', 0, 0, 0, 451_892, 0, 0, 0],
+    [2, 'Lump sum item B', 'LS', 0, 0, 0, 0, 0, 0, 0, 451_892],
 
-    [3, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI],
+    [3, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI, 0],
 
-    [8, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL],
+    [9, 'Protection works for substructure', '', '', '', 0, 0, 0, 0, 0, 0],
+
+    [11, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL, ''],
 
   ];
 
@@ -182,9 +278,9 @@ function testCwraUnmappedAmtColumnStep6(): void {
 
   const checks = validateTotalRows(rows, header, 1, TOTAL);
 
-  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 5);
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 6);
 
-  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 5');
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 11');
 
   assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
 
@@ -210,7 +306,7 @@ function testCwraUnmappedAmtColumnStep6(): void {
 
 
 
-/** cwra — UJN values directly in UJN column (multiple items summing to 951892) + NSI. */
+/** cwra — UJN values directly in UJN column (7 items summing to 951892) + NSI; subtotal row 11. */
 
 function testCwraDirectUjnColumnStep6(): void {
 
@@ -242,7 +338,9 @@ function testCwraDirectUjnColumnStep6(): void {
 
     [7, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI],
 
-    [8, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL],
+    [9, 'Protection works for substructure', '', '', '', 0, 0, 0, 0, 0],
+
+    [11, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL],
 
   ];
 
@@ -250,9 +348,9 @@ function testCwraDirectUjnColumnStep6(): void {
 
   const checks = validateTotalRows(rows, header, 1, TOTAL);
 
-  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 9);
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 10);
 
-  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 9');
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 11');
 
   assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
 
@@ -278,11 +376,137 @@ function testCwraDirectUjnColumnStep6(): void {
 
 
 
-/** cwra screenshot — UJN lump sums + SOR item rows + NSI (exact Excel numbers). */
+/** cwra — Rate column lump sums with incidental Qty=1 (serial leak); subtotal row 11. */
 
-function testCwraScreenshotStep6(): void {
+function testCwraRateLumpQtyOneStep6(): void {
 
   const UJN = 951892;
+
+  const NSI = 13400;
+
+  const TOTAL = UJN + NSI;
+
+  const header: Record<string, number> = { ...THARALI_HEADER };
+
+
+
+  const rows: (string | number)[][] = [
+
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+
+    [1, 'Lump sum item A', 'LS', 1, 500_000, 0, 0, 0, 0, 0],
+
+    [2, 'Lump sum item B', 'LS', 1, 451_892, 0, 0, 0, 0, 0],
+
+    [3, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI],
+
+    [9, 'Protection works for substructure', '', '', '', 0, 0, 0, 0, 0],
+
+    [11, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL],
+
+  ];
+
+
+
+  const checks = validateTotalRows(rows, header, 1, TOTAL);
+
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 6);
+
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 11');
+
+  assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
+
+
+
+  const ujnCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'UJN');
+
+  assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
+
+
+
+  const totalCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'Total Amount');
+
+  assert(
+
+    totalCol?.computedAmount === TOTAL,
+
+    `Total Amount calculated must be ${TOTAL}, got ${totalCol?.computedAmount}`,
+
+  );
+
+}
+
+
+
+/** cwra — lump sums in Rate column (LS items) + NSI; subtotal row 11 not row 8. */
+
+function testCwraRateColumnLumpSumStep6(): void {
+
+  const UJN = 951892;
+
+  const NSI = 13400;
+
+  const TOTAL = UJN + NSI;
+
+  const header: Record<string, number> = { ...THARALI_HEADER };
+
+
+
+  const rows: (string | number)[][] = [
+
+    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
+
+    [1, 'Lump sum item A', 'LS', 0, 500_000, 0, 0, 0, 0, 0],
+
+    [2, 'Lump sum item B', 'LS', 0, 451_892, 0, 0, 0, 0, 0],
+
+    [3, 'NSI rated item', 'LS', 0, 0, 0, 0, 0, NSI, NSI],
+
+    [9, 'Protection works for substructure', '', '', '', 0, 0, 0, 0, 0],
+
+    [11, 'Sub Total', '', '', '', 0, UJN, 0, NSI, TOTAL],
+
+  ];
+
+
+
+  const checks = validateTotalRows(rows, header, 1, TOTAL);
+
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 6);
+
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 11');
+
+  assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
+
+
+
+  const ujnCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'UJN');
+
+  assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
+
+
+
+  const totalCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'Total Amount');
+
+  assert(
+
+    totalCol?.computedAmount === TOTAL,
+
+    `Total Amount calculated must be ${TOTAL}, got ${totalCol?.computedAmount}`,
+
+  );
+
+}
+
+
+
+/** cwra row 8 wrongly labeled Sub Total — must contribute as item; real subtotal row 11. */
+
+function testCwraPrematureSubTotalRow8(): void {
+
+  const UJN = 951892;
+
+  const NSI = 13400;
 
   const SOR1 = 57917.48;
 
@@ -290,9 +514,7 @@ function testCwraScreenshotStep6(): void {
 
   const SOR = 96529.13;
 
-  const NSI = 13400;
-
-  const TOTAL = UJN + NSI;
+  const TOTAL = 965292;
 
   const header: Record<string, number> = { ...THARALI_HEADER };
 
@@ -302,118 +524,37 @@ function testCwraScreenshotStep6(): void {
 
     ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
 
-    [1, 'Lump sum item A', 'LS', 0, 0, 0, 500_000, 0, 0, 0],
+    [8, 'Sub Total', '', '', '', 0, UJN, 0, NSI, UJN + NSI],
 
-    [2, 'Lump sum item B', 'LS', 0, 0, 0, 451_892, 0, 0, 0],
+    [9, 'Protection works for substructure and foundation', '', '', '', 0, 0, 0, 0, 0],
 
-    [3, 'SOR item 1', 'cum', 100, 579.17, 0, 0, SOR1, 0, 0],
+    [10, 'SOR rated item A', 'Nos', 1, SOR1, 0, 0, SOR1, 0, SOR1],
 
-    [4, 'SOR item 2', 'cum', 100, 386.12, 0, 0, SOR2, 0, 0],
+    [10, 'SOR rated item B', 'Nos', 1, SOR2, 0, 0, SOR2, 0, SOR2],
 
-    [5, 'NSI item', 'LS', 0, 0, 0, 0, 0, NSI, NSI],
-
-    [8, 'Sub Total', '', '', '', 0, UJN, SOR, NSI, TOTAL],
-
-  ];
-
-
-
-  const checks = validateTotalRows(rows, header, 1, TOTAL);
-
-  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 7);
-
-  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 7');
-
-  assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
-
-
-
-  const ujnCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'UJN');
-
-  assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
-
-
-
-  const sorCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'SOR(PWD)');
-
-  assert(
-
-    Math.abs((sorCol?.computedAmount ?? 0) - SOR) <= 0.01,
-
-    `SOR(PWD) calculated must be ${SOR}, got ${sorCol?.computedAmount}`,
-
-  );
-
-
-
-  const nsiCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'NSI');
-
-  assert(nsiCol?.computedAmount === NSI, `NSI calculated must be ${NSI}, got ${nsiCol?.computedAmount}`);
-
-
-
-  const totalCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'Total Amount');
-
-  assert(
-
-    totalCol?.computedAmount === TOTAL,
-
-    `Total Amount calculated must be ${TOTAL} (UJN+NSI), got ${totalCol?.computedAmount}`,
-
-  );
-
-}
-
-
-
-/** cwra production — vertical sum of Excel rows 8, 9, 10; Sub Total on row 11. */
-function testCwraRows8910VerticalSumStep6(): void {
-  const UJN = 951892;
-  const SOR_A = 57917.48;
-  const SOR_B = 38611.65;
-  const SOR = round2(SOR_A + SOR_B);
-  const NSI = 13400;
-  const TOTAL = UJN + NSI;
-  const header: Record<string, number> = { ...THARALI_HEADER };
-
-  const rows: (string | number)[][] = [
-    ['S.No', 'Description', 'Unit', 'Qty', 'Rate', 'DSR', 'UJN', 'SOR(PWD)', 'NSI', 'Total Amount'],
-    [8, 'Sub Total', 'LS', 0, 0, 0, UJN, 0, NSI, TOTAL],
-    [9, 'SOR item A', 'cum', 1, SOR_A, 0, 0, SOR_A, 0, SOR_A],
-    [10, 'SOR item B', 'cum', 1, SOR_B, 0, 0, SOR_B, 0, SOR_B],
     [11, 'Sub Total', '', '', '', 0, UJN, SOR, NSI, TOTAL],
+
   ];
 
+
+
   const checks = validateTotalRows(rows, header, 1, TOTAL);
-  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 5);
-  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 5 (Excel row 11)');
+
+  const subTotal = checks.find((c) => c.checkStep === 6 && c.rowNo === 6);
+
+  assert(!!subTotal, 'Expected Step 6 Sub Total check at row 11 only');
+
   assert(subTotal!.match === true, `Sub Total should pass; got: ${subTotal!.message}`);
 
-  const ujnCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'UJN');
-  assert(ujnCol?.computedAmount === UJN, `UJN calculated must be ${UJN}, got ${ujnCol?.computedAmount}`);
 
-  const sorCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'SOR(PWD)');
-  assert(
-    Math.abs((sorCol?.computedAmount ?? 0) - SOR) <= 1,
-    `SOR(PWD) calculated must be ${SOR}, got ${sorCol?.computedAmount}`,
-  );
-
-  const nsiCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'NSI');
-  assert(nsiCol?.computedAmount === NSI, `NSI calculated must be ${NSI}, got ${nsiCol?.computedAmount}`);
-
-  const totalCol = subTotal!.columnChecks?.find((c) => c.columnLabel === 'Total Amount');
-  assert(
-    totalCol?.computedAmount === TOTAL,
-    `Total Amount calculated must be ${TOTAL}, got ${totalCol?.computedAmount}`,
-  );
 
   const premature = checks.find((c) => c.checkStep === 6 && c.rowNo === 2);
-  assert(!premature, 'Row 8 must not be treated as Sub Total when rows 9–10 have amounts below');
+
+  assert(!premature, 'Row 8 must not trigger Step 6 when row 10 items follow');
+
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+
 
 /** so & Tra — UJN ₹4 rounding slack (summed 1300 vs Excel 1296) must pass Step 6/7. */
 
@@ -479,13 +620,17 @@ function runAll(): void {
 
   testCwraAmountOnlyRowsStep6();
 
+  testCwraRows8_10_11Step6();
+
+  testCwraPrematureSubTotalRow8();
+
   testCwraUnmappedAmtColumnStep6();
 
   testCwraDirectUjnColumnStep6();
 
-  testCwraScreenshotStep6();
+  testCwraRateLumpQtyOneStep6();
 
-  testCwraRows8910VerticalSumStep6();
+  testCwraRateColumnLumpSumStep6();
 
   console.log('dpr-boq-section-totals: all tests passed');
 
