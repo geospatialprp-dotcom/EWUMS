@@ -297,8 +297,13 @@ export class ProjectsService {
     if (!proposal.projectId) {
       await this.dprProposalRepo.update(proposal.id, { projectId: saved.id });
     }
-    await this.featureClassesService.scaffoldLaGisLayers(tenantId, saved.id).catch(() => undefined);
+    await this.ensureLaGisLayersScaffolded(tenantId, saved.id);
     return saved;
+  }
+
+  /** Idempotent LA layer scaffold — safe for DPR GIS workspaces created before scaffold existed. */
+  async ensureLaGisLayersScaffolded(tenantId: string, projectId: string): Promise<void> {
+    await this.featureClassesService.scaffoldLaGisLayers(tenantId, projectId).catch(() => undefined);
   }
 
   private async findLaGisWorkspaceForProposal(tenantId: string, dprProposalId: string) {

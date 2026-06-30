@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { ProjectFeatureClass } from '../projects/entities/project-feature-class.entity';
 import { LA_ALIGNMENT_FEATURE_CODES } from './constants/la-acquisition.constants';
 import {
@@ -102,6 +102,209 @@ export class LaAutoRouteService {
     @InjectRepository(ProjectFeatureClass) private fcRepo: Repository<ProjectFeatureClass>,
     private dataSource: DataSource,
   ) {}
+
+  private async gisQuery<T = unknown>(
+    context: string,
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<T> {
+    try {
+      return await this.dataSource.query(sql, params) as T;
+    } catch (error) {
+      throw this.toGisHttpException(context, error);
+    }
+  }
+
+  private toGisHttpException(context: string, error: unknown): BadRequestException | InternalServerErrorException {
+    if (error instanceof BadRequestException) return error;
+
+    const message = error instanceof Error ? error.message : String(error);
+    const lower = message.toLowerCase();
+
+    if (error instanceof QueryFailedError) {
+      const pg = error as QueryFailedError & { code?: string };
+      if (pg.code === '42883') {
+        return new BadRequestException(
+          `${context}: PostGIS is required for LA auto-routing. Ensure the database has CREATE EXTENSION postgis.`,
+        );
+      }
+      if (pg.code === 'XX000' || lower.includes('st_') || lower.includes('geometry')) {
+        return new BadRequestException(
+          `${context}: invalid or unsupported geometry — ${message}`,
+        );
+      }
+    }
+
+    if (lower.includes('postgis') || lower.includes('st_geomfromgeojson') || lower.includes('geometry')) {
+      return new BadRequestException(`${context}: ${message}`);
+    }
+
+    return new InternalServerErrorException(`${context}: ${message}`);
+  }
+
+  /** Score imported / pre-drawn alignment without a cost grid (works with empty GIS layers). */
+  async buildImportedNetworkRoute(
+    tenantId: string,
+    projectId: string,
+    geometry: RouteGeometry,
+    weights?: Partial<Record<string, number>>,
+    rowWidthM = 6,
+  ): Promise<AutoRouteResult> {
+    const normalized = await this.normalizeRouteGeometry(geometry);
+    const lengthM = await this.lineLengthMGeometry(normalized);
+    const normalizedWeights = normalizeRoutingWeights(weights);
+
+    let forestCells = 0;
+    let riverCrossings = 0;
+    let railwayCrossings = 0;
+    let buildingCells = 0;
+    let privateLandCells = 0;
+    let govtLandCells = 0;
+    let landslideCells = 0;
+    let environmentalCells = 0;
+    let roadAffinityPct = 0;
+
+    try {
+      const rows = await this.gisQuery<Array<{
+        road: boolean;
+        forest: boolean;
+        river: boolean;
+        railway: boolean;
+        building: boolean;
+        private_land: boolean;
+        govt_land: boolean;
+        landslide: boolean;
+        environmental: boolean;
+      }>>(
+        'Score imported pipeline corridor',
+        `WITH corridor AS (
+           SELECT ST_Buffer(ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography, $4)::geometry AS geom
+         ),
+         feats AS (
+           SELECT pf.geometry, lower(fc.code) AS code
+           FROM project_features pf
+           JOIN project_feature_classes fc ON fc.id = pf.feature_class_id
+           WHERE pf.tenant_id = $2 AND pf.project_id = $3
+             AND pf.geometry IS NOT NULL
+         )
+         SELECT
+           EXISTS (
+             SELECT 1 FROM feats f
+             WHERE f.code = ANY($5)
+               AND ST_DWithin(f.geometry::geography, (SELECT geom FROM corridor)::geography, 25)
+           ) AS road,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($6) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS forest,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($7) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS river,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($8) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS railway,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($9) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS building,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($10) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS private_land,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($11) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS govt_land,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($12) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS landslide,
+           EXISTS (
+             SELECT 1 FROM feats f WHERE f.code = ANY($13) AND ST_Intersects(f.geometry, (SELECT geom FROM corridor))
+           ) AS environmental`,
+        [
+          JSON.stringify(normalized),
+          tenantId,
+          projectId,
+          rowWidthM,
+          ['pwd_road', 'national_highway', 'state_highway', 'pmgsy_roads', 'district_road', 'state_road', 'nh', 'sh', 'pmgsy'],
+          ['forest_land', 'reserved_forest', 'protected_forest', 'van_panchayat', 'civil_soyam_land', 'national_park'],
+          ['river', 'rivers', 'stream', 'nadi', 'lake', 'wetlands', 'wetland'],
+          ['railways', 'railway', 'rail_line'],
+          ['buildings', 'building', 'structure', 'schools', 'hospitals', 'school', 'hospital'],
+          ['khasra_boundary', 'land_ownership', 'khata_boundary', 'la_parcels', 'cadastral_parcels', 'revenue_land', 'nazul_land'],
+          ['government_land', 'govt_land', 'revenue_land', 'nazul_land', 'municipality_land'],
+          ['landslide_zone', 'landslide', 'hazard_zone', 'slope', 'slope_map'],
+          ['wildlife_sanctuary', 'eco_sensitive_zones', 'wetlands', 'forest_land', 'national_park'],
+        ],
+      );
+      const hit = rows[0];
+      if (hit) {
+        if (hit.road) roadAffinityPct = 100;
+        if (hit.forest) forestCells = 1;
+        if (hit.river) riverCrossings = 1;
+        if (hit.railway) railwayCrossings = 1;
+        if (hit.building) buildingCells = 1;
+        if (hit.private_land) privateLandCells = 1;
+        if (hit.govt_land) govtLandCells = 1;
+        if (hit.landslide) landslideCells = 1;
+        if (hit.environmental) environmentalCells = 1;
+      }
+    } catch {
+      // DPR GIS workspaces may have no overlay layers — imported network still applies.
+    }
+
+    return {
+      geometry: normalized,
+      lengthM,
+      gridCellSizeM: 0,
+      cellCount: 0,
+      scores: {
+        totalCost: 0,
+        roadAffinityPct,
+        forestCells,
+        riverCrossings,
+        railwayCrossings,
+        buildingCells,
+        privateLandCells,
+        govtLandCells,
+        landslideCells,
+        environmentalCells,
+      },
+      weights: normalizedWeights,
+    };
+  }
+
+  async normalizeRouteGeometry(geometry: RouteGeometry): Promise<RouteGeometry> {
+    const rows = await this.gisQuery<Array<{ geom: RouteGeometry | null }>>(
+      'Normalize route geometry',
+      `SELECT ST_AsGeoJSON(ST_LineMerge(ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))))::json AS geom`,
+      [JSON.stringify(geometry)],
+    );
+    const geom = rows[0]?.geom;
+    if (geom && (geom.type === 'LineString' || geom.type === 'MultiLineString') && geom.coordinates?.length) {
+      return geom;
+    }
+    return geometry;
+  }
+
+  async dumpRouteLineStrings(
+    geometry: RouteGeometry,
+  ): Promise<Array<{ type: 'LineString'; coordinates: [number, number][] }>> {
+    const rows = await this.gisQuery<Array<{ geom: { type: string; coordinates: [number, number][] } | null }>>(
+      'Split route into line parts',
+      `SELECT ST_AsGeoJSON((ST_Dump(ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)))).geom)::json AS geom`,
+      [JSON.stringify(geometry)],
+    );
+    const lines = rows
+      .map((row) => row.geom)
+      .filter((geom): geom is { type: 'LineString'; coordinates: [number, number][] } => (
+        !!geom && geom.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2
+      ));
+    if (lines.length) return lines;
+    if (geometry.type === 'LineString' && geometry.coordinates.length >= 2) return [geometry];
+    if (geometry.type === 'MultiLineString') {
+      return geometry.coordinates
+        .filter((part) => part.length >= 2)
+        .map((coordinates) => ({ type: 'LineString', coordinates }));
+    }
+    throw new BadRequestException('Route geometry has no usable LineString segments');
+  }
 
   async generateRoute(input: AutoRouteInput): Promise<AutoRouteResult> {
     const cellSize = input.gridCellSizeM ?? LA_ROUTING_DEFAULTS.gridCellSizeM;
@@ -209,12 +412,12 @@ export class LaAutoRouteService {
     const avoidCorridors: Array<{ type: 'LineString'; coordinates: [number, number][] }> = [];
 
     if (mergedImported?.coordinates?.length) {
-      const importedRoute = await this.buildRouteFromGeometry(
+      const importedRoute = await this.buildImportedNetworkRoute(
         input.tenantId,
         input.projectId,
         mergedImported,
-        cellSize,
         input.baseWeights ?? {},
+        rowWidth,
       );
       const affectedOwners = await this.estimateAffectedOwners(
         input.tenantId,
@@ -634,23 +837,28 @@ export class LaAutoRouteService {
 
     if (!lines.length) return lines;
 
-    const rows = await this.dataSource.query(
-      `SELECT ST_AsGeoJSON((ST_Dump(geom)).geom)::json AS geom
-       FROM (
-         SELECT ST_LineMerge(ST_Union(ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326))) AS geom
-         FROM jsonb_array_elements($1::jsonb) elem
-       ) merged
-       WHERE geom IS NOT NULL`,
-      [JSON.stringify(lines)],
-    ) as Array<{ geom: { type: string; coordinates: [number, number][] } | null }>;
+    try {
+      const rows = await this.gisQuery<Array<{ geom: { type: string; coordinates: [number, number][] } | null }>>(
+        'Merge imported pipeline segments',
+        `SELECT ST_AsGeoJSON((ST_Dump(geom)).geom)::json AS geom
+         FROM (
+           SELECT ST_LineMerge(ST_Union(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326)))) AS geom
+           FROM jsonb_array_elements($1::jsonb) elem
+         ) merged
+         WHERE geom IS NOT NULL`,
+        [JSON.stringify(lines)],
+      );
 
-    const dumped = rows
-      .map((row) => row.geom)
-      .filter((geom): geom is { type: 'LineString'; coordinates: [number, number][] } => (
-        !!geom && geom.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2
-      ));
+      const dumped = rows
+        .map((row) => row.geom)
+        .filter((geom): geom is { type: 'LineString'; coordinates: [number, number][] } => (
+          !!geom && geom.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2
+        ));
 
-    return dumped.length ? dumped : lines;
+      return dumped.length ? dumped : lines;
+    } catch {
+      return lines;
+    }
   }
 
   async mergeLineStrings(
@@ -664,20 +872,28 @@ export class LaAutoRouteService {
     lines: Array<{ type: 'LineString'; coordinates: [number, number][] }>,
   ): Promise<RouteGeometry | null> {
     if (!lines.length) return null;
-    const rows = await this.dataSource.query(
-      `SELECT ST_AsGeoJSON(ST_LineMerge(ST_Union(geom)))::json AS geom
-       FROM (
-         SELECT ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326) AS geom
-         FROM jsonb_array_elements($1::jsonb) elem
-       ) t`,
-      [JSON.stringify(lines)],
-    ) as Array<{ geom: { type: string; coordinates: unknown } | null }>;
-    const geom = rows[0]?.geom;
-    if (!geom?.coordinates) return lines[0] ?? null;
-    if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
-      return geom as RouteGeometry;
+    try {
+      const rows = await this.gisQuery<Array<{ geom: { type: string; coordinates: unknown } | null }>>(
+        'Merge pipeline network geometry',
+        `SELECT ST_AsGeoJSON(ST_LineMerge(ST_Union(ST_MakeValid(geom))))::json AS geom
+         FROM (
+           SELECT ST_SetSRID(ST_GeomFromGeoJSON(elem::text), 4326) AS geom
+           FROM jsonb_array_elements($1::jsonb) elem
+         ) t`,
+        [JSON.stringify(lines)],
+      );
+      const geom = rows[0]?.geom;
+      if (geom?.coordinates && (geom.type === 'LineString' || geom.type === 'MultiLineString')) {
+        return geom as RouteGeometry;
+      }
+    } catch {
+      // Fall through — disconnected segments are returned as MultiLineString below.
     }
-    return lines[0] ?? null;
+    if (lines.length === 1) return lines[0];
+    return {
+      type: 'MultiLineString',
+      coordinates: lines.map((line) => line.coordinates),
+    };
   }
 
   async snapEndpointsToLine(
@@ -784,7 +1000,7 @@ export class LaAutoRouteService {
       code: 'la_alignment',
       name: 'LA Pipeline Alignment',
       description: 'Pipeline / transmission alignment for land acquisition',
-      geometryType: 'LineString',
+      geometryType: 'Any',
       attributeSchema: [
         { name: 'source', label: 'Source', type: 'text' },
         { name: 'chainage_from', label: 'Chainage From (m)', type: 'number' },
@@ -803,8 +1019,12 @@ export class LaAutoRouteService {
     geometry: RouteGeometry,
     replaceAutoGenerated = true,
   ): Promise<string> {
+    const normalized = await this.normalizeRouteGeometry(geometry);
+    const lineParts = await this.dumpRouteLineStrings(normalized);
+
     if (replaceAutoGenerated) {
-      await this.dataSource.query(
+      await this.gisQuery(
+        'Remove prior auto-routed alignment',
         `DELETE FROM project_features pf
          USING project_feature_classes fc
          WHERE pf.feature_class_id = fc.id
@@ -814,22 +1034,30 @@ export class LaAutoRouteService {
       );
     }
 
-    const inserted = await this.dataSource.query(
-      `INSERT INTO project_features
-         (tenant_id, project_id, feature_class_id, geometry, attributes, created_by)
-       VALUES ($1, $2, $3, ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)), $5::jsonb, $6)
-       RETURNING id`,
-      [
-        tenantId,
-        projectId,
-        featureClassId,
-        JSON.stringify(geometry),
-        JSON.stringify({ source: 'auto_route', chainage_from: 0, chainage_to: null }),
-        userId,
-      ],
-    ) as Array<{ id: string }>;
+    let firstId: string | undefined;
+    for (const part of lineParts) {
+      const inserted = await this.gisQuery<Array<{ id: string }>>(
+        'Save auto-routed alignment feature',
+        `INSERT INTO project_features
+           (tenant_id, project_id, feature_class_id, geometry, attributes, created_by)
+         VALUES ($1, $2, $3, ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)), $5::jsonb, $6)
+         RETURNING id`,
+        [
+          tenantId,
+          projectId,
+          featureClassId,
+          JSON.stringify(part),
+          JSON.stringify({ source: 'auto_route', chainage_from: 0, chainage_to: null }),
+          userId,
+        ],
+      );
+      if (!firstId) firstId = inserted[0]?.id;
+    }
 
-    return inserted[0]?.id;
+    if (!firstId) {
+      throw new BadRequestException('Failed to save auto-routed alignment to the GIS project');
+    }
+    return firstId;
   }
 
   private async toUtmPoints(start: [number, number], end: [number, number]): Promise<[UtmPoint, UtmPoint]> {

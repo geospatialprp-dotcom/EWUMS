@@ -10,7 +10,7 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
-import type { FeatureCollection, LineString, Point } from 'geojson';
+import type { FeatureCollection, LineString, MultiLineString, Point } from 'geojson';
 import { Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
 import MapViewer from '../map/MapViewer';
@@ -41,7 +41,7 @@ type RouteRow = {
   key: string;
   label: string;
   description?: string;
-  geometry?: LineString;
+  geometry?: LineString | MultiLineString;
   metrics?: Record<string, number>;
   scores?: Record<string, number>;
   lengthM?: number;
@@ -89,7 +89,7 @@ function normalizeRouteRow(raw: unknown): RouteRow | null {
     key,
     label: String(row.label ?? row.name ?? key),
     description: typeof row.description === 'string' ? row.description : undefined,
-    geometry: row.geometry as LineString | undefined,
+    geometry: row.geometry as LineString | MultiLineString | undefined,
     metrics: row.metrics as Record<string, number> | undefined,
     scores: row.scores as Record<string, number> | undefined,
     lengthM: typeof row.lengthM === 'number' ? row.lengthM : undefined,
@@ -482,7 +482,7 @@ export default function LaAutoRouteDialog({
       });
   };
 
-  const applyRoute = (geometry?: LineString) => {
+  const applyRoute = (geometry?: LineString | MultiLineString) => {
     const requestGen = requestGenRef.current + 1;
     requestGenRef.current = requestGen;
     setBusy(true);
