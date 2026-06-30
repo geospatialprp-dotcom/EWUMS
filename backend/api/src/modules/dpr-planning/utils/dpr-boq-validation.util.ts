@@ -52,6 +52,8 @@ export type BoqLineIssue = {
 };
 
 const SECTION_TOTAL_TOLERANCE = 1.0;
+/** Qty×Rate vs Total Amount — allow for 2-decimal rounding only. */
+const QTY_RATE_AMOUNT_TOLERANCE = 0.02;
 /** Only persist problem lines — keeps API/DB payloads small for large BOQ files. */
 const STORE_PROBLEM_LINES_ONLY = true;
 
@@ -292,6 +294,17 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Format a numeric cell value for error messages — full precision, no display rounding. */
+function formatCellNumber(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const raw = String(value);
+    if (!/[eE]/.test(raw)) return raw;
+    return value.toFixed(10).replace(/\.?0+$/, '');
+  }
+  const cleaned = String(value ?? '').replace(/[,₹\s]/g, '').trim();
+  return cleaned || '0';
+}
+
 function normalizeKey(key: string): string {
   return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
@@ -434,13 +447,13 @@ function amountFromRow(cells: string[], headerMap: Record<string, number>): numb
   return nums.length ? round2(Math.max(...nums)) : 0;
 }
 
-function tharaliComponentsFromRow(cells: string[], headerMap: Record<string, number>) {
+function tharaliComponentsFromRow(row: (string | number)[], headerMap: Record<string, number>) {
   return {
-    dsr: headerMap.dsr !== undefined ? parseNumber(cells[headerMap.dsr]) : 0,
-    ujn: headerMap.ujn !== undefined ? parseNumber(cells[headerMap.ujn]) : 0,
-    sorPwd: headerMap.sor_pwd !== undefined ? parseNumber(cells[headerMap.sor_pwd]) : 0,
-    nsi: headerMap.nsi !== undefined ? parseNumber(cells[headerMap.nsi]) : 0,
-    totalAmount: headerMap.total_amount !== undefined ? parseNumber(cells[headerMap.total_amount]) : 0,
+    dsr: headerMap.dsr !== undefined ? parseNumber(row[headerMap.dsr]) : 0,
+    ujn: headerMap.ujn !== undefined ? parseNumber(row[headerMap.ujn]) : 0,
+    sorPwd: headerMap.sor_pwd !== undefined ? parseNumber(row[headerMap.sor_pwd]) : 0,
+    nsi: headerMap.nsi !== undefined ? parseNumber(row[headerMap.nsi]) : 0,
+    totalAmount: headerMap.total_amount !== undefined ? parseNumber(row[headerMap.total_amount]) : 0,
   };
 }
 
@@ -713,25 +726,25 @@ function validateTharaliLineValues(
   rawQty?: unknown,
   rawRate?: unknown,
 ): BoqLineValidation {
-  const roundedQty = round2(qty);
-  const roundedRate = round2(rate);
   const dsr = round2(components.dsr);
   const ujn = round2(components.ujn);
   const sorPwd = round2(components.sorPwd);
   const nsi = round2(components.nsi);
   const totalAmount = round2(components.totalAmount);
-  const qtyRateTotal = round2(roundedQty * roundedRate);
+  const qtyRateTotal = round2(qty * rate);
   const componentSum = round2(dsr + ujn + sorPwd + nsi);
   const declaredAmount = totalAmount > 0 ? totalAmount : ujn > 0 ? ujn : qtyRateTotal;
   const hasComponentSum = dsr > 0 || ujn > 0 || sorPwd > 0 || nsi > 0;
-  const qtyRateTotalMatch = !(roundedQty > 0 && roundedRate > 0 && totalAmount > 0)
-    || Math.abs(qtyRateTotal - totalAmount) <= AMOUNT_TOLERANCE;
+  const qtyRateTotalMatch = !(qty > 0 && rate > 0 && totalAmount > 0)
+    || Math.abs(qtyRateTotal - totalAmount) <= QTY_RATE_AMOUNT_TOLERANCE;
   const componentSumMatch = totalAmount <= 0 || !hasComponentSum
     || Math.abs(componentSum - totalAmount) <= AMOUNT_TOLERANCE;
   const crossCheckMatch = qtyRateTotalMatch && componentSumMatch;
-  const isItemRow = roundedQty > 0 || roundedRate > 0 || totalAmount > 0 || ujn > 0
+  const isItemRow = qty > 0 || rate > 0 || totalAmount > 0 || ujn > 0
     || dsr > 0 || sorPwd > 0 || nsi > 0;
   const rowRef = sheetRow ? `Row ${sheetRow}, ` : '';
+  const qtyDisplay = formatCellNumber(rawQty ?? qty);
+  const rateDisplay = formatCellNumber(rawRate ?? rate);
 
   const issues: BoqLineIssue[] = [];
 
@@ -754,13 +767,13 @@ function validateTharaliLineValues(
       message: 'Step 2 — Quantity: must be numeric',
       expectedValue: 'Numeric value', actualValue: String(rawQty ?? ''),
     });
-  } else if (isItemRow && roundedQty <= 0) {
+  } else if (isItemRow && qty <= 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
-      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${roundedQty})`,
-      expectedValue: '> 0', actualValue: roundedQty,
+      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${qtyDisplay})`,
+      expectedValue: '> 0', actualValue: qty,
     });
-  } else if (roundedQty > 0 && !unit.trim()) {
+  } else if (qty > 0 && !unit.trim()) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Unit', status: 'fail',
       message: 'Step 2 — Quantity: unit is required when quantity is present',
@@ -779,11 +792,11 @@ function validateTharaliLineValues(
       message: 'Step 3 — Rate: must be numeric',
       expectedValue: 'Numeric value', actualValue: String(rawRate ?? ''),
     });
-  } else if (roundedRate < 0) {
+  } else if (rate < 0) {
     issues.push({
       order: 3, checkType: 'rate', column: 'Rate', status: 'fail',
-      message: `Step 3 — Rate: must be zero or greater (found ${roundedRate})`,
-      expectedValue: '>= 0', actualValue: roundedRate,
+      message: `Step 3 — Rate: must be zero or greater (found ${rateDisplay})`,
+      expectedValue: '>= 0', actualValue: rate,
     });
   } else {
     issues.push({
@@ -792,11 +805,11 @@ function validateTharaliLineValues(
     });
   }
 
-  if (roundedQty > 0 && roundedRate > 0 && totalAmount > 0) {
+  if (qty > 0 && rate > 0 && totalAmount > 0) {
     if (!qtyRateTotalMatch) {
       issues.push({
         order: 4, checkType: 'qty_rate_amount', column: 'Total Amount', status: 'fail',
-        message: `${rowRef}Step 4 — Qty×Rate=Total Amount: ${roundedQty} × ${roundedRate} = ${qtyRateTotal} ≠ Total Amount ${totalAmount}`,
+        message: `${rowRef}Step 4 — Qty×Rate=Total Amount: ${qtyDisplay} × ${rateDisplay} = ${qtyRateTotal} ≠ Total Amount ${totalAmount}`,
         expectedValue: qtyRateTotal, actualValue: totalAmount, difference: round2(totalAmount - qtyRateTotal),
       });
     } else {
@@ -822,7 +835,7 @@ function validateTharaliLineValues(
     }
   }
 
-  if (roundedQty > 0 && roundedRate > 0 && hasComponentSum && ujn > 0) {
+  if (qty > 0 && rate > 0 && hasComponentSum && ujn > 0) {
     const qtyRateVsComponents = Math.abs(qtyRateTotal - componentSum) <= AMOUNT_TOLERANCE;
     if (!qtyRateVsComponents) {
       issues.push({
@@ -833,17 +846,17 @@ function validateTharaliLineValues(
     }
   }
 
-  if (!issues.some((i) => i.status === 'fail') && isItemRow && roundedQty <= 0 && roundedRate <= 0 && declaredAmount <= 0) {
+  if (!issues.some((i) => i.status === 'fail') && isItemRow && qty <= 0 && rate <= 0 && declaredAmount <= 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
       message: 'Step 2 — Quantity: zero quantity, rate and amount on item row',
     });
-  } else if (!issues.some((i) => i.status === 'fail') && roundedQty > 0 && roundedRate === 0 && declaredAmount > 0) {
+  } else if (!issues.some((i) => i.status === 'fail') && qty > 0 && rate === 0 && declaredAmount > 0) {
     issues.push({
       order: 3, checkType: 'rate', column: 'Rate', status: 'warning',
       message: 'Step 3 — Rate: amount present but rate is zero',
     });
-  } else if (!issues.some((i) => i.status === 'fail') && roundedQty === 0 && roundedRate > 0 && declaredAmount > 0) {
+  } else if (!issues.some((i) => i.status === 'fail') && qty === 0 && rate > 0 && declaredAmount > 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
       message: 'Step 2 — Quantity: amount present but quantity is zero',
@@ -858,8 +871,8 @@ function validateTharaliLineValues(
     itemCode,
     description,
     unit,
-    qty: roundedQty,
-    rate: roundedRate,
+    qty,
+    rate,
     declaredAmount,
     computedAmount: qtyRateTotal > 0 ? qtyRateTotal : componentSum,
     difference: round2(declaredAmount - (qtyRateTotal > 0 ? qtyRateTotal : componentSum)),
@@ -893,13 +906,13 @@ function validateLineValues(
   rawQty?: unknown,
   rawRate?: unknown,
 ): BoqLineValidation {
-  const roundedQty = round2(qty);
-  const roundedRate = round2(rate);
   const roundedDeclared = round2(declaredAmount);
-  const computedAmount = round2(roundedQty * roundedRate);
+  const computedAmount = round2(qty * rate);
   const difference = round2(roundedDeclared - computedAmount);
   const absDiff = Math.abs(difference);
-  const isItemRow = roundedQty > 0 || roundedRate > 0 || roundedDeclared > 0;
+  const isItemRow = qty > 0 || rate > 0 || roundedDeclared > 0;
+  const qtyDisplay = formatCellNumber(rawQty ?? qty);
+  const rateDisplay = formatCellNumber(rawRate ?? rate);
   const issues: BoqLineIssue[] = [];
 
   if (!description.trim() || description.trim().length < 3) {
@@ -921,13 +934,13 @@ function validateLineValues(
       message: 'Step 2 — Quantity: must be numeric',
       expectedValue: 'Numeric value', actualValue: String(rawQty ?? ''),
     });
-  } else if (isItemRow && roundedQty <= 0) {
+  } else if (isItemRow && qty <= 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'fail',
-      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${roundedQty})`,
-      expectedValue: '> 0', actualValue: roundedQty,
+      message: `Step 2 — Quantity: must be greater than zero for item rows (found ${qtyDisplay})`,
+      expectedValue: '> 0', actualValue: qty,
     });
-  } else if (roundedQty > 0 && !unit.trim()) {
+  } else if (qty > 0 && !unit.trim()) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Unit', status: 'fail',
       message: 'Step 2 — Quantity: unit is required when quantity is present',
@@ -946,11 +959,11 @@ function validateLineValues(
       message: 'Step 3 — Rate: must be numeric',
       expectedValue: 'Numeric value', actualValue: String(rawRate ?? ''),
     });
-  } else if (roundedRate < 0) {
+  } else if (rate < 0) {
     issues.push({
       order: 3, checkType: 'rate', column: 'Rate', status: 'fail',
-      message: `Step 3 — Rate: must be zero or greater (found ${roundedRate})`,
-      expectedValue: '>= 0', actualValue: roundedRate,
+      message: `Step 3 — Rate: must be zero or greater (found ${rateDisplay})`,
+      expectedValue: '>= 0', actualValue: rate,
     });
   } else {
     issues.push({
@@ -959,11 +972,11 @@ function validateLineValues(
     });
   }
 
-  if (roundedQty > 0 && roundedRate >= 0 && roundedDeclared > 0) {
-    if (absDiff > AMOUNT_TOLERANCE) {
+  if (qty > 0 && rate >= 0 && roundedDeclared > 0) {
+    if (absDiff > QTY_RATE_AMOUNT_TOLERANCE) {
       issues.push({
         order: 4, checkType: 'qty_rate_amount', column: 'Amount', status: 'fail',
-        message: `Step 4 — Qty×Rate=Amount: ${roundedQty} × ${roundedRate} = ${computedAmount} ≠ Amount ${roundedDeclared}`,
+        message: `Step 4 — Qty×Rate=Amount: ${qtyDisplay} × ${rateDisplay} = ${computedAmount} ≠ Amount ${roundedDeclared}`,
         expectedValue: computedAmount, actualValue: roundedDeclared, difference,
       });
     } else {
@@ -974,17 +987,17 @@ function validateLineValues(
     }
   }
 
-  if (!issues.some((i) => i.status === 'fail') && isItemRow && roundedQty <= 0 && roundedRate <= 0 && roundedDeclared <= 0) {
+  if (!issues.some((i) => i.status === 'fail') && isItemRow && qty <= 0 && rate <= 0 && roundedDeclared <= 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
       message: 'Step 2 — Quantity: zero quantity, rate and amount on item row',
     });
-  } else if (!issues.some((i) => i.status === 'fail') && roundedQty > 0 && roundedRate === 0 && roundedDeclared > 0) {
+  } else if (!issues.some((i) => i.status === 'fail') && qty > 0 && rate === 0 && roundedDeclared > 0) {
     issues.push({
       order: 3, checkType: 'rate', column: 'Rate', status: 'warning',
       message: 'Step 3 — Rate: amount present but rate is zero',
     });
-  } else if (!issues.some((i) => i.status === 'fail') && roundedQty === 0 && roundedRate > 0 && roundedDeclared > 0) {
+  } else if (!issues.some((i) => i.status === 'fail') && qty === 0 && rate > 0 && roundedDeclared > 0) {
     issues.push({
       order: 2, checkType: 'quantity', column: 'Qty', status: 'warning',
       message: 'Step 2 — Quantity: amount present but quantity is zero',
@@ -999,8 +1012,8 @@ function validateLineValues(
     itemCode,
     description,
     unit,
-    qty: roundedQty,
-    rate: roundedRate,
+    qty,
+    rate,
     declaredAmount: roundedDeclared,
     computedAmount,
     difference,
@@ -1025,7 +1038,8 @@ function parseLinesFromSheetRows(
   const startIdx = headerRowNo;
 
   for (let i = startIdx; i < rows.length; i += 1) {
-    const cells = rows[i].map((c) => String(c ?? '').trim());
+    const rawRow = rows[i];
+    const cells = rawRow.map((c) => String(c ?? '').trim());
     if (!cells.some(Boolean)) continue;
     if (i > startIdx && isHeaderRow(cells)) continue;
     if (!isDataRow(cells, headerMap)) continue;
@@ -1034,21 +1048,21 @@ function parseLinesFromSheetRows(
       ? String(cells[headerMap.description] ?? '').trim()
       : rowLabel(cells);
     const unit = extractBoqUnit(cells, headerMap);
-    const qty = headerMap.qty !== undefined ? parseNumber(cells[headerMap.qty]) : 0;
-    const rate = headerMap.rate !== undefined ? parseNumber(cells[headerMap.rate]) : 0;
+    const qty = headerMap.qty !== undefined ? parseNumber(rawRow[headerMap.qty]) : 0;
+    const rate = headerMap.rate !== undefined ? parseNumber(rawRow[headerMap.rate]) : 0;
     const itemCode = headerMap.sor_code !== undefined ? String(cells[headerMap.sor_code] ?? '').trim() : undefined;
     let amount = amountFromRow(cells, headerMap);
     if (amount <= 0 && qty > 0 && rate > 0) amount = round2(qty * rate);
     if (qty <= 0 && rate <= 0 && amount <= 0) continue;
 
     lineNo += 1;
-    const rawQty = headerMap.qty !== undefined ? cells[headerMap.qty] : '';
-    const rawRate = headerMap.rate !== undefined ? cells[headerMap.rate] : '';
+    const rawQty = headerMap.qty !== undefined ? rawRow[headerMap.qty] : '';
+    const rawRate = headerMap.rate !== undefined ? rawRow[headerMap.rate] : '';
 
     if (tharali) {
       lines.push(validateTharaliLineValues(
         lineNo, description, unit, qty, rate,
-        tharaliComponentsFromRow(cells, headerMap),
+        tharaliComponentsFromRow(rawRow, headerMap),
         itemCode || undefined, i + 1, rawQty, rawRate,
       ));
     } else {
