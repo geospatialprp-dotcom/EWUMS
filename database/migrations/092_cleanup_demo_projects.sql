@@ -34,6 +34,10 @@ BEGIN
     AND project_code NOT IN ('PRJ-TPPWSS-2026-27', 'PRJ-2026-001')
     AND COALESCE(name, '') NOT ILIKE '%Tharali Pinder Paar%';
 
+  -- Orphan seed workflow for removed f0000000-001 project (safe if already gone).
+  DELETE FROM workflow_instances
+  WHERE id = 'f1000000-0000-0000-0000-000000000003';
+
   IF NOT EXISTS (SELECT 1 FROM tmp_demo_projects) THEN
     RAISE NOTICE '092 demo project cleanup: no legacy demo projects found';
     RETURN;
@@ -104,12 +108,14 @@ BEGIN
   WHERE resource_type = 'project'
     AND resource_id IN (SELECT id FROM tmp_demo_projects);
 
-  DELETE FROM workflow_instances
-  WHERE id IN (
-    'f1000000-0000-0000-0000-000000000003',
-    'w1000000-0000-0000-0000-000000000030',
-    'w1000000-0000-0000-0000-000000000031'
-  );
+  UPDATE measurement_books SET work_package_id = NULL
+  WHERE project_id IN (SELECT id FROM tmp_demo_projects);
+
+  UPDATE dpr_reports SET work_package_id = NULL
+  WHERE project_id IN (SELECT id FROM tmp_demo_projects);
+
+  DELETE FROM work_packages
+  WHERE project_id IN (SELECT id FROM tmp_demo_projects);
 
   DELETE FROM ra_bill_lines
   WHERE ra_bill_id IN (
