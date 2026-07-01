@@ -528,7 +528,10 @@ export default function DprPlanningPage() {
                         Govt Concurrence Status
                       </Button>
                     )}
-                    {['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status) && canInitiateAsEe && (
+                    {canInitiateAsEe && (
+                      ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status)
+                      || row.eeComplianceAssignmentPending
+                    ) && (
                       <Button size="small" variant="contained" color="warning" startIcon={<EditNoteOutlinedIcon />} onClick={() => {
                         setRound2ComplianceLiaisonMode(false);
                         setRound2ComplianceOpen(row.id);
