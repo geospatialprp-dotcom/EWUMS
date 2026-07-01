@@ -8,11 +8,13 @@ import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../../services/api';
 import { DPR_TAC_ROUND2_ACTION_LABELS, DPR_TAC_ROUND2_CHECKLIST } from '../../constants/dprPlanningWorkflow';
 import { DprDialogHeader, dprDialogActionsSx, dprDialogContentSx, dprDialogPaperSx } from './dprUi';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
+import DprPdfReviewViewer from './DprPdfReviewViewer';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
 import { hasBilingualContent, parseBilingualText, serializeBilingualText, type BilingualText } from '../../utils/bilingualText';
 
@@ -46,6 +48,19 @@ type TacRound2State = {
     observationResponse?: string | null;
     comments?: string | null;
   }>;
+  officialTac1Dpr?: {
+    documentId: string;
+    versionNo?: number | null;
+    fileName?: string | null;
+    label?: string;
+    isOfficial?: boolean;
+    frozenAt?: string | null;
+  } | null;
+  officialTac1Missing?: boolean;
+  canViewRound2Details?: boolean;
+  resultsPublished?: boolean;
+  awaitingAdminLiaison?: boolean;
+  trackingStatusLabel?: string | null;
 };
 
 type ProposalDetail = {
@@ -109,6 +124,7 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
     envSocialClearances: false,
     fundingRequirements: false,
   });
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!proposalId) return;
@@ -154,11 +170,16 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
   const tac2 = detail?.tacRound2Review;
   const canBegin = tac2?.canBeginExamination === true;
   const canReview = tac2?.canReview === true;
+  const canViewDetails = tac2?.canViewRound2Details !== false;
+  const isTracking = tac2?.viewMode === 'track';
   const concurrenceGranted = tac2?.concurrenceGranted === true || detail?.status === 'govt_technical_concurrence';
   const allReviewed = DPR_TAC_ROUND2_CHECKLIST.every((item) => checklist[item.key as keyof typeof checklist]);
 
-  const slotMap = new Map((detail?.documentSlots ?? []).map((s) => [s.documentType, s]));
-  const pdfDoc = slotMap.get('dpr_complete_pdf')?.document;
+  const officialPdf = tac2?.officialTac1Dpr ?? null;
+  const officialTac1Missing = tac2?.officialTac1Missing === true || !officialPdf?.isOfficial;
+  const pdfDoc = officialPdf?.documentId && officialPdf.isOfficial !== false
+    ? { id: officialPdf.documentId, fileName: officialPdf.fileName ?? 'dpr-complete.pdf' }
+    : null;
 
   const download = async (docId: string, fileName: string) => {
     if (!proposalId) return;
@@ -267,13 +288,41 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
               <Alert severity="success" icon={<CheckCircleOutlineIcon />} sx={{ mb: 2 }}>
                 <Typography variant="subtitle2">Government Technical Concurrence Obtained</Typography>
                 <Typography variant="body2">
-                  Round 2 examination complete. Proceed to Administrative Sanction (Stage 8).
+                  Round 2 examination complete. Results are visible to Super Admin and Division EE.
+                  Proceed to Administrative Sanction (Stage 8).
                 </Typography>
                 {tac2?.concurrenceGrantedAt && (
                   <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
                     Concurrence: {new Date(tac2.concurrenceGrantedAt).toLocaleString('en-IN')}
                   </Typography>
                 )}
+              </Alert>
+            )}
+
+            {canReview && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  You may review only the <strong>TAC Round 1 official DPR</strong> — the same PDF Super Admin
+                  checked and cleared at Stage 4. Later division uploads are not used for Secretariat examination.
+                  For queries, contact <strong>Super Admin</strong> only.
+                </Typography>
+              </Alert>
+            )}
+
+            {isTracking && tac2?.awaitingAdminLiaison && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2">Secretariat examination in progress</Typography>
+                <Typography variant="body2">
+                  Secretariat communicates with Super Admin only during Round 2. Division will see the outcome after Govt Technical Concurrence.
+                </Typography>
+              </Alert>
+            )}
+
+            {isTracking && !canViewDetails && !concurrenceGranted && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  DPR is under Secretariat / Govt examination. Detailed observations will appear here after concurrence is granted.
+                </Typography>
               </Alert>
             )}
 
@@ -294,18 +343,31 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
             </Box>
 
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
-              {pdfDoc && (
-                <Button size="small" variant="contained" startIcon={<DownloadOutlinedIcon />}
-                  onClick={() => download(pdfDoc.id, pdfDoc.fileName ?? 'dpr-complete.pdf')}>
-                  Complete DPR PDF
-                </Button>
+              {pdfDoc && proposalId && (
+                <>
+                  <Button size="small" variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
+                    onClick={() => setPdfViewerOpen(true)}>
+                    Review TAC1 Official DPR Online
+                  </Button>
+                  <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
+                    onClick={() => download(pdfDoc.id, pdfDoc.fileName ?? 'dpr-complete.pdf')}>
+                    {officialPdf?.label ?? 'TAC1 Official DPR PDF'}
+                  </Button>
+                </>
+              )}
+              {!pdfDoc && (canReview || canBegin) && officialTac1Missing && (
+                <Alert severity="error" sx={{ width: '100%' }}>
+                  <strong>TAC Round 1 official DPR is not frozen.</strong> Secretariat cannot examine until Super Admin
+                  completes TAC Round 1 approval on the current system (or the VPS freeze script is run for this proposal).
+                  Only the TAC1-checked PDF may be used — not the latest Complete DPR upload.
+                </Alert>
               )}
               <Button size="small" variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={downloadReport}>
                 Download Examination Report
               </Button>
             </Box>
 
-            {(tac2?.observations?.length ?? 0) > 0 && (
+            {(tac2?.observations?.length ?? 0) > 0 && canViewDetails && (
               <>
                 <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
                   Observations &amp; Recommendations
@@ -323,7 +385,7 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
               </>
             )}
 
-            {(tac2?.complianceResponses?.length ?? 0) > 0 && (
+            {(tac2?.complianceResponses?.length ?? 0) > 0 && canViewDetails && (
               <>
                 <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
                   DPR Team Compliance Submissions
@@ -398,13 +460,13 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
                   required={action !== 'approve'}
                 />
                 <BilingualRemarkField
-                  label="Compliance requirements (communicated to DPR team)"
+                  label="Compliance requirements (liaison to Super Admin)"
                   pdfTitle="TAC Round 2 Compliance Requirements"
                   pdfSubtitle={detail ? `${detail.proposalNo} — ${detail.title}` : undefined}
                   value={complianceNotes}
                   onChange={setComplianceNotes}
                   minRows={2}
-                  helperText="Digital compliance requirements for the DPR team when corrections are requested"
+                  helperText="Super Admin coordinates with Division; Division sees results after concurrence"
                 />
               </>
             )}
@@ -415,17 +477,27 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
         <Button onClick={onClose}>Close</Button>
         {canBegin && (
           <Button variant="contained" startIcon={<GavelOutlinedIcon />}
-            disabled={busy} onClick={submitBeginExamination}>
+            disabled={busy || officialTac1Missing} onClick={submitBeginExamination}>
             Begin Round 2 Examination
           </Button>
         )}
         {canReview && (
           <Button variant="contained" startIcon={<GavelOutlinedIcon />}
-            disabled={busy || (action === 'approve' && !allReviewed)} onClick={submitReview}>
+            disabled={busy || officialTac1Missing || (action === 'approve' && !allReviewed)} onClick={submitReview}>
             {action === 'approve' ? 'Grant Govt Technical Concurrence' : 'Submit Committee Action'}
           </Button>
         )}
       </DialogActions>
+      {proposalId && pdfDoc && (
+        <DprPdfReviewViewer
+          open={pdfViewerOpen}
+          proposalId={proposalId}
+          documentId={pdfDoc.id}
+          fileName={officialPdf?.label ?? pdfDoc.fileName}
+          readOnly={!canReview}
+          onClose={() => setPdfViewerOpen(false)}
+        />
+      )}
     </Dialog>
   );
 }

@@ -8,6 +8,7 @@ const ROLE_LABELS: Record<string, string> = {
   gis_admin: 'GIS Admin',
   se: 'SE',
   ce: 'CE',
+  secretariat: 'Secretariat',
 };
 
 const ROLE_PRIORITY = ['super_admin', 'ce', 'ee', 'ae', 'je', 'accounts', 'contractor', 'gis_admin'];

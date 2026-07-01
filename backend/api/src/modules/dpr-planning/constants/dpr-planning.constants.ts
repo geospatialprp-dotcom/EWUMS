@@ -1,13 +1,22 @@
+/** HQ officials who perform state-level DPR review after division initiation. */
+export const DPR_STATE_REVIEWER_ROLES = ['se', 'ce', 'cgm', 'md'] as const;
+
+/** Secretariat / Sachiwalaya — Round 2 Govt examination (Stage 7). */
+export const DPR_SECRETARIAT_REVIEWER_ROLES = ['secretariat'] as const;
+
+/** Demo: Super Admin may conduct state review when HQ accounts are not provisioned. */
+export const DPR_STATE_STAGE_OWNER_ROLES = ['super_admin', ...DPR_STATE_REVIEWER_ROLES] as const;
+
 export const DPR_PLANNING_STAGES = [
   { stage: 1, key: 'proposal-initiation', name: 'DPR Proposal Initiation (Division EE)', ownerRoles: ['ee', 'je', 'ae'] },
-  { stage: 2, key: 'hq-prep-approval', name: 'DPR Preparation Approval', ownerRoles: ['super_admin'] },
+  { stage: 2, key: 'hq-prep-approval', name: 'DPR Preparation Approval', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
   { stage: 3, key: 'dpr-preparation', name: 'DPR Preparation', ownerRoles: ['ee', 'je', 'ae'] },
-  { stage: 4, key: 'tac-round1', name: 'TAC Review — First Round', ownerRoles: ['super_admin'] },
+  { stage: 4, key: 'tac-round1', name: 'TAC Review — First Round', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
   { stage: 5, key: 'dpr-revision', name: 'DPR Revision & Finalization', ownerRoles: ['ee', 'je', 'ae'] },
-  { stage: 6, key: 'secretariat', name: 'Secretariat / Sachiwalaya Submission', ownerRoles: ['super_admin'] },
-  { stage: 7, key: 'tac-round2', name: 'Second Round TAC / Govt Technical Exam', ownerRoles: ['super_admin'] },
-  { stage: 8, key: 'sanction', name: 'Administrative Sanction & Budget Approval', ownerRoles: ['super_admin'] },
-  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation', ownerRoles: ['super_admin'] },
+  { stage: 6, key: 'secretariat', name: 'Secretariat / Sachiwalaya Submission', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
+  { stage: 7, key: 'tac-round2', name: 'Second Round TAC / Govt Technical Exam', ownerRoles: [...DPR_SECRETARIAT_REVIEWER_ROLES] },
+  { stage: 8, key: 'sanction', name: 'Administrative Sanction & Budget Approval', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
+  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
   { stage: 10, key: 'tender-processing', name: 'Tender Processing & Procurement', ownerRoles: ['je', 'ae', 'ee'] },
   { stage: 11, key: 'governance', name: 'Audit Trail & Governance', ownerRoles: [] },
   { stage: 12, key: 'dashboard', name: 'Dashboard & Monitoring', ownerRoles: [] },
@@ -316,9 +325,14 @@ export const DPR_ADVANCE_ACTIONS = [
 
 export type DprAdvanceAction = typeof DPR_ADVANCE_ACTIONS[number];
 
-/** State-level reviewer — Super Admin only (no HQ circle roles in demo workflow). */
+/** State-level reviewer — Super Admin (demo) or HQ officials (SE/CE/CGM/MD). */
 export function isStateReviewer(roles: string[]): boolean {
-  return roles.includes('super_admin');
+  return roles.includes('super_admin')
+    || roles.some((r) => (DPR_STATE_REVIEWER_ROLES as readonly string[]).includes(r));
+}
+
+export function isSecretariatReviewer(roles: string[]): boolean {
+  return roles.some((r) => (DPR_SECRETARIAT_REVIEWER_ROLES as readonly string[]).includes(r));
 }
 
 export function isDivisionFieldRole(roles: string[]): boolean {
@@ -332,6 +346,11 @@ export function getDprStatusLabel(status: string): string {
 /** Division-facing labels when proposal is with state review (read-only tracking). */
 const DPR_DIVISION_VIEWER_STATUS_LABELS: Partial<Record<DprProposalStatus, string>> = {
   tac_round1_review: 'Under Review',
+  secretariat_submitted: 'Under Secretariat Examination',
+  tac_round2_review: 'Under Secretariat Examination',
+  tac_round2_corrections_required: 'Under Secretariat Examination',
+  tac_round2_compliance: 'Under Secretariat Examination',
+  govt_technical_concurrence: 'Govt Technical Concurrence',
 };
 
 export function isDivisionDprViewer(roles: string[]): boolean {

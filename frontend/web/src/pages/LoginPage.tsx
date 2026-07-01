@@ -11,6 +11,7 @@ import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import { getDefaultHomePath } from '../utils/roleNavigation';
 import { APP_BRAND } from '../constants/branding';
 import LoginHeroShowcase from '../components/auth/LoginHeroShowcase';
 import LoginPipelineStrip from '../components/auth/LoginPipelineShowcase';
@@ -58,13 +59,13 @@ export default function LoginPage() {
   const [apiStatus, setApiStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
-  const { login, token } = useAuth();
+  const { login, token, user } = useAuth();
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (token) navigate('/map', { replace: true });
-  }, [token, navigate]);
+    if (token) navigate(getDefaultHomePath(user?.roles), { replace: true });
+  }, [token, user?.roles, navigate]);
 
   useEffect(() => {
     fetch('/api/v1/auth/login', { method: 'OPTIONS' })
@@ -77,8 +78,8 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(email.trim(), password);
-      navigate('/map', { replace: true });
+      const loggedInUser = await login(email.trim(), password);
+      navigate(getDefaultHomePath(loggedInUser.roles), { replace: true });
     } catch (err) {
       setError(getLoginErrorMessage(err));
     } finally {

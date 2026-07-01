@@ -28,6 +28,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import { useAuth } from '../../context/AuthContext';
+import { isSecretariatScopedUser } from '../../utils/roleNavigation';
 import { APP_BRAND } from '../../constants/branding';
 import { formatHeaderUserCaption, formatUserProfileName } from '../../utils/userDisplayLabel';
 import AppLogo from '../branding/AppLogo';
@@ -74,11 +75,11 @@ interface NavItem {
 }
 
 const mainNav: NavItem[] = [
-  { path: '/platform', labelKey: 'nav.platformModules', icon: <AppsOutlinedIcon /> },
-  { path: '/map', labelKey: 'nav.mapExplorer', icon: <MapIcon /> },
+  { path: '/platform', labelKey: 'nav.platformModules', icon: <AppsOutlinedIcon />, permission: 'project:read' },
+  { path: '/map', labelKey: 'nav.mapExplorer', icon: <MapIcon />, permission: 'layer:read' },
   { path: '/dashboard', labelKey: 'nav.executiveDashboard', icon: <DashboardIcon />, permission: 'dashboard:read' },
   { path: '/assets', labelKey: 'nav.assetRegistry', icon: <InventoryIcon />, permission: 'asset:read' },
-  { path: '/workflows', labelKey: 'nav.workflowCenter', icon: <InboxIcon /> },
+  { path: '/workflows', labelKey: 'nav.workflowCenter', icon: <InboxIcon />, permission: 'project:read' },
 ];
 
 const managementNav: NavItem[] = [
@@ -96,6 +97,10 @@ const adminNav: NavItem[] = [
   { path: '/admin/roles', labelKey: 'nav.rolesPermissions', icon: <SecurityIcon />, permission: 'user:read' },
   { path: '/admin/audit', labelKey: 'nav.auditTrail', icon: <HistoryIcon />, permission: 'audit:read' },
   { path: '/admin/notifications', labelKey: 'nav.notificationSettings', icon: <NotificationsActiveOutlinedIcon />, permission: 'om:read' },
+];
+
+const secretariatNav: NavItem[] = [
+  { path: '/dpr-planning', labelKey: 'nav.dprApprovalPipeline', icon: <DescriptionOutlinedIcon />, permission: 'dpr_proposal:read' },
 ];
 
 function isNavSelected(pathname: string, path: string) {
@@ -125,8 +130,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const drawerCollapsed = !isMobile && !isDesktop && sidebarCollapsed;
   const drawerWidth = drawerCollapsed ? DRAWER_WIDTH_MINI : DRAWER_WIDTH;
 
+  const secretariatScoped = isSecretariatScopedUser(user?.roles);
+
   const filterNav = (items: NavItem[]) =>
     items.filter((item) => !item.permission || hasPermission(item.permission));
+
+  const visibleMainNav = secretariatScoped ? [] : filterNav(mainNav);
+  const visibleManagementNav = secretariatScoped ? filterNav(secretariatNav) : filterNav(managementNav);
+  const visibleAdminNav = secretariatScoped ? [] : filterNav(adminNav);
 
   const renderNavItems = (items: NavItem[]) =>
     items.map((item) => {
@@ -203,24 +214,28 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </Box>
 
       <Box sx={{ flex: 1, py: 1, overflowY: 'auto' }}>
-        <List disablePadding sx={{ px: drawerCollapsed ? 0.25 : 0.5 }}>
-          {renderNavItems(filterNav(mainNav))}
-        </List>
+        {visibleMainNav.length > 0 && (
+          <List disablePadding sx={{ px: drawerCollapsed ? 0.25 : 0.5 }}>
+            {renderNavItems(visibleMainNav)}
+          </List>
+        )}
 
-        {filterNav(managementNav).length > 0 && (
+        {visibleManagementNav.length > 0 && (
           <>
-            <Typography sx={appNavSectionLabelSx(drawerCollapsed)}>{t('nav.sectionManagement')}</Typography>
+            {!secretariatScoped && (
+              <Typography sx={appNavSectionLabelSx(drawerCollapsed)}>{t('nav.sectionManagement')}</Typography>
+            )}
             <List disablePadding sx={{ px: drawerCollapsed ? 0.25 : 0.5 }}>
-              {renderNavItems(filterNav(managementNav))}
+              {renderNavItems(visibleManagementNav)}
             </List>
           </>
         )}
 
-        {filterNav(adminNav).length > 0 && (
+        {visibleAdminNav.length > 0 && (
           <>
             <Typography sx={appNavSectionLabelSx(drawerCollapsed)}>{t('nav.sectionAdministration')}</Typography>
             <List disablePadding sx={{ px: drawerCollapsed ? 0.25 : 0.5 }}>
-              {renderNavItems(filterNav(adminNav))}
+              {renderNavItems(visibleAdminNav)}
             </List>
           </>
         )}
@@ -283,7 +298,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <Box sx={{ flex: { xs: '0 0 auto', md: 1 }, minWidth: { xs: 0, md: 16 } }} />
 
           <Box sx={appHeaderActionsSx()}>
-            <DivisionSwitcher />
+            {!secretariatScoped && <DivisionSwitcher />}
             <Box sx={appHeaderActionItemSx()}>
               <LanguageSwitcher />
             </Box>
