@@ -434,6 +434,25 @@ export default function DprTacReviewPanel({ open, proposalId, onClose, onUpdated
                   <option value="return_revision">{DPR_TAC_ACTION_LABELS.return_revision}</option>
                 </TextField>
 
+                {action === 'request_info' && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      <strong>Request Additional Information</strong> only adds comments — Division EE can read them under
+                      <strong> Under Review — Track Status</strong> but <strong>cannot upload new files</strong>.
+                      To let EE re-upload documents, choose <strong>Suggest Corrections</strong> or{' '}
+                      <strong>Return DPR for Revision</strong> instead.
+                    </Typography>
+                  </Alert>
+                )}
+                {(action === 'suggest_corrections' || action === 'return_revision') && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      After you submit, Division EE will see <strong>Stage 5 — Revise DPR</strong> to upload corrected PDF,
+                      BOQ, and deliverables.
+                    </Typography>
+                  </Alert>
+                )}
+
                 <Box sx={{ mb: 2 }}>
                   <BilingualRemarkField
                     label="Workflow Comments / Observations"

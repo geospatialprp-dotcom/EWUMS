@@ -31,13 +31,22 @@ export function isReadPermission(permission: string): boolean {
   return permission.endsWith(':read');
 }
 
-/** Super Admin demo exceptions — complaints, DPR state approval, and PDF review for demos. */
+/** HQ officials conduct post-creation DPR state review (TAC, sanction, etc.). */
+export const HQ_STATE_REVIEWER_ROLES = ['se', 'ce', 'cgm', 'md'] as const;
+
+export function isHqStateReviewer(roles?: string[] | null): boolean {
+  return roles?.some((r) => (HQ_STATE_REVIEWER_ROLES as readonly string[]).includes(r)) ?? false;
+}
+
+/** Super Admin demo exceptions — initiation, state review (TAC/PDF), complaints, deletion requests. */
 const SUPER_ADMIN_DEMO_OPERATIONAL = new Set([
   'om:create',
   'om:update',
+  'dpr_proposal:create',
   'dpr_proposal:approve',
   'dpr_pdf_review:annotate',
   'dpr_pdf_review:comment',
+  'project:delete',
 ]);
 
 export function isDemoOperationalPermission(permission: string): boolean {

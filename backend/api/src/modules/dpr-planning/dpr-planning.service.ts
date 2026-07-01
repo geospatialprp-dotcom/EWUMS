@@ -32,6 +32,8 @@ import {
   getDprStatusLabel,
   getDprViewerStatusLabel,
   isDivisionDprViewer,
+  DPR_STATE_REVIEWER_ROLES,
+  isSecretariatReviewer,
   isStateReviewer,
 } from './constants/dpr-planning.constants';
 import { AdvanceDprProposalDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
@@ -50,7 +52,7 @@ import { validateDprPdfBuffer, type DprPdfValidationReport } from './utils/dpr-p
 import { buildDprValidationExcelExport } from './utils/dpr-excel-audit-export.util';
 import { LandAcquisitionService } from '../land-acquisition/land-acquisition.service';
 import type { LaReadiness } from '../land-acquisition/land-acquisition.service';
-import { assertNotSuperAdminRolesForOperations } from '../../common/utils/operational-access.util';
+import { assertNotSuperAdminRolesForOperations, isSuperAdmin } from '../../common/utils/operational-access.util';
 
 type Transition = { next: string; stage: number };
 
@@ -169,11 +171,14 @@ export class DprPlanningService {
     roles: string[],
     dto: CreateDprProposalDto,
   ) {
-    assertNotSuperAdminRolesForOperations(roles, 'DPR proposal initiation');
-    this.assertCanInitiate(roles);
+    this.assertCanPlatformInitiate(roles);
     const resolvedDivisionId = dto.divisionId ?? divisionId ?? null;
     if (!resolvedDivisionId) {
-      throw new BadRequestException('Division EE must be assigned to a division to initiate a DPR proposal');
+      throw new BadRequestException(
+        isSuperAdmin(roles)
+          ? 'Select a field division before initiating a DPR proposal'
+          : 'Division EE must be assigned to a division to initiate a DPR proposal',
+      );
     }
 
     const count = await this.proposalRepo.count({ where: { tenantId } });
@@ -198,7 +203,10 @@ export class DprPlanningService {
       longitude: dto.longitude ?? null,
     });
     const saved = await this.proposalRepo.save(record);
-    await this.logEvent(tenantId, saved.id, 1, 'create', null, saved.status, userId, null, 'Proposal initiated by Division EE');
+    const initLabel = isSuperAdmin(roles)
+      ? 'Proposal initiated by Super Admin (platform setup)'
+      : 'Proposal initiated by Division EE';
+    await this.logEvent(tenantId, saved.id, 1, 'create', null, saved.status, userId, null, initLabel);
     return this.toRecord(tenantId, saved, true);
   }
 
@@ -467,6 +475,8 @@ export class DprPlanningService {
       throw new BadRequestException('Round 2 examination can only begin after Secretariat submission');
     }
     this.assertCanReviewTacRound2(roles);
+    const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
+    this.assertOfficialTac1PackageForSecretariat(proposal, docs);
 
     const fromStatus = proposal.status;
     const startedAt = new Date();
@@ -521,6 +531,8 @@ export class DprPlanningService {
       throw new BadRequestException('Proposal is not awaiting Round 2 TAC / Govt technical examination');
     }
     this.assertCanReviewTacRound2(roles);
+    const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
+    this.assertOfficialTac1PackageForSecretariat(proposal, docs);
 
     const checklist = {
       technicalExamination: !!dto.technicalExamination,
@@ -738,7 +750,7 @@ export class DprPlanningService {
     fileName: string;
   }> {
     const proposal = await this.requireProposal(tenantId, proposalId);
-    const tacState = this.buildTacRound2ReviewState(proposal, ['super_admin']);
+    const tacState = this.buildTacRound2ReviewState(proposal, [...DPR_STATE_REVIEWER_ROLES]);
     const lines: string[] = [
       'TAC ROUND 2 — GOVT TECHNICAL EXAMINATION REPORT',
       '=================================================',
@@ -1290,6 +1302,25 @@ export class DprPlanningService {
       },
     };
 
+    if (dto.action === 'approve') {
+      const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
+      const officialPdf = this.getLatestDocumentByType(docs, 'dpr_complete_pdf');
+      const tacRound1 = (proposal.hqVerification as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
+      (proposal.hqVerification as { tacRound1: Record<string, unknown> }).tacRound1 = {
+        ...tacRound1,
+        officialPackage: officialPdf
+          ? {
+              documentId: officialPdf.id,
+              versionNo: officialPdf.versionNo,
+              fileName: officialPdf.fileName,
+              frozenAt: new Date().toISOString(),
+              source: 'tac_round1_cleared',
+              label: 'TAC Round 1 — Reviewed DPR (official)',
+            }
+          : null,
+      };
+    }
+
     if (dto.remarks?.trim()) proposal.tacRound1Remarks = dto.remarks.trim();
 
     const fromStatus = proposal.status;
@@ -1356,7 +1387,7 @@ export class DprPlanningService {
     fileName: string;
   }> {
     const proposal = await this.requireProposal(tenantId, proposalId);
-    const tacState = this.buildTacReviewState(proposal, ['super_admin']);
+    const tacState = this.buildTacReviewState(proposal, [...DPR_STATE_REVIEWER_ROLES]);
     const lines: string[] = [
       'TAC ROUND 1 — COMPLIANCE & OBSERVATIONS REPORT',
       '================================================',
@@ -2368,7 +2399,7 @@ export class DprPlanningService {
       stage8Readiness: this.buildStage8Readiness(row, documents, roles, sanction, laReadiness),
       stage9Readiness: this.buildStage9Readiness(row, documents, roles, sanction, tender),
       stage10Readiness: this.buildStage10Readiness(row, documents, roles, tender),
-      tacRound2Review: this.buildTacRound2ReviewState(row, roles),
+      tacRound2Review: this.buildTacRound2ReviewState(row, roles, documents),
       laReadiness,
       stage3HqRemarks: (row.hqVerification as { stage3Remarks?: string } | null)?.stage3Remarks ?? null,
       boqValidation: boqValidation ? this.toBoqValidationRecord(boqValidation, undefined, { summaryOnly: true }) : null,
@@ -2513,6 +2544,71 @@ export class DprPlanningService {
     };
   }
 
+  private getLatestDocumentByType(documents: DprProposalDocument[], documentType: string) {
+    return documents
+      .filter((d) => d.documentType === documentType)
+      .reduce<DprProposalDocument | null>(
+        (max, d) => (!max || d.versionNo > max.versionNo ? d : max),
+        null,
+      );
+  }
+
+  private resolveOfficialTac1Package(
+    proposal: DprProposal,
+    documents: DprProposalDocument[],
+    options?: { officialOnly?: boolean },
+  ) {
+    const tacData = ((proposal.hqVerification ?? {}) as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
+    const frozen = tacData.officialPackage as {
+      documentId?: string;
+      versionNo?: number;
+      fileName?: string | null;
+      frozenAt?: string;
+      label?: string;
+    } | null | undefined;
+    if (frozen?.documentId) {
+      const doc = documents.find((d) => d.id === frozen.documentId) ?? null;
+      return {
+        documentId: frozen.documentId,
+        versionNo: frozen.versionNo ?? doc?.versionNo ?? null,
+        fileName: frozen.fileName ?? doc?.fileName ?? 'dpr-complete.pdf',
+        frozenAt: frozen.frozenAt ?? null,
+        label: frozen.label ?? 'TAC Round 1 — Reviewed DPR (official)',
+        isOfficial: true,
+      };
+    }
+    if (options?.officialOnly) return null;
+    const latest = this.getLatestDocumentByType(documents, 'dpr_complete_pdf');
+    if (!latest) return null;
+    return {
+      documentId: latest.id,
+      versionNo: latest.versionNo,
+      fileName: latest.fileName ?? 'dpr-complete.pdf',
+      frozenAt: null,
+      label: 'Complete DPR PDF (latest — TAC1 official package not frozen)',
+      isOfficial: false,
+    };
+  }
+
+  /** Secretariat Stage 7 — only the DPR frozen at TAC Round 1 clearance (not later division uploads). */
+  private assertOfficialTac1PackageForSecretariat(
+    proposal: DprProposal,
+    documents: DprProposalDocument[],
+  ) {
+    const pkg = this.resolveOfficialTac1Package(proposal, documents, { officialOnly: true });
+    if (!pkg?.documentId) {
+      throw new BadRequestException(
+        'TAC Round 1 official DPR is not on file. Super Admin must approve TAC Round 1 (freezes the reviewed PDF) before Secretariat examination.',
+      );
+    }
+    const doc = documents.find((d) => d.id === pkg.documentId);
+    if (!doc?.fileUrl) {
+      throw new BadRequestException(
+        'TAC Round 1 official DPR file is missing on the server. Ask Super Admin to re-upload or restore the frozen package.',
+      );
+    }
+  }
+
   private buildStage6Readiness(
     proposal: DprProposal,
     documents: DprProposalDocument[],
@@ -2535,10 +2631,22 @@ export class DprPlanningService {
       { key: 'env_social', label: 'Environmental & Social', required: false },
       { key: 'technical_specs', label: 'Technical Specifications', required: false },
     ];
-    const attachments = attachmentDefs.map((def) => ({
-      ...def,
-      attached: uploadedTypes.has(def.key),
-    }));
+    const officialTac1 = this.resolveOfficialTac1Package(proposal, documents);
+    const attachments = attachmentDefs.map((def) => {
+      if (def.key === 'dpr_complete_pdf') {
+        return {
+          ...def,
+          label: officialTac1?.label ?? def.label,
+          attached: !!officialTac1?.documentId,
+          officialDocumentId: officialTac1?.documentId ?? null,
+        };
+      }
+      return {
+        ...def,
+        attached: uploadedTypes.has(def.key),
+        officialDocumentId: null as string | null,
+      };
+    });
     const missingAttachments = attachments.filter((a) => a.required && !a.attached).map((a) => a.label);
 
     const tacData = ((proposal.hqVerification ?? {}) as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
@@ -2580,6 +2688,7 @@ export class DprPlanningService {
       missingAttachments,
       tacRecommendations,
       submission: secretariatData,
+      officialTac1Dpr: this.resolveOfficialTac1Package(proposal, documents),
     };
   }
 
@@ -2615,6 +2724,7 @@ export class DprPlanningService {
 
     const revisionActions = new Set(['suggest_corrections', 'return_revision', 'request_info']);
     const pendingObservations = observations.filter((o) => revisionActions.has(o.action ?? ''));
+    const officialTac1Dpr = this.resolveOfficialTac1Package(proposal, documents, { officialOnly: true });
 
     return {
       status: proposal.status,
@@ -2635,10 +2745,16 @@ export class DprPlanningService {
       pendingObservations,
       complianceResponses,
       latestTacRemarks: proposal.tacRound2Remarks ?? null,
+      officialTac1Dpr,
+      officialTac1Missing: !officialTac1Dpr?.documentId,
     };
   }
 
-  private buildTacRound2ReviewState(proposal: DprProposal, roles: string[] = []) {
+  private buildTacRound2ReviewState(
+    proposal: DprProposal,
+    roles: string[] = [],
+    documents: DprProposalDocument[] = [],
+  ) {
     const tacData = ((proposal.hqVerification ?? {}) as { tacRound2?: Record<string, unknown> }).tacRound2 ?? {};
     const checklistState = (tacData.checklist ?? {}) as Record<string, boolean>;
     const checklist = DPR_TAC_ROUND2_CHECKLIST.map((item) => ({
@@ -2662,6 +2778,15 @@ export class DprPlanningService {
       (proposal.hqVerification as { tacRound2Compliance?: { responses?: unknown[] } })?.tacRound2Compliance?.responses
     ) ?? []);
 
+    const resultsPublished = proposal.status === 'govt_technical_concurrence'
+      || ['sanctioned', 'tender_prep_initiated', 'tender_processing', 'tender_published'].includes(proposal.status);
+    const canViewRound2Details = isSecretariatReviewer(roles)
+      || isStateReviewer(roles)
+      || (isDivisionDprViewer(roles) && resultsPublished);
+    const divisionTracking = inRound2Stage && isDivisionDprViewer(roles) && !canViewRound2Details;
+    const adminTracking = inRound2Stage && isStateReviewer(roles) && !this.canReviewTacRound2(roles);
+    const officialTac1Dpr = this.resolveOfficialTac1Package(proposal, documents, { officialOnly: true });
+
     return {
       pending,
       inRound2Stage,
@@ -2677,23 +2802,29 @@ export class DprPlanningService {
           : inRound2Stage
             ? 'track' as const
             : 'read' as const,
+      trackingStatusLabel: divisionTracking ? 'Under Secretariat Examination' : null,
+      resultsPublished,
+      canViewRound2Details,
+      awaitingAdminLiaison: adminTracking,
+      officialTac1Dpr,
+      officialTac1Missing: !officialTac1Dpr?.documentId,
       checklist,
       allReviewed,
-      complianceNotes: (tacData.complianceNotes as string | null) ?? null,
+      complianceNotes: canViewRound2Details ? ((tacData.complianceNotes as string | null) ?? null) : null,
       lastAction: (tacData.lastAction as string | null) ?? null,
       reviewedAt: (tacData.reviewedAt as string | null) ?? null,
-      observations,
-      complianceResponses,
+      observations: canViewRound2Details ? observations : [],
+      complianceResponses: canViewRound2Details ? complianceResponses : [],
     };
   }
 
   private canReviewTacRound2(roles: string[]) {
-    return isStateReviewer(roles);
+    return isSecretariatReviewer(roles);
   }
 
   private assertCanReviewTacRound2(roles: string[]) {
     if (!this.canReviewTacRound2(roles)) {
-      throw new ForbiddenException('Only Super Admin can conduct Round 2 TAC / Govt examination');
+      throw new ForbiddenException('Only Secretariat officials can conduct Round 2 TAC / Govt examination');
     }
   }
 
@@ -2893,7 +3024,7 @@ export class DprPlanningService {
   }
 
   private canPublishTender(roles: string[]) {
-    return roles.includes('ee') || isStateReviewer(roles);
+    return roles.includes('ee');
   }
 
   private assertCanPublishTender(roles: string[]) {
@@ -2908,7 +3039,7 @@ export class DprPlanningService {
 
   private assertCanInitiateTenderPrep(roles: string[]) {
     if (!this.canInitiateTenderPrep(roles)) {
-      throw new ForbiddenException('Only Super Admin can initiate tender preparation');
+      throw new ForbiddenException('Only HQ officials (SE/CE/CGM/MD) can initiate tender preparation');
     }
   }
 
@@ -2928,7 +3059,7 @@ export class DprPlanningService {
 
   private assertCanRecordSanction(roles: string[]) {
     if (!this.canRecordSanction(roles)) {
-      throw new ForbiddenException('Only Super Admin can record administrative sanction');
+      throw new ForbiddenException('Only HQ officials (SE/CE/CGM/MD) can record administrative sanction');
     }
   }
 
@@ -2938,7 +3069,7 @@ export class DprPlanningService {
 
   private assertCanForwardToSecretariat(roles: string[]) {
     if (!this.canForwardToSecretariat(roles)) {
-      throw new ForbiddenException('Only Super Admin can forward DPR to Secretariat / Sachiwalaya');
+      throw new ForbiddenException('Only HQ officials (SE/CE/CGM/MD) can forward DPR to Secretariat / Sachiwalaya');
     }
   }
 
@@ -3051,7 +3182,7 @@ export class DprPlanningService {
       this.assertCanRecordSanction(roles);
     } else if (def.stage === 9) {
       if (!DPR_TENDER_PREP_STATUSES.includes(proposal.status as typeof DPR_TENDER_PREP_STATUSES[number])) {
-        throw new BadRequestException('Tender preparation documents can only be uploaded after Super Admin initiates tender preparation');
+        throw new BadRequestException('Tender preparation documents can only be uploaded after HQ initiates tender preparation');
       }
       this.assertCanUploadTenderPrep(roles);
     } else if (def.stage === 10) {
@@ -3102,7 +3233,7 @@ export class DprPlanningService {
 
   private assertCanCommentStage3(roles: string[]) {
     if (!this.isStateReviewerRole(roles)) {
-      throw new ForbiddenException('Only Super Admin can save Stage 3 review remarks');
+      throw new ForbiddenException('Only HQ officials (SE/CE/CGM/MD) can save Stage 3 review remarks');
     }
   }
 
@@ -3239,23 +3370,29 @@ export class DprPlanningService {
 
   private assertCanForwardToTac(roles: string[]) {
     if (!this.canForwardToTac(roles)) {
-      throw new ForbiddenException('Only Super Admin can forward completed DPR to TAC Section');
+      throw new ForbiddenException('Only Super Admin or HQ officials (SE/CE/CGM/MD) can forward completed DPR to TAC Section');
     }
   }
 
   private assertCanReviewTac(roles: string[]) {
     if (!this.canReviewTac(roles)) {
-      throw new ForbiddenException('Only Super Admin can perform Round 1 TAC review');
+      throw new ForbiddenException('Only Super Admin or HQ officials (SE/CE/CGM/MD) can perform Round 1 TAC review');
     }
   }
 
   private assertCanReviewHq(roles: string[]) {
     if (!this.isStateReviewerRole(roles)) {
-      throw new ForbiddenException('Only Super Admin can review and approve DPR proposals');
+      throw new ForbiddenException('Only Super Admin or HQ officials (SE/CE/CGM/MD) can review and approve DPR proposals');
     }
   }
 
+  private assertCanPlatformInitiate(roles: string[]) {
+    if (isSuperAdmin(roles)) return;
+    this.assertCanInitiate(roles);
+  }
+
   private assertCanInitiate(roles: string[]) {
+    assertNotSuperAdminRolesForOperations(roles, 'division DPR proposal operations');
     if (!roles.some((r) => ['ee', 'je', 'ae'].includes(r))) {
       throw new ForbiddenException('Only Division EE, JE, or AE can initiate and prepare Stage 1 proposals');
     }

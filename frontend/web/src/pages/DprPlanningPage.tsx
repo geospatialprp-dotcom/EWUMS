@@ -43,12 +43,15 @@ import {
   canPerformHqReview,
   canPerformTacReview,
   canPerformTacRound2Review,
+  canPlatformInitiateDpr,
   canRecordDprSanction,
+  isDivisionDprViewer,
+  isSecretariatReviewer,
   DPR_ACTION_LABELS,
   DPR_DOCUMENT_TYPES,
   getDprDisplayStatusLabel,
 } from '../constants/dprPlanningWorkflow';
-import { useDivisionScopeKey } from '../context/DivisionContext';
+import { useDivisionScopeKey, useDivisionScope } from '../context/DivisionContext';
 import {
   DprDialogHeader,
   DprPipelineTracker,
@@ -101,11 +104,14 @@ export default function DprPlanningPage() {
   const roles = user?.roles ?? [];
   const isSuperAdmin = roles.includes('super_admin');
   const canInitiateAsEe = (roles.includes('ee') || roles.includes('je') || roles.includes('ae')) && !isSuperAdmin;
+  const canInitiateProposal = canInitiateAsEe || canPlatformInitiateDpr(roles);
+  const { activeDivisionId } = useDivisionScope();
   const canHqReview = canPerformHqReview(roles);
   const canForwardToTac = canForwardDprToTac(roles);
   const canTacReview = canPerformTacReview(roles);
   const canSecretariatForward = canForwardToSecretariat(roles);
   const canTacRound2Review = canPerformTacRound2Review(roles);
+  const canTrackSecretariatRound2 = (isDivisionDprViewer(roles) || isSuperAdmin) && !isSecretariatReviewer(roles);
   const canRecordSanction = canRecordDprSanction(roles);
   const canInitiateTender = canInitiateDprTenderPrep(roles);
   const [dashboard, setDashboard] = useState<DashboardData>({});
@@ -178,9 +184,14 @@ export default function DprPlanningPage() {
       setError('Proposal title is required');
       return;
     }
+    if (isSuperAdmin && !activeDivisionId) {
+      setError('Select a field division from the header switcher before initiating a proposal');
+      return;
+    }
     setBusy(true);
     dprPlanningApi.createProposal({
       title: createForm.title.trim(),
+      divisionId: isSuperAdmin ? activeDivisionId ?? undefined : undefined,
       schemeJustification: serializeBilingualText(createSchemeJustification).trim() || undefined,
       preliminaryEstimate: createForm.preliminaryEstimate ? Number(createForm.preliminaryEstimate) : undefined,
       fundingSource: createForm.fundingSource.trim() || undefined,
@@ -292,11 +303,39 @@ export default function DprPlanningPage() {
         title="DPR Approval & Sanction Pipeline"
         subtitle="Detailed Project Report — Division proposal through TAC, Secretariat, administrative sanction, and tendering"
         leading={<DescriptionOutlinedIcon color="primary" />}
-        actions={canInitiateAsEe ? initiateButton : undefined}
+        actions={canInitiateProposal ? initiateButton : undefined}
       />
 
       {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+
+      {canInitiateAsEe && rows.some((r) => r.status === 'tac_round1_review') && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Waiting for Super Admin review</Typography>
+          <Typography variant="body2">
+            Your DPR is under review. <strong>Stage 5 — Revise DPR</strong> appears only after Super Admin returns corrections
+            (Suggest Corrections or Return for Revision). Use <strong>Under Review — Track Status</strong> to read comments.
+          </Typography>
+        </Alert>
+      )}
+      {canInitiateAsEe && rows.some((r) => ['tac_corrections_required', 'dpr_revision'].includes(r.status)) && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Action required — upload revised documents</Typography>
+          <Typography variant="body2">
+            Super Admin returned corrections. Click <strong>Stage 5 — Revise DPR</strong> on the proposal row,
+            then <strong>Begin Revision</strong>, upload fixed PDF/BOQ/files, and <strong>Resubmit to TAC</strong>.
+          </Typography>
+        </Alert>
+      )}
+      {isSuperAdmin && rows.some((r) => r.status === 'tac_round1_review') && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>TAC review pending</Typography>
+          <Typography variant="body2">
+            Open <strong>TAC Review — Round 1</strong>, use <strong>Review PDF Online</strong> to mark up the DPR,
+            then choose <strong>Suggest Corrections</strong> or <strong>Return DPR for Revision</strong> so Division EE can re-upload in Stage 5.
+          </Typography>
+        </Alert>
+      )}
 
       <Box
         sx={{
@@ -426,14 +465,20 @@ export default function DprPlanningPage() {
                         Stage 7 — Round 2 Review
                       </Button>
                     )}
+                    {['secretariat_submitted', 'tac_round2_review', 'tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status)
+                      && canTrackSecretariatRound2 && (
+                      <Button size="small" variant="outlined" color="info" startIcon={<GavelOutlinedIcon />} onClick={() => setTacRound2Open(row.id)}>
+                        {row.status === 'govt_technical_concurrence' ? 'TAC Round 2 Result' : 'Secretariat Examination — Track'}
+                      </Button>
+                    )}
                     {row.status === 'govt_technical_concurrence' && (
                       <Button size="small" startIcon={<GavelOutlinedIcon />} onClick={() => setTacRound2Open(row.id)}>
                         Govt Concurrence Status
                       </Button>
                     )}
-                    {['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status) && (
+                    {['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status) && isSuperAdmin && (
                       <Button size="small" startIcon={<EditNoteOutlinedIcon />} onClick={() => setRound2ComplianceOpen(row.id)}>
-                        Stage 7 — Submit Compliance
+                        Stage 7 — Secretariat Liaison
                       </Button>
                     )}
                     {['govt_technical_concurrence', 'sanctioned'].includes(row.status) && (
@@ -531,11 +576,12 @@ export default function DprPlanningPage() {
       </Box>
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
-        <DprDialogHeader stage={1} title="Initiate DPR Proposal (Division EE)" busy={busy} />
+        <DprDialogHeader stage={1} title={isSuperAdmin ? 'Initiate DPR Proposal (Platform Setup)' : 'Initiate DPR Proposal (Division EE)'} busy={busy} />
         <DialogContent sx={dprDialogContentSx}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            The system will generate a unique Project Proposal ID (e.g. DPRP-2025-26-KPG-0001).
-            After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding for review.
+            {isSuperAdmin
+              ? 'Super Admin can initiate proposals for a selected division. Division EE/JE/AE must prepare Stage 1 documents and forward for HQ review.'
+              : 'The system will generate a unique Project Proposal ID (e.g. DPRP-2025-26-KPG-0001). After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding for review.'}
           </Typography>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12}>
@@ -591,7 +637,7 @@ export default function DprPlanningPage() {
           setSuccess(
             canTacReview
               ? 'DPR submitted — open TAC Review to perform Round 1 review.'
-              : 'DPR submitted for TAC review. Status will show as Under Review until Super Admin completes TAC review.',
+              : 'DPR submitted for TAC review. Status will show as Under Review until HQ completes TAC review.',
           );
           if (canTacReview) setTacReviewOpen(id);
         }}
@@ -606,7 +652,7 @@ export default function DprPlanningPage() {
           setSuccess(
             canTacReview
               ? 'Revised DPR resubmitted — open TAC Review for re-review.'
-              : 'Revised DPR resubmitted for TAC review. Status will show as Under Review until Super Admin re-reviews.',
+              : 'Revised DPR resubmitted for TAC review. Status will show as Under Review until HQ re-reviews.',
           );
           if (canTacReview) setTacReviewOpen(id);
         }}

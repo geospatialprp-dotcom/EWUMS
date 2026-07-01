@@ -24,7 +24,9 @@ import RolesPage from './pages/admin/RolesPage';
 import AuditLogsPage from './pages/admin/AuditLogsPage';
 import NotificationSettingsPage from './pages/admin/NotificationSettingsPage';
 import PermissionRoute from './components/auth/PermissionRoute';
+import SecretariatScopeGuard from './components/auth/SecretariatScopeGuard';
 import { useConsumerPortal } from './context/ConsumerPortalContext';
+import { getDefaultHomePath } from './utils/roleNavigation';
 import { Box, CircularProgress } from '@mui/material';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -38,6 +40,18 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
   if (!token) return <Navigate to="/login" replace />;
   return <>{children}</>;
+}
+
+function DefaultHomeRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" height="50vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+  return <Navigate to={getDefaultHomePath(user?.roles)} replace />;
 }
 
 function PortalProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -70,9 +84,11 @@ export default function App() {
         path="/mobile-billing"
         element={(
           <ProtectedRoute>
-            <PermissionRoute permission="om:read">
-              <MobileBillingPage />
-            </PermissionRoute>
+            <SecretariatScopeGuard>
+              <PermissionRoute permission="om:read">
+                <MobileBillingPage />
+              </PermissionRoute>
+            </SecretariatScopeGuard>
           </ProtectedRoute>
         )}
       />
@@ -81,9 +97,12 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AppLayout>
+              <SecretariatScopeGuard>
               <Routes>
-                <Route path="/" element={<Navigate to="/map" replace />} />
-                <Route path="/platform" element={<PlatformModulesPage />} />
+                <Route path="/" element={<DefaultHomeRedirect />} />
+                <Route path="/platform" element={
+                  <PermissionRoute permission="project:read"><PlatformModulesPage /></PermissionRoute>
+                } />
                 <Route path="/map" element={
                   <PermissionRoute permissions={['layer:read', 'project:read']}><MapPage /></PermissionRoute>
                 } />
@@ -122,7 +141,9 @@ export default function App() {
                 <Route path="/billing" element={
                   <PermissionRoute permission="om:read"><BillingRevenuePage /></PermissionRoute>
                 } />
-                <Route path="/workflows" element={<WorkflowInboxPage />} />
+                <Route path="/workflows" element={
+                  <PermissionRoute permission="project:read"><WorkflowInboxPage /></PermissionRoute>
+                } />
                 <Route path="/admin/users" element={
                   <PermissionRoute permission="user:read"><UsersPage /></PermissionRoute>
                 } />
@@ -136,6 +157,7 @@ export default function App() {
                   <PermissionRoute permission="om:read"><NotificationSettingsPage /></PermissionRoute>
                 } />
               </Routes>
+              </SecretariatScopeGuard>
             </AppLayout>
           </ProtectedRoute>
         }

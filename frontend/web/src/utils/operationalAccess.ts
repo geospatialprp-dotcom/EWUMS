@@ -5,12 +5,21 @@ export function isSuperAdmin(roles?: string[] | null): boolean {
 export const SUPER_ADMIN_VIEW_ONLY_MESSAGE =
   'Super Admin has view-only access; use a division login for operational tasks.';
 
+/** HQ officials — post-creation DPR/TAC/PDF review (not Super Admin). */
+export const HQ_STATE_REVIEWER_ROLES = ['se', 'ce', 'cgm', 'md'] as const;
+
+export function isHqStateReviewer(roles?: string[] | null): boolean {
+  return roles?.some((r) => (HQ_STATE_REVIEWER_ROLES as readonly string[]).includes(r)) ?? false;
+}
+
 const SUPER_ADMIN_DEMO_OPERATIONAL = new Set([
   'om:create',
   'om:update',
+  'dpr_proposal:create',
   'dpr_proposal:approve',
   'dpr_pdf_review:annotate',
   'dpr_pdf_review:comment',
+  'project:delete',
 ]);
 
 export function canPerformOperational(

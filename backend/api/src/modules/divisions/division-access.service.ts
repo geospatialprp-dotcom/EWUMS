@@ -27,7 +27,8 @@ type DivisionContext = {
 };
 
 const STATE_WIDE_ROLES = new Set([
-  'ce', 'md', 'cgm', 'state_finance', 'state_gis_admin', 'state_it_admin',
+  'ce', 'md', 'cgm', 'se', 'secretariat',
+  'state_finance', 'state_gis_admin', 'state_it_admin',
 ]);
 
 export const DIVISION_MILESTONE_ROLES = ['je', 'ae', 'ee', 'accounts'] as const;

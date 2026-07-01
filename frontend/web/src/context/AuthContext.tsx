@@ -24,7 +24,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
 }
@@ -107,13 +107,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     init();
   }, [clearSession]);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<User> => {
     clearSession();
     const { data } = await authApi.login(email.trim().toLowerCase(), password);
     localStorage.setItem('egip_token', data.accessToken);
     localStorage.setItem('egip_user', JSON.stringify(data.user));
     setToken(data.accessToken);
     setUser(data.user);
+    return data.user as User;
   };
 
   const hasPermission = (permission: string) => {
