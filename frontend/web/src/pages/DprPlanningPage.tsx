@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Dialog, DialogActions, DialogContent,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent,
   Grid, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
@@ -14,6 +14,7 @@ import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import ForwardToInboxOutlinedIcon from '@mui/icons-material/ForwardToInboxOutlined';
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../services/api';
 import BilingualRemarkField from '../components/forms/BilingualRemarkField';
@@ -74,6 +75,12 @@ type ProposalRow = {
   preliminaryEstimate?: number | null;
   updatedAt?: string;
   allowedActions?: string[];
+  eeComplianceAssignmentPending?: boolean;
+  eeComplianceAssignment?: {
+    isPending?: boolean;
+    assignedAt?: string | null;
+    message?: string | null;
+  } | null;
 };
 
 type DashboardData = {
@@ -129,6 +136,7 @@ export default function DprPlanningPage() {
   const [secretariatOpen, setSecretariatOpen] = useState<string | null>(null);
   const [tacRound2Open, setTacRound2Open] = useState<string | null>(null);
   const [round2ComplianceOpen, setRound2ComplianceOpen] = useState<string | null>(null);
+  const [round2ComplianceLiaisonMode, setRound2ComplianceLiaisonMode] = useState(false);
   const [sanctionOpen, setSanctionOpen] = useState<string | null>(null);
   const [tenderInitOpen, setTenderInitOpen] = useState<string | null>(null);
   const [tenderProcessingOpen, setTenderProcessingOpen] = useState<string | null>(null);
@@ -336,6 +344,33 @@ export default function DprPlanningPage() {
           </Typography>
         </Alert>
       )}
+      {canInitiateAsEe && rows.some((r) => r.eeComplianceAssignmentPending) && (
+        <Alert severity="warning" icon={<NotificationsActiveOutlinedIcon />} sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Super Admin assigned Round 2 compliance</Typography>
+          <Typography variant="body2">
+            Open the highlighted proposal and use <strong>Stage 7 — Submit Round 2 Compliance</strong> to review
+            Secretariat requirements and submit your response.
+          </Typography>
+        </Alert>
+      )}
+      {canInitiateAsEe && rows.some((r) => ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(r.status) && !r.eeComplianceAssignmentPending) && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Action required — Round 2 compliance</Typography>
+          <Typography variant="body2">
+            Secretariat returned compliance requirements. Open <strong>Stage 7 — Submit Round 2 Compliance</strong>,
+            begin submission, upload revised PDF and compliance document, then resubmit to the committee.
+          </Typography>
+        </Alert>
+      )}
+      {isSuperAdmin && rows.some((r) => ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(r.status)) && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Secretariat compliance required — assign to Division EE</Typography>
+          <Typography variant="body2">
+            Open <strong>Stage 7 — Secretariat Liaison</strong> to read committee requirements, then click{' '}
+            <strong>Assign to Division EE</strong> to send an in-app notification with your liaison notes.
+          </Typography>
+        </Alert>
+      )}
 
       <Box
         sx={{
@@ -422,6 +457,7 @@ export default function DprPlanningPage() {
                   sx={{
                     '&:hover': { bgcolor: '#f8fafc' },
                     ...(row.status === 'proposal_returned' ? { bgcolor: '#fffbeb' } : {}),
+                    ...(row.eeComplianceAssignmentPending && canInitiateAsEe ? { bgcolor: '#fff7ed' } : {}),
                   }}
                 >
                   <TableCell>
@@ -437,7 +473,23 @@ export default function DprPlanningPage() {
                     </Typography>
                     <DprStageProgress currentStage={row.currentStage} />
                   </TableCell>
-                  <TableCell><DprStatusChip status={getDprDisplayStatusLabel(row.status, roles, row.statusLabel)} /></TableCell>
+                  <TableCell>
+                    <Box display="flex" flexDirection="column" alignItems="flex-start" gap={0.5}>
+                      <DprStatusChip status={getDprDisplayStatusLabel(row.status, roles, row.statusLabel)} />
+                      {row.eeComplianceAssignmentPending && canInitiateAsEe && (
+                        <Chip
+                          size="small"
+                          color="warning"
+                          icon={<NotificationsActiveOutlinedIcon />}
+                          label="EE task assigned"
+                          variant="outlined"
+                        />
+                      )}
+                      {row.eeComplianceAssignmentPending && isSuperAdmin && (
+                        <Chip size="small" color="info" label="Awaiting EE" variant="outlined" />
+                      )}
+                    </Box>
+                  </TableCell>
                   <TableCell align="right">
                     <Box display="flex" flexWrap="wrap" gap={0.5} justifyContent="flex-end">
                     {['tac_corrections_required', 'dpr_revision'].includes(row.status) && (
@@ -476,8 +528,19 @@ export default function DprPlanningPage() {
                         Govt Concurrence Status
                       </Button>
                     )}
+                    {['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status) && canInitiateAsEe && (
+                      <Button size="small" variant="contained" color="warning" startIcon={<EditNoteOutlinedIcon />} onClick={() => {
+                        setRound2ComplianceLiaisonMode(false);
+                        setRound2ComplianceOpen(row.id);
+                      }}>
+                        Stage 7 — Submit Round 2 Compliance
+                      </Button>
+                    )}
                     {['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status) && isSuperAdmin && (
-                      <Button size="small" startIcon={<EditNoteOutlinedIcon />} onClick={() => setRound2ComplianceOpen(row.id)}>
+                      <Button size="small" startIcon={<EditNoteOutlinedIcon />} onClick={() => {
+                        setRound2ComplianceLiaisonMode(true);
+                        setRound2ComplianceOpen(row.id);
+                      }}>
                         Stage 7 — Secretariat Liaison
                       </Button>
                     )}
@@ -680,16 +743,19 @@ export default function DprPlanningPage() {
         proposalId={tacRound2Open}
         onClose={() => setTacRound2Open(null)}
         onUpdated={load}
-        onComplianceRequired={(id) => {
-          setSuccess('Round 2 compliance required — DPR team must submit revised documents.');
-          setRound2ComplianceOpen(id);
+        onComplianceRequired={() => {
+          setSuccess('Round 2 compliance required — ask Division EE to open Stage 7 — Submit Round 2 Compliance.');
         }}
       />
 
       <DprRound2CompliancePanel
         open={!!round2ComplianceOpen}
         proposalId={round2ComplianceOpen}
-        onClose={() => setRound2ComplianceOpen(null)}
+        liaisonMode={round2ComplianceLiaisonMode}
+        onClose={() => {
+          setRound2ComplianceOpen(null);
+          setRound2ComplianceLiaisonMode(false);
+        }}
         onUpdated={load}
         onResubmitted={(id) => {
           setSuccess('Round 2 compliance resubmitted to committee.');

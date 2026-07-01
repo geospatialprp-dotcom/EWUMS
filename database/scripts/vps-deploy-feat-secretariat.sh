@@ -12,8 +12,8 @@ COMPOSE=(docker compose -f "${DEPLOY}/docker-compose.prod.yml" --env-file "${DEP
 echo "==> 1. Pull branch ${BRANCH} (NOT main — fixes are only on this branch)"
 cd "${ROOT}"
 sudo -u egip git fetch origin "${BRANCH}"
-sudo -u egip git checkout "${BRANCH}"
-sudo -u egip git pull --ff-only origin "${BRANCH}"
+sudo -u egip git checkout "${BRANCH}" 2>/dev/null || true
+sudo -u egip git reset --hard "origin/${BRANCH}"
 echo "    Commit: $(git rev-parse --short HEAD) $(git log -1 --format='%s')"
 
 echo "==> 2. Secretariat user + permissions (097)"
@@ -24,9 +24,10 @@ echo "==> 3. Freeze TAC1 official PDF for Tharali demo"
 "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
   < "${ROOT}/database/scripts/vps-freeze-tac1-official.sql" || echo "WARN: freeze skipped (no dpr_complete_pdf?)"
 
-echo "==> 4. Rebuild API + Web"
+echo "==> 4. Rebuild API + Web (no cache on web)"
 cd "${DEPLOY}"
-"${COMPOSE[@]}" build api web
+"${COMPOSE[@]}" build api
+"${COMPOSE[@]}" build --no-cache web
 "${COMPOSE[@]}" up -d api web
 
 echo ""

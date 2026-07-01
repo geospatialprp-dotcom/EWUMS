@@ -26,6 +26,7 @@ import {
   TacValidationModeDto,
   ResubmitRevisedDprDto,
   SubmitRound2ComplianceDto,
+  AssignRound2ComplianceToEeDto,
   RecordAdministrativeSanctionDto,
   InitiateTenderPreparationDto,
   BeginTenderProcessingDto,
@@ -228,6 +229,17 @@ export class DprPlanningController {
   @ApiOperation({ summary: 'Stage 7 — DPR team begins Round 2 compliance submission' })
   beginRound2Compliance(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.service.beginRound2Compliance(user.tenantId, user.sub, user.roles ?? [], id);
+  }
+
+  @Post('proposals/:id/assign-round2-compliance-to-ee')
+  @RequirePermissions('dpr_proposal:approve')
+  @ApiOperation({ summary: 'Stage 7 — Super Admin notifies division EE to submit Round 2 compliance' })
+  assignRound2ComplianceToEe(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: AssignRound2ComplianceToEeDto,
+  ) {
+    return this.service.assignRound2ComplianceToEe(user.tenantId, user.sub, user.roles ?? [], id, dto);
   }
 
   @Post('proposals/:id/submit-round2-compliance')

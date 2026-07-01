@@ -261,6 +261,12 @@ export class SubmitRound2ComplianceDto {
   observationResponse?: string;
 }
 
+export class AssignRound2ComplianceToEeDto {
+  @IsOptional()
+  @IsString()
+  message?: string;
+}
+
 export class RecordAdministrativeSanctionDto {
   @IsString()
   administrativeApprovalNo: string;

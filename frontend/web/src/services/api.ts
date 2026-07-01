@@ -272,6 +272,21 @@ export type PortfolioReadiness = {
   }>;
 };
 
+export type ProjectDeletionRequest = {
+  id: string;
+  projectId: string;
+  projectCode: string | null;
+  projectName: string | null;
+  divisionId: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  reason: string | null;
+  eeRemarks: string | null;
+  requestedBy: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+};
+
 export const projectsApi = {
   list: () => api.get('/projects'),
   portfolioReadiness: () => api.get<PortfolioReadiness>('/projects/portfolio-readiness'),
@@ -306,6 +321,13 @@ export const projectsApi = {
     orthomosaicConfig?: OrthomosaicConfig | null;
   }) => api.patch(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
+  listDeletionRequests: () => api.get<ProjectDeletionRequest[]>('/projects/deletion-requests/pending'),
+  requestDeletion: (id: string, data?: { reason?: string }) =>
+    api.post<ProjectDeletionRequest>(`/projects/${id}/deletion-requests`, data ?? {}),
+  approveDeletionRequest: (requestId: string, data?: { remarks?: string }) =>
+    api.post(`/projects/deletion-requests/${requestId}/approve`, data ?? {}),
+  rejectDeletionRequest: (requestId: string, data?: { remarks?: string }) =>
+    api.post<ProjectDeletionRequest>(`/projects/deletion-requests/${requestId}/reject`, data ?? {}),
   uploadOrthomosaic: (projectId: string, file: File, name?: string) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -847,6 +869,8 @@ export const dprPlanningApi = {
     api.post(`/dpr-planning/proposals/${id}/begin-tac-round2`, data ?? {}),
   reviewByTacRound2: (id: string, data: object) => api.post(`/dpr-planning/proposals/${id}/tac-round2-review`, data),
   beginRound2Compliance: (id: string) => api.post(`/dpr-planning/proposals/${id}/begin-round2-compliance`),
+  assignRound2ComplianceToEe: (id: string, data?: { message?: string }) =>
+    api.post(`/dpr-planning/proposals/${id}/assign-round2-compliance-to-ee`, data ?? {}),
   submitRound2Compliance: (id: string, data: object) =>
     api.post(`/dpr-planning/proposals/${id}/submit-round2-compliance`, data),
   recordAdministrativeSanction: (id: string, data: object) =>

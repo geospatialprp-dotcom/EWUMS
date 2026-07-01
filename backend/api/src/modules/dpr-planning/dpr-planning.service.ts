@@ -36,7 +36,7 @@ import {
   isSecretariatReviewer,
   isStateReviewer,
 } from './constants/dpr-planning.constants';
-import { AdvanceDprProposalDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
+import { AdvanceDprProposalDto, AssignRound2ComplianceToEeDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
 import { DprProposal } from './entities/dpr-proposal.entity';
 import {
   DprProposalDocument,
@@ -661,6 +661,10 @@ export class DprPlanningService {
     const fromStatus = proposal.status;
     proposal.status = 'tac_round2_compliance';
     proposal.currentStage = 7;
+    proposal.hqVerification = this.acknowledgeEeComplianceAssignment(
+      (proposal.hqVerification ?? {}) as Record<string, unknown>,
+      userId,
+    );
     const saved = await this.proposalRepo.save(proposal);
     const actorRole = roles.find((r) => r !== 'super_admin') ?? roles[0] ?? null;
     await this.logEvent(
@@ -673,6 +677,50 @@ export class DprPlanningService {
       userId,
       actorRole,
       'DPR team commenced Round 2 compliance submission',
+    );
+    return this.toRecord(tenantId, saved, true, roles);
+  }
+
+  async assignRound2ComplianceToEe(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    dto: AssignRound2ComplianceToEeDto,
+  ) {
+    if (!isSuperAdmin(roles)) {
+      throw new ForbiddenException('Only Super Admin can assign Round 2 compliance tasks to division EE');
+    }
+    const proposal = await this.requireProposal(tenantId, proposalId);
+    if (!DPR_ROUND2_COMPLIANCE_STATUSES.includes(proposal.status as typeof DPR_ROUND2_COMPLIANCE_STATUSES[number])) {
+      throw new BadRequestException('EE assignment is only available when Secretariat compliance is required');
+    }
+
+    const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const message = dto.message?.trim() || null;
+    proposal.hqVerification = {
+      ...existingHq,
+      eeComplianceAssignment: {
+        assignedBy: userId,
+        assignedAt: new Date().toISOString(),
+        message,
+        acknowledgedAt: null,
+        acknowledgedBy: null,
+      },
+    };
+
+    const saved = await this.proposalRepo.save(proposal);
+    await this.logEvent(
+      tenantId,
+      proposalId,
+      7,
+      'assign_round2_compliance_to_ee',
+      proposal.status,
+      saved.status,
+      userId,
+      'super_admin',
+      message ?? 'Super Admin assigned Round 2 compliance submission to division EE',
+      { message },
     );
     return this.toRecord(tenantId, saved, true, roles);
   }
@@ -716,6 +764,7 @@ export class DprPlanningService {
 
     proposal.hqVerification = {
       ...existingHq,
+      ...this.acknowledgeEeComplianceAssignment(existingHq, userId),
       tacRound2Compliance: {
         ...existingCompliance,
         responses,
@@ -2357,6 +2406,8 @@ export class DprPlanningService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       closedAt: row.closedAt,
+      eeComplianceAssignment: this.buildEeComplianceAssignmentView(row, roles),
+      eeComplianceAssignmentPending: this.isEeComplianceAssignmentPending(row),
     };
 
     if (!includeDetails) return base;
@@ -2737,6 +2788,10 @@ export class DprPlanningService {
       canSubmitCompliance: DPR_ROUND2_COMPLIANCE_STATUSES.includes(
         proposal.status as typeof DPR_ROUND2_COMPLIANCE_STATUSES[number],
       ) && hasCompletePdf && canPrepare,
+      canAssignToEe: isSuperAdmin(roles) && DPR_ROUND2_COMPLIANCE_STATUSES.includes(
+        proposal.status as typeof DPR_ROUND2_COMPLIANCE_STATUSES[number],
+      ),
+      eeComplianceAssignment: this.buildEeComplianceAssignmentView(proposal, roles),
       concurrenceGranted: proposal.status === 'govt_technical_concurrence',
       concurrenceGrantedAt: (tac2Data.concurrenceGrantedAt as string | null) ?? null,
       examination: (tac2Data.examination as Record<string, unknown> | null) ?? null,
@@ -3378,6 +3433,62 @@ export class DprPlanningService {
     if (!this.canReviewTac(roles)) {
       throw new ForbiddenException('Only Super Admin or HQ officials (SE/CE/CGM/MD) can perform Round 1 TAC review');
     }
+  }
+
+  private getEeComplianceAssignment(hq: Record<string, unknown> | null | undefined) {
+    const raw = hq?.eeComplianceAssignment;
+    if (!raw || typeof raw !== 'object') return null;
+    const a = raw as {
+      assignedBy?: string;
+      assignedAt?: string;
+      message?: string | null;
+      acknowledgedAt?: string | null;
+      acknowledgedBy?: string | null;
+    };
+    if (!a.assignedAt) return null;
+    return {
+      assignedBy: a.assignedBy ?? null,
+      assignedAt: a.assignedAt,
+      message: a.message ?? null,
+      acknowledgedAt: a.acknowledgedAt ?? null,
+      acknowledgedBy: a.acknowledgedBy ?? null,
+    };
+  }
+
+  private isEeComplianceAssignmentPending(proposal: DprProposal): boolean {
+    if (!DPR_ROUND2_COMPLIANCE_STATUSES.includes(proposal.status as typeof DPR_ROUND2_COMPLIANCE_STATUSES[number])) {
+      return false;
+    }
+    const assignment = this.getEeComplianceAssignment(proposal.hqVerification as Record<string, unknown> | null);
+    return !!assignment && !assignment.acknowledgedAt;
+  }
+
+  private buildEeComplianceAssignmentView(proposal: DprProposal, roles: string[] = []) {
+    const inCompliancePhase = DPR_ROUND2_COMPLIANCE_STATUSES.includes(
+      proposal.status as typeof DPR_ROUND2_COMPLIANCE_STATUSES[number],
+    );
+    const assignment = this.getEeComplianceAssignment(proposal.hqVerification as Record<string, unknown> | null);
+    if (!assignment && !inCompliancePhase) return null;
+
+    const isPending = !!assignment && !assignment.acknowledgedAt && inCompliancePhase;
+    return {
+      ...assignment,
+      isPending: isPending && this.isDivisionPreparer(roles),
+      canAssign: isSuperAdmin(roles) && inCompliancePhase,
+    };
+  }
+
+  private acknowledgeEeComplianceAssignment(hq: Record<string, unknown>, userId: string) {
+    const assignment = this.getEeComplianceAssignment(hq);
+    if (!assignment || assignment.acknowledgedAt) return hq;
+    return {
+      ...hq,
+      eeComplianceAssignment: {
+        ...assignment,
+        acknowledgedAt: new Date().toISOString(),
+        acknowledgedBy: userId,
+      },
+    };
   }
 
   private assertCanReviewHq(roles: string[]) {

@@ -7,6 +7,7 @@ import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../../services/api';
 import { DPR_TAC_ROUND2_ACTION_LABELS } from '../../constants/dprPlanningWorkflow';
@@ -15,12 +16,23 @@ import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { EMPTY_BILINGUAL } from '../../hooks/useBilingualRemark';
 import { hasBilingualContent, serializeBilingualText, type BilingualText } from '../../utils/bilingualText';
 
+type EeComplianceAssignment = {
+  assignedBy?: string | null;
+  assignedAt?: string | null;
+  message?: string | null;
+  acknowledgedAt?: string | null;
+  isPending?: boolean;
+  canAssign?: boolean;
+};
+
 type Stage7Readiness = {
   canBeginCompliance?: boolean;
   canUploadCompliance?: boolean;
   canSubmitCompliance?: boolean;
+  canAssignToEe?: boolean;
   hasCompletePdf?: boolean;
   hasRound2ComplianceDoc?: boolean;
+  eeComplianceAssignment?: EeComplianceAssignment | null;
   pendingObservations?: Array<{
     action?: string;
     remarks?: string | null;
@@ -51,12 +63,13 @@ function getApiError(err: unknown, fallback: string): string {
 interface Props {
   open: boolean;
   proposalId: string | null;
+  liaisonMode?: boolean;
   onClose: () => void;
   onUpdated: () => void;
   onResubmitted?: (proposalId: string) => void;
 }
 
-export default function DprRound2CompliancePanel({ open, proposalId, onClose, onUpdated, onResubmitted }: Props) {
+export default function DprRound2CompliancePanel({ open, proposalId, liaisonMode = false, onClose, onUpdated, onResubmitted }: Props) {
   const [detail, setDetail] = useState<ProposalDetail | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -64,6 +77,7 @@ export default function DprRound2CompliancePanel({ open, proposalId, onClose, on
   const [uploadingCompliance, setUploadingCompliance] = useState(false);
   const [observationResponse, setObservationResponse] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [submitComments, setSubmitComments] = useState<BilingualText>(EMPTY_BILINGUAL);
+  const [assignMessage, setAssignMessage] = useState<BilingualText>(EMPTY_BILINGUAL);
   const pdfRef = useRef<HTMLInputElement>(null);
   const complianceRef = useRef<HTMLInputElement>(null);
 
@@ -88,10 +102,13 @@ export default function DprRound2CompliancePanel({ open, proposalId, onClose, on
       setError('');
       setObservationResponse(EMPTY_BILINGUAL);
       setSubmitComments(EMPTY_BILINGUAL);
+      setAssignMessage(EMPTY_BILINGUAL);
     }
   }, [open, proposalId, load]);
 
   const readiness = detail?.stage7Readiness;
+  const eeAssignment = readiness?.eeComplianceAssignment;
+  const canAssignToEe = readiness?.canAssignToEe === true;
   const canBegin = readiness?.canBeginCompliance === true;
   const canUpload = readiness?.canUploadCompliance === true;
   const canSubmit = readiness?.canSubmitCompliance === true;
@@ -106,6 +123,22 @@ export default function DprRound2CompliancePanel({ open, proposalId, onClose, on
       onUpdated();
     } catch (err) {
       setError(getApiError(err, 'Failed to begin compliance submission'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const assignToEe = async () => {
+    if (!proposalId) return;
+    setBusy(true);
+    setError('');
+    try {
+      const message = serializeBilingualText(assignMessage).trim() || undefined;
+      await dprPlanningApi.assignRound2ComplianceToEe(proposalId, { message });
+      await load();
+      onUpdated();
+    } catch (err) {
+      setError(getApiError(err, 'Failed to notify division EE'));
     } finally {
       setBusy(false);
     }
@@ -171,12 +204,30 @@ export default function DprRound2CompliancePanel({ open, proposalId, onClose, on
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
       <DprDialogHeader
         stage={7}
-        title="Round 2 Compliance Submission"
+        title={liaisonMode ? 'Stage 7 — Secretariat Liaison (read-only)' : 'Round 2 Compliance Submission'}
         proposalNo={detail?.proposalNo}
         statusLabel={detail?.statusLabel ?? detail?.status}
         busy={busy}
       />
       <DialogContent sx={dprDialogContentSx}>
+        {liaisonMode && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Super Admin cannot upload compliance on behalf of the division. Review Secretariat requirements below,
+            then use <strong>Assign to Division EE</strong> to send an in-app task with your liaison notes.
+            The division EE will see a notification on DPR Planning and can open{' '}
+            <strong>Stage 7 — Submit Round 2 Compliance</strong>.
+          </Alert>
+        )}
+        {liaisonMode && eeAssignment?.assignedAt && (
+          <Alert severity={eeAssignment.acknowledgedAt ? 'success' : 'warning'} sx={{ mb: 2 }}>
+            {eeAssignment.acknowledgedAt
+              ? `Division EE acknowledged this task on ${new Date(eeAssignment.acknowledgedAt).toLocaleString('en-IN')}.`
+              : `Assigned to division EE on ${new Date(eeAssignment.assignedAt).toLocaleString('en-IN')} — awaiting EE action.`}
+            {eeAssignment.message && (
+              <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{eeAssignment.message}</Typography>
+            )}
+          </Alert>
+        )}
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
         {detail && (
@@ -214,14 +265,27 @@ export default function DprRound2CompliancePanel({ open, proposalId, onClose, on
                 label="Round 2 Compliance Doc" variant={readiness?.hasRound2ComplianceDoc ? 'filled' : 'outlined'} />
             </Box>
 
-            {canBegin && (
+            {!liaisonMode && eeAssignment?.isPending && (
+              <Alert severity="warning" icon={<NotificationsActiveOutlinedIcon />} sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700}>Super Admin assigned Round 2 compliance</Typography>
+                {eeAssignment.message && (
+                  <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>{eeAssignment.message}</Typography>
+                )}
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Assigned {eeAssignment.assignedAt ? new Date(eeAssignment.assignedAt).toLocaleString('en-IN') : ''}.
+                  Begin submission below when ready.
+                </Typography>
+              </Alert>
+            )}
+
+            {!liaisonMode && canBegin && (
               <Button variant="contained" startIcon={<PlayArrowOutlinedIcon />} sx={{ mb: 2 }}
                 disabled={busy} onClick={beginCompliance}>
                 Begin Compliance Submission
               </Button>
             )}
 
-            {canUpload && (
+            {!liaisonMode && canUpload && (
               <>
                 <input ref={pdfRef} type="file" accept=".pdf" hidden onChange={uploadPdf} />
                 <input ref={complianceRef} type="file" hidden onChange={uploadComplianceDoc} />
@@ -238,7 +302,7 @@ export default function DprRound2CompliancePanel({ open, proposalId, onClose, on
               </>
             )}
 
-            {canUpload && (
+            {!liaisonMode && canUpload && (
               <>
                 <BilingualRemarkField
                   label="Compliance response — how observations were addressed"
@@ -259,12 +323,34 @@ export default function DprRound2CompliancePanel({ open, proposalId, onClose, on
                 />
               </>
             )}
+            {liaisonMode && canAssignToEe && (
+              <>
+                <BilingualRemarkField
+                  label="Liaison message to division EE (optional)"
+                  pdfTitle="Round 2 Compliance — EE Assignment"
+                  pdfSubtitle={detail ? `${detail.proposalNo} — ${detail.title}` : undefined}
+                  value={assignMessage}
+                  onChange={setAssignMessage}
+                  minRows={2}
+                />
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<NotificationsActiveOutlinedIcon />}
+                  sx={{ mb: 2 }}
+                  disabled={busy}
+                  onClick={assignToEe}
+                >
+                  {eeAssignment?.assignedAt && !eeAssignment.acknowledgedAt ? 'Re-notify Division EE' : 'Assign to Division EE'}
+                </Button>
+              </>
+            )}
           </>
         )}
       </DialogContent>
       <DialogActions sx={dprDialogActionsSx}>
         <Button onClick={onClose}>Close</Button>
-        {canSubmit && (
+        {!liaisonMode && canSubmit && (
           <Button variant="contained" startIcon={<SendOutlinedIcon />}
             disabled={busy || !hasBilingualContent(observationResponse) || !readiness?.hasCompletePdf}
             onClick={submitCompliance}>
