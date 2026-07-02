@@ -15,7 +15,7 @@ import SurfaceCard from '../../components/layout/SurfaceCard';
 
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { exportAuditTrailPdf } from '../../utils/pdfExport';
-import { formatAuditLocationLabel, openStreetMapUrl } from '../../utils/auditLocationDisplay';
+import AuditLocationDisplay from '../../components/audit/AuditLocationDisplay';
 import { useDivisionScope } from '../../context/DivisionContext';
 import ExportPdfButton from '../../components/common/ExportPdfButton';
 
@@ -82,47 +82,6 @@ function AuditField({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-function AuditLocationCell({ log }: { log: AuditEntry }) {
-  const hasGps = log.latitude != null && log.longitude != null;
-  const label = hasGps ? formatAuditLocationLabel(log) : (log.location ?? '—');
-
-  if (!hasGps) {
-    return <Typography variant="body2">{label}</Typography>;
-  }
-
-  const mapUrl = openStreetMapUrl(log.latitude!, log.longitude!);
-  const tooltip = log.location ?? label;
-
-  return (
-    <Stack spacing={0.35}>
-      <Tooltip title={tooltip} arrow placement="top-start">
-        <Typography
-          variant="body2"
-          component="a"
-          href={mapUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          sx={{
-            color: '#2563eb',
-            fontWeight: 600,
-            textDecoration: 'none',
-            fontFamily: 'monospace',
-            fontSize: '0.8rem',
-            '&:hover': { textDecoration: 'underline' },
-          }}
-        >
-          {label}
-        </Typography>
-      </Tooltip>
-      {log.location && (
-        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.35, display: 'block' }}>
-          {log.location}
-        </Typography>
-      )}
-    </Stack>
-  );
-}
-
 function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor: (action: string) => string }) {
   const detailsText = formatDetails(log.details);
 
@@ -154,7 +113,7 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
         <Typography variant="body2" fontFamily="monospace">{log.ipAddress ?? '—'}</Typography>
       </AuditField>
       <AuditField label="Location">
-        <AuditLocationCell log={log} />
+        <AuditLocationDisplay entry={log} />
       </AuditField>
       <AuditField label="Details">
         <Typography variant="caption" sx={{ wordBreak: 'break-word', fontFamily: 'monospace', display: 'block' }}>
@@ -269,8 +228,8 @@ export default function AuditLogsPage() {
                           {log.ipAddress ?? '—'}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 280, maxWidth: 360 }}>
-                        <AuditLocationCell log={log} />
+                      <TableCell sx={{ minWidth: 240, maxWidth: 300 }}>
+                        <AuditLocationDisplay entry={log} />
                       </TableCell>
                       <TableCell sx={{ minWidth: 200, maxWidth: 280 }}>
                         <Tooltip

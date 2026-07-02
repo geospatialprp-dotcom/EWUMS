@@ -5,6 +5,7 @@ import autoTable from 'jspdf-autotable';
 import { APP_BRAND } from '../constants/branding';
 import { DEFAULT_DEPARTMENT_ID, getDepartmentById } from '../constants/departments';
 import { OM_REVENUE_KPI_DEFINITIONS, formatInr, formatRevenueKpiValue } from '../constants/omBilling';
+import { formatAuditLocationForExport } from './auditLocationDisplay';
 
 export const PDF_COLORS = {
   navy: [15, 23, 42] as const,
@@ -225,16 +226,6 @@ function formatAuditDetails(details: Record<string, unknown>): string {
   return text === '{}' ? '—' : text;
 }
 
-function formatAuditLocation(row: AuditPdfRow): string {
-  if (row.latitude != null && row.longitude != null) {
-    const accuracy =
-      row.locationAccuracyMeters != null ? ` ±${Math.round(row.locationAccuracyMeters)} m` : '';
-    const coords = `${row.latitude.toFixed(6)}, ${row.longitude.toFixed(6)}${accuracy}`;
-    return row.location ? `${coords} — ${row.location}` : coords;
-  }
-  return row.location ?? '—';
-}
-
 export function exportAuditTrailPdf(
   rows: AuditPdfRow[],
   divisionScope?: string | null,
@@ -254,7 +245,7 @@ export function exportAuditTrailPdf(
         log.action,
         formatAuditResource(log),
         log.ipAddress ?? '—',
-        formatAuditLocation(log),
+        formatAuditLocationForExport(log),
         truncateCell(formatAuditDetails(log.details), 200),
       ]),
     }],
