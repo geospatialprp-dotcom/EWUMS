@@ -16,6 +16,7 @@ import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlin
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../services/api';
 import BilingualRemarkField from '../components/forms/BilingualRemarkField';
@@ -107,6 +108,8 @@ function getApiError(err: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+const UK_TENDER_PORTAL_URL = 'https://uktenders.gov.in/';
 
 export default function DprPlanningPage() {
   const { user } = useAuth();
@@ -324,8 +327,10 @@ export default function DprPlanningPage() {
   return (
     <PageShell loading={busy && !rows.length}>
       <PageHeader
-        title="DPR Approval & Sanction Pipeline"
-        subtitle="Detailed Project Report — Division proposal through TAC, Secretariat, administrative sanction, and tendering"
+        title={isSecretariatOnly ? 'Secretariat DPR Examination & Sanction' : 'DPR Approval & Sanction Pipeline'}
+        subtitle={isSecretariatOnly
+          ? 'Stage 7 and Stage 8 worklist for Secretariat officials, with read-only sanction history after handover.'
+          : 'Detailed Project Report — Division proposal through TAC, Secretariat, administrative sanction, and tendering'}
         leading={<DescriptionOutlinedIcon color="primary" />}
         actions={canInitiateProposal ? initiateButton : undefined}
       />
@@ -419,13 +424,17 @@ export default function DprPlanningPage() {
       >
         <Box position="relative" zIndex={1}>
           <Typography variant="overline" sx={{ letterSpacing: '0.14em', fontWeight: 700, color: 'rgba(248,250,252,0.75)' }}>
-            End-to-end pipeline
+            {isSecretariatOnly ? 'Secretariat focus' : 'End-to-end pipeline'}
           </Typography>
           <Typography variant="h6" fontWeight={800} sx={{ mb: 0.5, letterSpacing: '-0.02em' }}>
-            Division proposal → State Review → TAC → Secretariat → Sanction → Tender
+            {isSecretariatOnly
+              ? 'Stage 7 TAC-2 Examination → Stage 8 Administrative Sanction'
+              : 'Division proposal → State Review → TAC → Secretariat → Sanction → Tender'}
           </Typography>
           <Typography variant="body2" sx={{ color: 'rgba(248,250,252,0.85)', mb: 2, maxWidth: 720 }}>
-            Track every DPR from initiation through administrative approval and procurement. Select a stage below to highlight it in the tracker.
+            {isSecretariatOnly
+              ? 'Only active Secretariat items (Stages 7-8) are shown below. Proposals already moved to tender appear in the read-only sanction history section.'
+              : 'Track every DPR from initiation through administrative approval and procurement. Select a stage below to highlight it in the tracker.'}
           </Typography>
           <DprPipelineTracker activeStage={trackerStage} />
         </Box>
@@ -467,7 +476,7 @@ export default function DprPlanningPage() {
       <SurfaceCard
         header={(
           <Box display="flex" alignItems="center" justifyContent="space-between" width="100%" gap={2} flexWrap="wrap">
-            <Typography sx={{ fontWeight: 700 }}>DPR Proposals</Typography>
+            <Typography sx={{ fontWeight: 700 }}>{isSecretariatOnly ? 'Active Secretariat Worklist (Stages 7-8)' : 'DPR Proposals'}</Typography>
             <Typography variant="caption" color="text.secondary">{visibleRows.length} active record{visibleRows.length === 1 ? '' : 's'}</Typography>
           </Box>
         )}
@@ -612,6 +621,17 @@ export default function DprPlanningPage() {
                             : 'Tender Published'}
                       </Button>
                     )}
+                    {['tender_prep_initiated', 'tender_processing', 'tender_published'].includes(row.status) && !isSecretariatReviewer(roles) && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="secondary"
+                        startIcon={<OpenInNewOutlinedIcon />}
+                        onClick={() => window.open(UK_TENDER_PORTAL_URL, '_blank', 'noopener,noreferrer')}
+                      >
+                        UK Tender Portal
+                      </Button>
+                    )}
                     {row.status === 'dpr_submitted' && canForwardToTac && (
                       <Button size="small" startIcon={<FactCheckOutlinedIcon />} onClick={() => setTacReviewOpen(row.id)}>
                         Forward to TAC
@@ -658,11 +678,13 @@ export default function DprPlanningPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {!rows.length && (
+              {!visibleRows.length && (
                 <TableRow>
                   <TableCell colSpan={6} align="center">
                     <Typography variant="body2" color="text.secondary" py={2}>
-                      {canInitiateAsEe
+                      {isSecretariatOnly
+                        ? 'No active Secretariat items in Stage 7/8. Check "Sanction Details (Read-only)" below for already handed-over records.'
+                        : canInitiateAsEe
                         ? 'No DPR proposals yet — click Initiate Proposal above to start Stage 1 for your division.'
                         : 'No DPR proposals yet. Division EE initiates proposals from their division login.'}
                     </Typography>

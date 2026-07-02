@@ -285,6 +285,20 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
             <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
               Tender Package Preparation
             </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                UK Tender portal link is available throughout Stage 10 for EE reference.
+              </Typography>
+              <Button
+                size="small"
+                variant="contained"
+                color="secondary"
+                startIcon={<OpenInNewOutlinedIcon />}
+                onClick={() => window.open(UK_TENDER_PORTAL_URL, '_blank', 'noopener,noreferrer')}
+              >
+                Open UK Tender Portal
+              </Button>
+            </Alert>
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
               {(readiness?.prepDocuments ?? DPR_TENDER_PROCESSING_DOCUMENT_TYPES.map((d) => ({
                 key: d.type, label: d.label, attached: false, required: true,
@@ -394,15 +408,6 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
                       );
                     })}
                   </Box>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="secondary"
-                    startIcon={<OpenInNewOutlinedIcon />}
-                    onClick={() => window.open(UK_TENDER_PORTAL_URL, '_blank', 'noopener,noreferrer')}
-                  >
-                    Open UK Tender Portal
-                  </Button>
                 </Alert>
                 <TextField fullWidth size="small" label="NIT Reference (optional)" sx={{ mb: 2 }}
                   value={nitRef} onChange={(e) => setNitRef(e.target.value)} />
