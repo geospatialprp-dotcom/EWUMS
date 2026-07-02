@@ -33,7 +33,7 @@ import LayersIcon from '@mui/icons-material/Layers';
 import EngineeringIcon from '@mui/icons-material/Engineering';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
-import { projectsApi, divisionsApi, type Division, type DivisionStaffLogin, type MilestoneStatus, type OrthomosaicConfig, type PortfolioReadiness } from '../services/api';
+import { projectsApi, divisionsApi, type Division, type DivisionStaffLogin, type MilestoneStatus, type OrthomosaicConfig, type PortfolioReadiness, type ProjectDeletionRequest } from '../services/api';
 import { hasOrthomosaicBasemap, normalizeOrthomosaicConfig } from '../utils/orthomosaicBasemap';
 import { useAuth } from '../context/AuthContext';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
@@ -242,6 +242,10 @@ export default function ProjectsPage() {
   const [milestoneSaving, setMilestoneSaving] = useState(false);
   const [deletingMilestoneId, setDeletingMilestoneId] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [deletionRequests, setDeletionRequests] = useState<ProjectDeletionRequest[]>([]);
+  const [deleteDialogProject, setDeleteDialogProject] = useState<Project | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deletionBusy, setDeletionBusy] = useState(false);
   const [creatingSchemeId, setCreatingSchemeId] = useState<string | null>(null);
   const [lifecycleStep, setLifecycleStep] = useState(3);
   const portfolioRef = useRef<HTMLDivElement>(null);
@@ -255,6 +259,7 @@ export default function ProjectsPage() {
   const canCreate = canPerformOperational(user?.roles, hasPermission, 'project:create');
   const canUpdate = canPerformOperational(user?.roles, hasPermission, 'project:update');
   const isSuperAdminUser = isSuperAdmin(user?.roles);
+  const isDivisionEe = user?.roles?.includes('ee') ?? false;
   const isDivisionUser = isDivisionScopedUser(user);
   const canCreateProject = portfolioReadiness?.canCreateProject === true && canCreate;
   const canManageProjectMilestones = canManageMilestones(user);
@@ -287,15 +292,19 @@ export default function ProjectsPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const [projectsRes, readinessRes, divisionsRes, accessRes] = await Promise.all([
+      const [projectsRes, readinessRes, divisionsRes, accessRes, deletionRes] = await Promise.all([
         projectsApi.list(),
         projectsApi.portfolioReadiness().catch(() => ({ data: null as PortfolioReadiness | null })),
         divisionsApi.list().catch(() => ({ data: [] as Division[] })),
         divisionsApi.access().catch(() => ({ data: { divisionSchemaReady: false, setupHint: null } })),
+        (isSuperAdminUser || isDivisionEe)
+          ? projectsApi.listDeletionRequests().catch(() => ({ data: [] as ProjectDeletionRequest[] }))
+          : Promise.resolve({ data: [] as ProjectDeletionRequest[] }),
       ]);
       setProjects(projectsRes.data);
       setPortfolioReadiness(readinessRes.data);
       setDivisions(divisionsRes.data ?? []);
+      setDeletionRequests(deletionRes.data ?? []);
       if (!accessRes.data?.divisionSchemaReady) {
         setDivisionSetupHint(accessRes.data?.setupHint ?? 'Division database setup is pending. Run: cd backend/api && npm run setup:divisions');
       } else {
@@ -551,25 +560,66 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleDeleteProject = async (project: Project) => {
-    if (
-      !window.confirm(
-        `Delete scheme "${project.name}" (${project.projectCode})?\n\nThis permanently removes the project, milestones, GIS data, and construction records.`,
-      )
-    ) {
-      return;
-    }
-    setDeletingProjectId(project.id);
+  const handleRequestProjectDeletion = async () => {
+    if (!deleteDialogProject) return;
+    setDeletionBusy(true);
     setLoadError('');
     try {
-      await projectsApi.delete(project.id);
+      await projectsApi.requestDeletion(deleteDialogProject.id, {
+        reason: deleteReason.trim() || undefined,
+      });
+      setDeleteDialogProject(null);
+      setDeleteReason('');
       await load();
     } catch (err) {
-      setLoadError(getErrorMessage(err, 'delete project'));
+      setLoadError(getErrorMessage(err, 'request project deletion'));
     } finally {
-      setDeletingProjectId(null);
+      setDeletionBusy(false);
     }
   };
+
+  const handleApproveDeletion = async (request: ProjectDeletionRequest) => {
+    if (!window.confirm(`Approve deletion of "${request.projectName}" (${request.projectCode})? This cannot be undone.`)) {
+      return;
+    }
+    setDeletionBusy(true);
+    setLoadError('');
+    try {
+      await projectsApi.approveDeletionRequest(request.id);
+      await load();
+    } catch (err) {
+      setLoadError(getErrorMessage(err, 'approve deletion'));
+    } finally {
+      setDeletionBusy(false);
+    }
+  };
+
+  const handleRejectDeletion = async (request: ProjectDeletionRequest) => {
+    const remarks = window.prompt('Optional remarks for rejecting this deletion request:') ?? '';
+    setDeletionBusy(true);
+    setLoadError('');
+    try {
+      await projectsApi.rejectDeletionRequest(request.id, { remarks: remarks.trim() || undefined });
+      await load();
+    } catch (err) {
+      setLoadError(getErrorMessage(err, 'reject deletion'));
+    } finally {
+      setDeletionBusy(false);
+    }
+  };
+
+  const pendingDeletionByProjectId = useMemo(() => {
+    const map = new Map<string, ProjectDeletionRequest>();
+    deletionRequests
+      .filter((r) => r.status === 'pending')
+      .forEach((r) => map.set(r.projectId, r));
+    return map;
+  }, [deletionRequests]);
+
+  const eePendingDeletions = useMemo(
+    () => deletionRequests.filter((r) => r.status === 'pending'),
+    [deletionRequests],
+  );
 
   const filteredProjects = useMemo(
     () => projects.filter((p) => !activeDivisionId || p.divisionId === activeDivisionId),
@@ -654,6 +704,46 @@ export default function ProjectsPage() {
       />
 
       {loadError && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{loadError}</Alert>}
+
+      {isDivisionEe && eePendingDeletions.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" 
+            fontWeight={700} sx={{ mb: 1 }}>
+            Scheme deletion requests awaiting EE approval ({eePendingDeletions.length})
+          </Typography>
+          {eePendingDeletions.map((req) => (
+            <Box key={req.id} display="flex" alignItems="center" justifyContent="space-between" gap={2} flexWrap="wrap" sx={{ mt: 1 }}>
+              <Box>
+                <Typography variant="body2" fontWeight={600}>
+                  {req.projectName} ({req.projectCode})
+                </Typography>
+                {req.reason ? (
+                  <Typography variant="caption" color="text.secondary">Reason: {req.reason}</Typography>
+                ) : null}
+              </Box>
+              <Box display="flex" gap={1}>
+                <Button
+                  size="small"
+                  color="error"
+                  variant="contained"
+                  disabled={deletionBusy}
+                  onClick={() => handleApproveDeletion(req)}
+                >
+                  Approve deletion
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={deletionBusy}
+                  onClick={() => handleRejectDeletion(req)}
+                >
+                  Reject
+                </Button>
+              </Box>
+            </Box>
+          ))}
+        </Alert>
+      )}
 
       {divisionSetupHint && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
@@ -896,16 +986,25 @@ export default function ProjectsPage() {
                       </Tooltip>
                     )}
                     {isSuperAdminUser && (
-                      <Tooltip title="Delete scheme (Super Admin)">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          disabled={deletingProjectId === project.id}
-                          onClick={() => handleDeleteProject(project)}
-                          sx={{ color: '#fecaca', '&:hover': { bgcolor: 'rgba(239,68,68,0.2)' } }}
-                        >
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
+                      <Tooltip title={
+                        pendingDeletionByProjectId.has(project.id)
+                          ? 'Deletion request pending EE approval'
+                          : 'Request scheme deletion (requires Division EE approval)'
+                      }>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            disabled={deletingProjectId === project.id || pendingDeletionByProjectId.has(project.id)}
+                            onClick={() => {
+                              setDeleteReason('');
+                              setDeleteDialogProject(project);
+                            }}
+                            sx={{ color: '#fecaca', '&:hover': { bgcolor: 'rgba(239,68,68,0.2)' } }}
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     )}
                     <Tooltip title={hqNeedsDivisionPick ? divisionPickTooltip : 'Create feature classes, layers, and attributes'}>
@@ -1369,6 +1468,33 @@ export default function ProjectsPage() {
         </DialogContent>
         <DialogActions sx={projectDialogActionsSx}>
           <Button variant="contained" onClick={() => setStaffLoginsOpen(false)}>Done</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!deleteDialogProject} onClose={() => setDeleteDialogProject(null)} maxWidth="sm" fullWidth>
+        <DialogContent>
+          <Typography variant="h6" fontWeight={700} gutterBottom>
+            Request scheme deletion
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {deleteDialogProject
+              ? `"${deleteDialogProject.name}" (${deleteDialogProject.projectCode}) will be permanently removed only after the Division EE approves this request.`
+              : ''}
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            label="Reason for deletion (optional)"
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogProject(null)} disabled={deletionBusy}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleRequestProjectDeletion} disabled={deletionBusy}>
+            Submit request
+          </Button>
         </DialogActions>
       </Dialog>
     </PageShell>

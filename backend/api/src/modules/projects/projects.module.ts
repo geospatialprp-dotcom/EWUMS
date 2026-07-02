@@ -10,6 +10,7 @@ import { ProjectFeatureClass } from './entities/project-feature-class.entity';
 import { ProjectFeature } from './entities/project-feature.entity';
 import { ProjectMilestone } from './entities/project-milestone.entity';
 import { DprProposal } from '../dpr-planning/entities/dpr-proposal.entity';
+import { ProjectDeletionRequest } from './entities/project-deletion-request.entity';
 import { Project } from './entities/project.entity';
 import { MilestonesController } from './milestones.controller';
 import { ProjectsController } from './projects.controller';
@@ -22,6 +23,7 @@ import { ProjectsService } from './projects.service';
     forwardRef(() => LandAcquisitionModule),
     TypeOrmModule.forFeature([
       Project, ProjectMilestone, ProjectFeatureClass, ProjectFeature, GisLayer, DprProposal,
+      ProjectDeletionRequest,
     ]),
   ],
   controllers: [ProjectsController, MilestonesController, FeatureClassesController],

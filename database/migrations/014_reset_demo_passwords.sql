@@ -35,6 +35,11 @@ UPDATE users SET
   status = 'active'
 WHERE email = 'accounts@egip.local';
 
+UPDATE users SET
+  password_hash = crypt('Sec@123', gen_salt('bf')),
+  status = 'active'
+WHERE email = 'secretariat@egip.local';
+
 -- Ensure admin has super_admin role
 INSERT INTO user_roles (user_id, role_id)
 SELECT 'c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001'

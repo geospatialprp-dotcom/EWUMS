@@ -8,6 +8,7 @@ import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import PublishOutlinedIcon from '@mui/icons-material/PublishOutlined';
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../../services/api';
 import {
@@ -55,6 +56,7 @@ type ProposalDetail = {
 };
 
 const APPROVAL_STEPS = ['je', 'ae', 'ee', 'cleared'] as const;
+const UK_TENDER_PORTAL_URL = 'https://uktenders.gov.in/';
 
 function getApiError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
@@ -119,6 +121,18 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
     (readiness?.approvalLevel ?? 'je') as typeof APPROVAL_STEPS[number],
   );
   const slotMap = new Map((detail?.documentSlots ?? []).map((s) => [s.documentType, s]));
+
+  const requiredBeforePublish = [
+    { key: 'dpr_complete_pdf', label: 'Final Approved DPR PDF' },
+    { key: 'sanction_aa', label: 'Administrative Approval (AA)' },
+    { key: 'sanction_es', label: 'Expenditure Sanction (ES)' },
+    { key: 'sanction_budget_allocation', label: 'Budget Allocation Order' },
+    { key: 'funding_release_order', label: 'Funding Release Order' },
+    { key: 'boq_final', label: 'Final BOQ' },
+    { key: 'bid_documents', label: 'Bid Documents' },
+    { key: 'tender_tech_eligibility', label: 'Technical Eligibility Criteria' },
+    { key: 'tender_financial_criteria', label: 'Financial Evaluation Criteria' },
+  ] as const;
 
   const triggerUpload = (docType: string) => {
     setPendingDocType(docType);
@@ -195,6 +209,21 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
       setError(getApiError(err, 'Failed to publish tender'));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const download = async (docId: string, fileName: string) => {
+    if (!proposalId) return;
+    try {
+      const blob = await dprPlanningApi.fetchDocumentFile(proposalId, docId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Download failed');
     }
   };
 
@@ -345,6 +374,36 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
               <>
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="subtitle2" gutterBottom>Publish Tender</Typography>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Before publishing to UK Tender portal, download and verify the final approved DPR copy and all required tender documents.
+                  </Typography>
+                  <Box display="flex" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
+                    {requiredBeforePublish.map((item) => {
+                      const doc = slotMap.get(item.key)?.document;
+                      return (
+                        <Button
+                          key={item.key}
+                          size="small"
+                          variant="outlined"
+                          disabled={!doc?.id}
+                          onClick={() => doc?.id && download(doc.id, doc.fileName ?? `${item.key}.pdf`)}
+                        >
+                          {doc?.id ? `Download ${item.label}` : `${item.label} missing`}
+                        </Button>
+                      );
+                    })}
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="secondary"
+                    startIcon={<OpenInNewOutlinedIcon />}
+                    onClick={() => window.open(UK_TENDER_PORTAL_URL, '_blank', 'noopener,noreferrer')}
+                  >
+                    Open UK Tender Portal
+                  </Button>
+                </Alert>
                 <TextField fullWidth size="small" label="NIT Reference (optional)" sx={{ mb: 2 }}
                   value={nitRef} onChange={(e) => setNitRef(e.target.value)} />
                 <BilingualRemarkField

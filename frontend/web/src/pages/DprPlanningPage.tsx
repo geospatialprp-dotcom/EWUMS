@@ -123,6 +123,7 @@ export default function DprPlanningPage() {
   const canTrackSecretariatRound2 = (isDivisionDprViewer(roles) || isSuperAdmin) && !isSecretariatReviewer(roles);
   const canRecordSanction = canRecordDprSanction(roles);
   const canInitiateTender = canInitiateDprTenderPrep(roles);
+  const isSecretariatOnly = isSecretariatReviewer(roles) && !isSuperAdmin;
   const [dashboard, setDashboard] = useState<DashboardData>({});
   const [rows, setRows] = useState<ProposalRow[]>([]);
   const [error, setError] = useState('');
@@ -165,7 +166,7 @@ export default function DprPlanningPage() {
     nitRef: '',
     taskOrderRef: '',
   });
-  const [advanceComments, setAdvanceComments] = useState<BilingualText>(EMPTY_BILINGUAL);
+  const [workflowError, setWorkflowError] = useState('');
 
   const [docForm, setDocForm] = useState({
     documentType: DPR_DOCUMENT_TYPES[0].type,
@@ -175,6 +176,9 @@ export default function DprPlanningPage() {
   const [docRemarks, setDocRemarks] = useState<BilingualText>(EMPTY_BILINGUAL);
 
   const divisionScopeKey = useDivisionScopeKey();
+  const visibleRows = isSecretariatOnly
+    ? rows.filter((row) => row.currentStage <= 8)
+    : rows;
 
   const load = useCallback(() => {
     setBusy(true);
@@ -222,6 +226,11 @@ export default function DprPlanningPage() {
   };
 
   const openWorkflow = (row: ProposalRow) => {
+    if (row.status === 'govt_technical_concurrence' && canRecordSanction) {
+      setSanctionOpen(row.id);
+      return;
+    }
+    setWorkflowError('');
     setWorkflowOpen(row);
     dprPlanningApi.getProposal(row.id)
       .then((res) => {
@@ -246,6 +255,7 @@ export default function DprPlanningPage() {
   const handleAdvance = () => {
     if (!workflowOpen) return;
     setBusy(true);
+    setWorkflowError('');
     dprPlanningApi.advanceProposal(workflowOpen.id, {
       action: advanceForm.action,
       comments: serializeBilingualText(advanceComments).trim() || undefined,
@@ -262,7 +272,7 @@ export default function DprPlanningPage() {
         setWorkflowOpen(null);
         load();
       })
-      .catch((err) => setError(getApiError(err, 'Failed to advance workflow')))
+      .catch((err) => setWorkflowError(getApiError(err, 'Failed to advance workflow')))
       .finally(() => setBusy(false));
   };
 
@@ -443,15 +453,19 @@ export default function DprPlanningPage() {
         </Grid>
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Govt Concurrence" value={dashboard.govtConcurrencePending ?? 0} tone="teal" /></Grid>
         <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Sanctioned" value={dashboard.sanctioned ?? 0} tone="teal" /></Grid>
-        <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Tender Prep" value={dashboard.tenderPrepPending ?? 0} tone="amber" /></Grid>
-        <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Tender In Progress" value={dashboard.tenderInProgress ?? 0} tone="rose" /></Grid>
+        {!isSecretariatOnly && (
+          <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Tender Prep" value={dashboard.tenderPrepPending ?? 0} tone="amber" /></Grid>
+        )}
+        {!isSecretariatOnly && (
+          <Grid item xs={6} sm={4} md={3}><KpiStatCard label="Tender In Progress" value={dashboard.tenderInProgress ?? 0} tone="rose" /></Grid>
+        )}
       </Grid>
 
       <SurfaceCard
         header={(
           <Box display="flex" alignItems="center" justifyContent="space-between" width="100%" gap={2} flexWrap="wrap">
             <Typography sx={{ fontWeight: 700 }}>DPR Proposals</Typography>
-            <Typography variant="caption" color="text.secondary">{rows.length} active record{rows.length === 1 ? '' : 's'}</Typography>
+            <Typography variant="caption" color="text.secondary">{visibleRows.length} active record{visibleRows.length === 1 ? '' : 's'}</Typography>
           </Box>
         )}
       >
@@ -468,7 +482,7 @@ export default function DprPlanningPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((row) => (
+              {visibleRows.map((row) => (
                 <TableRow
                   key={row.id}
                   hover
@@ -579,14 +593,14 @@ export default function DprPlanningPage() {
                           : 'Sanction Status'}
                       </Button>
                     )}
-                    {['sanctioned', 'tender_prep_initiated'].includes(row.status) && (
+                    {['sanctioned', 'tender_prep_initiated'].includes(row.status) && !isSecretariatReviewer(roles) && (
                       <Button size="small" startIcon={<AssignmentOutlinedIcon />} onClick={() => setTenderInitOpen(row.id)}>
                         {row.status === 'sanctioned' && canInitiateTender
                           ? 'Stage 9 — Initiate Tender'
                           : 'Tender Prep Status'}
                       </Button>
                     )}
-                    {['tender_prep_initiated', 'tender_processing', 'tender_published'].includes(row.status) && (
+                    {['tender_prep_initiated', 'tender_processing', 'tender_published'].includes(row.status) && !isSecretariatReviewer(roles) && (
                       <Button size="small" startIcon={<GavelOutlinedIcon />} onClick={() => setTenderProcessingOpen(row.id)}>
                         {row.status === 'tender_prep_initiated'
                           ? 'Stage 10 — Tender Processing'
@@ -843,6 +857,7 @@ export default function DprPlanningPage() {
           busy={busy}
         />
         <DialogContent sx={dprDialogContentSx}>
+          {workflowError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setWorkflowError('')}>{workflowError}</Alert>}
           {workflowOpen && (
             <>
               <Box sx={{ mb: 2.5, p: 1.75, borderRadius: 2, bgcolor: '#fff', border: '1px solid #e2e8f0' }}>

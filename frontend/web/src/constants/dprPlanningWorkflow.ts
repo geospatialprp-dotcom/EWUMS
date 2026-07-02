@@ -148,8 +148,8 @@ export const DPR_HQ_REVIEWER_ROLES = DPR_STATE_REVIEWER_ROLES;
 export const DPR_TAC_REVIEWER_ROLES = DPR_STATE_REVIEWER_ROLES;
 export const DPR_TAC_ROUND2_REVIEWER_ROLES = DPR_STATE_REVIEWER_ROLES;
 export const DPR_SECRETARIAT_FORWARD_ROLES = DPR_STATE_REVIEWER_ROLES;
-export const DPR_SANCTION_ROLES = DPR_STATE_REVIEWER_ROLES;
-export const DPR_TENDER_INIT_ROLES = DPR_STATE_REVIEWER_ROLES;
+export const DPR_SANCTION_ROLES = DPR_SECRETARIAT_REVIEWER_ROLES;
+export const DPR_TENDER_INIT_ROLES = ['ee'] as const;
 
 function hasDprRole(roles: string[], allowed: readonly string[]): boolean {
   return allowed.length > 0 && roles.some((r) => (allowed as readonly string[]).includes(r));
@@ -184,7 +184,7 @@ export function isSecretariatReviewer(roles: string[]): boolean {
 }
 
 export function canRecordDprSanction(roles: string[]): boolean {
-  return isStateReviewer(roles);
+  return roles.includes('super_admin') || isSecretariatReviewer(roles);
 }
 
 export function canInitiateDprTenderPrep(roles: string[]): boolean {

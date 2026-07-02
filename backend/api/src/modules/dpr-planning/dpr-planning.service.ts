@@ -30,6 +30,7 @@ import {
   DprAdvanceAction,
   getDprStageForStatus,
   getDprStatusLabel,
+  canRecordDprSanction,
   getDprViewerStatusLabel,
   isDivisionDprViewer,
   DPR_STATE_REVIEWER_ROLES,
@@ -419,7 +420,7 @@ export class DprPlanningService {
     this.assertCanForwardToSecretariat(roles);
 
     const documents = await this.docRepo.find({ where: { tenantId, proposalId } });
-    const readiness = this.buildStage6Readiness(proposal, documents, roles);
+    const readiness = await this.buildStage6Readiness(tenantId, proposal, documents, roles);
     if (!readiness?.canForward) {
       const missing = (readiness?.missingAttachments ?? []).join(', ');
       throw new BadRequestException(
@@ -497,7 +498,7 @@ export class DprPlanningService {
       await this.proposalRepo.save(proposal);
     }
     const docsForAssert = await this.docRepo.find({ where: { tenantId, proposalId } });
-    this.assertRound2ExaminationDocumentsReady(proposal, docsForAssert);
+    await this.assertRound2ExaminationDocumentsReady(tenantId, proposal, docsForAssert);
 
     const fromStatus = proposal.status;
     const startedAt = new Date();
@@ -558,9 +559,9 @@ export class DprPlanningService {
       await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
       await this.proposalRepo.save(proposal);
       const docsRefreshed = await this.docRepo.find({ where: { tenantId, proposalId } });
-      this.assertRound2ExaminationDocumentsReady(proposal, docsRefreshed);
+      await this.assertRound2ExaminationDocumentsReady(tenantId, proposal, docsRefreshed);
     } else {
-      this.assertRound2ExaminationDocumentsReady(proposal, docs);
+      await this.assertRound2ExaminationDocumentsReady(tenantId, proposal, docs);
     }
 
     const checklist = {
@@ -923,7 +924,8 @@ export class DprPlanningService {
     fileName: string;
   }> {
     const proposal = await this.requireProposal(tenantId, proposalId);
-    const tacState = this.buildTacRound2ReviewState(proposal, [...DPR_STATE_REVIEWER_ROLES]);
+    const documents = await this.docRepo.find({ where: { tenantId, proposalId } });
+    const tacState = await this.buildTacRound2ReviewState(tenantId, proposal, [...DPR_STATE_REVIEWER_ROLES], documents);
     const lines: string[] = [
       'TAC ROUND 2 — GOVT TECHNICAL EXAMINATION REPORT',
       '=================================================',
@@ -1477,21 +1479,15 @@ export class DprPlanningService {
 
     if (dto.action === 'approve') {
       const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
-      const snapDoc = await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
-      const tacRound1 = (proposal.hqVerification as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
-      (proposal.hqVerification as { tacRound1: Record<string, unknown> }).tacRound1 = {
-        ...tacRound1,
-        officialPackage: snapDoc
-          ? {
-              documentId: snapDoc.id,
-              versionNo: snapDoc.versionNo,
-              fileName: snapDoc.fileName,
-              frozenAt: new Date().toISOString(),
-              source: 'tac_round1_cleared',
-              label: 'TAC Round 1 — Reviewed DPR (official snapshot)',
-            }
-          : null,
-      };
+      const source = await this.resolveTac1ReviewedSourceDocument(tenantId, proposal, docs);
+      if (source) {
+        const tacRound1 = (proposal.hqVerification as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
+        (proposal.hqVerification as { tacRound1: Record<string, unknown> }).tacRound1 = {
+          ...tacRound1,
+          reviewedDocumentId: source.id,
+        };
+      }
+      await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
     }
 
     if (dto.remarks?.trim()) proposal.tacRound1Remarks = dto.remarks.trim();
@@ -2421,6 +2417,23 @@ export class DprPlanningService {
 
   private assertCanAct(proposal: DprProposal, action: DprAdvanceAction, roles: string[]) {
     assertNotSuperAdminRolesForOperations(roles, `pipeline action "${action}"`);
+
+    if (action === 'record_sanction') {
+      this.assertCanRecordSanction(roles);
+      return;
+    }
+    if (action === 'forward_secretariat') {
+      this.assertCanForwardToSecretariat(roles);
+      return;
+    }
+    if (
+      (action === 'approve' || action === 'request_corrections')
+      && ['secretariat_submitted', 'tac_round2_review'].includes(proposal.status)
+    ) {
+      this.assertCanReviewTacRound2(roles);
+      return;
+    }
+
     const stage = DPR_PLANNING_STAGES.find((s) => s.stage === proposal.currentStage);
     const allowed: string[] = [...(stage?.ownerRoles ?? [])];
     if (allowed.length && !roles.some((r) => allowed.includes(r))) {
@@ -2584,12 +2597,12 @@ export class DprPlanningService {
       stage1Readiness: await this.buildStage1Readiness(row, documents),
       stage3Readiness: await this.buildStage3Readiness(tenantId, row, documents, roles, laReadiness),
       stage5Readiness: await this.buildStage5Readiness(tenantId, row, documents, roles),
-      stage6Readiness: this.buildStage6Readiness(row, documents, roles),
-      stage7Readiness: this.buildStage7Readiness(row, documents, roles),
+      stage6Readiness: await this.buildStage6Readiness(tenantId, row, documents, roles),
+      stage7Readiness: await this.buildStage7Readiness(tenantId, row, documents, roles),
       stage8Readiness: this.buildStage8Readiness(row, documents, roles, sanction, laReadiness),
       stage9Readiness: this.buildStage9Readiness(row, documents, roles, sanction, tender),
       stage10Readiness: this.buildStage10Readiness(row, documents, roles, tender),
-      tacRound2Review: this.buildTacRound2ReviewState(row, roles, documents),
+      tacRound2Review: await this.buildTacRound2ReviewState(tenantId, row, roles, documents),
       laReadiness,
       stage3HqRemarks: (row.hqVerification as { stage3Remarks?: string } | null)?.stage3Remarks ?? null,
       boqValidation: boqValidation ? this.toBoqValidationRecord(boqValidation, undefined, { summaryOnly: true }) : null,
@@ -2749,29 +2762,68 @@ export class DprPlanningService {
    */
   private async resolveTac1OfficialDocumentForFreeze(
     tenantId: string,
-    proposalId: string,
+    proposal: DprProposal,
     documents: DprProposalDocument[],
   ): Promise<DprProposalDocument | null> {
     const pdfDocs = documents.filter((d) => d.documentType === 'dpr_complete_pdf');
     if (!pdfDocs.length) return null;
 
+    const tacRound1 = ((proposal.hqVerification ?? {}) as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
+    const reviewedDocumentId = tacRound1.reviewedDocumentId as string | undefined;
+    if (reviewedDocumentId) {
+      const reviewed = pdfDocs.find((d) => d.id === reviewedDocumentId);
+      if (reviewed) return reviewed;
+    }
+
     const reviews = await this.pdfReviewRepo.find({
-      where: { tenantId, proposalId, reviewerScope: 'hq' },
+      where: { tenantId, proposalId: proposal.id, reviewerScope: 'hq' },
       order: { updatedAt: 'DESC' },
     });
     if (reviews.length) {
       const reviewByDoc = new Map(reviews.map((r) => [r.documentId, r]));
-      const reviewedDocs = pdfDocs
-        .filter((d) => reviewByDoc.has(d.id))
-        .sort((a, b) => {
-          const ra = reviewByDoc.get(a.id)!;
-          const rb = reviewByDoc.get(b.id)!;
-          return rb.updatedAt.getTime() - ra.updatedAt.getTime();
+      const reviewedDocs = pdfDocs.filter((d) => reviewByDoc.has(d.id));
+      if (reviewedDocs.length) {
+        const ranked = await Promise.all(
+          reviewedDocs.map(async (doc) => ({
+            doc,
+            annotationCount: await this.countHqPdfAnnotations(tenantId, doc.id),
+            review: reviewByDoc.get(doc.id)!,
+          })),
+        );
+        ranked.sort((a, b) => {
+          if (b.annotationCount !== a.annotationCount) return b.annotationCount - a.annotationCount;
+          if (b.doc.versionNo !== a.doc.versionNo) return b.doc.versionNo - a.doc.versionNo;
+          return b.review.updatedAt.getTime() - a.review.updatedAt.getTime();
         });
-      if (reviewedDocs.length) return reviewedDocs[0];
+        return ranked[0].doc;
+      }
     }
 
     return this.getLatestDocumentByType(documents, 'dpr_complete_pdf');
+  }
+
+  /** Annotated source dpr_complete_pdf reviewed at TAC Round 1 (for Secretariat PDF viewer). */
+  private async resolveTac1ReviewedSourceDocument(
+    tenantId: string,
+    proposal: DprProposal,
+    documents: DprProposalDocument[],
+  ): Promise<DprProposalDocument | null> {
+    const tacRound1 = ((proposal.hqVerification ?? {}) as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
+    const reviewedDocumentId = tacRound1.reviewedDocumentId as string | undefined;
+    if (reviewedDocumentId) {
+      const doc = documents.find((d) => d.id === reviewedDocumentId && d.documentType === 'dpr_complete_pdf');
+      if (doc) return doc;
+    }
+
+    const frozen = tacRound1.officialPackage as { copiedFromDocumentId?: string } | null | undefined;
+    if (frozen?.copiedFromDocumentId) {
+      const doc = documents.find(
+        (d) => d.id === frozen.copiedFromDocumentId && d.documentType === 'dpr_complete_pdf',
+      );
+      if (doc) return doc;
+    }
+
+    return this.resolveTac1OfficialDocumentForFreeze(tenantId, proposal, documents);
   }
 
   private async countHqPdfAnnotations(tenantId: string, documentId: string): Promise<number> {
@@ -2846,30 +2898,40 @@ export class DprPlanningService {
   ): Promise<DprProposalDocument | null> {
     const hq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
     const tacRound1 = (hq.tacRound1 ?? {}) as Record<string, unknown>;
-    const frozen = tacRound1.officialPackage as { documentId?: string } | null | undefined;
+    const frozen = tacRound1.officialPackage as {
+      documentId?: string;
+      copiedFromDocumentId?: string;
+      frozenAt?: string;
+    } | null | undefined;
+
+    const source = await this.resolveTac1OfficialDocumentForFreeze(tenantId, proposal, documents);
 
     const existingSnap = frozen?.documentId
       ? documents.find((d) => d.id === frozen.documentId && d.documentType === 'tac_round1_official_pdf') ?? null
       : this.getLatestDocumentByType(documents, 'tac_round1_official_pdf');
 
-    if (existingSnap) {
+    if (existingSnap && source) {
       const markupCount = await this.countHqPdfAnnotations(tenantId, existingSnap.id);
-      if (markupCount > 0) {
+      const sourceMatches = frozen?.copiedFromDocumentId === source.id;
+      if (markupCount > 0 && sourceMatches) {
+        tacRound1.reviewedDocumentId = (tacRound1.reviewedDocumentId as string | undefined) ?? source.id;
         tacRound1.officialPackage = {
           ...(frozen ?? {}),
           documentId: existingSnap.id,
           versionNo: existingSnap.versionNo,
           fileName: existingSnap.fileName,
-          frozenAt: (frozen as { frozenAt?: string })?.frozenAt ?? new Date().toISOString(),
+          frozenAt: frozen?.frozenAt ?? new Date().toISOString(),
           source: 'tac_round1_official_snapshot',
           label: 'TAC Round 1 — Reviewed DPR (official snapshot)',
+          copiedFromDocumentId: source.id,
+          copiedFromVersionNo: source.versionNo,
+          reviewedDocumentId: (tacRound1.reviewedDocumentId as string) ?? source.id,
         };
         proposal.hqVerification = { ...hq, tacRound1 };
         return existingSnap;
       }
     }
 
-    const source = await this.resolveTac1OfficialDocumentForFreeze(tenantId, proposal.id, documents);
     if (!source?.fileUrl) return null;
 
     const absPath = resolveDprProposalFilePath(source.fileUrl);
@@ -2896,6 +2958,7 @@ export class DprPlanningService {
       ...hq,
       tacRound1: {
         ...tacRound1,
+        reviewedDocumentId: source.id,
         officialPackage: {
           documentId: snapDoc.id,
           versionNo: snapDoc.versionNo,
@@ -2904,11 +2967,30 @@ export class DprPlanningService {
           source: 'tac_round1_official_snapshot',
           label: 'TAC Round 1 — Reviewed DPR (official snapshot)',
           copiedFromDocumentId: source.id,
+          copiedFromVersionNo: source.versionNo,
+          reviewedDocumentId: source.id,
         },
       },
     };
 
     return snapDoc;
+  }
+
+  /** Persist which dpr_complete_pdf Super Admin annotated during TAC Round 1 review. */
+  async recordTac1ReviewedDocument(tenantId: string, proposalId: string, documentId: string) {
+    const proposal = await this.proposalRepo.findOne({ where: { id: proposalId, tenantId } });
+    if (!proposal || proposal.status !== 'tac_round1_review') return;
+
+    const doc = await this.docRepo.findOne({ where: { id: documentId, tenantId, proposalId } });
+    if (!doc || doc.documentType !== 'dpr_complete_pdf') return;
+
+    const hq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const tacRound1 = (hq.tacRound1 ?? {}) as Record<string, unknown>;
+    if (tacRound1.reviewedDocumentId) return;
+
+    tacRound1.reviewedDocumentId = documentId;
+    proposal.hqVerification = { ...hq, tacRound1 };
+    await this.proposalRepo.save(proposal);
   }
 
   async rebuildTac1OfficialSnapshot(
@@ -2931,7 +3013,8 @@ export class DprPlanningService {
     return this.toRecord(tenantId, saved, true, roles);
   }
 
-  private resolveOfficialTac1Package(
+  private async resolveOfficialTac1PackageAsync(
+    tenantId: string,
     proposal: DprProposal,
     documents: DprProposalDocument[],
     options?: { officialOnly?: boolean },
@@ -2943,16 +3026,25 @@ export class DprPlanningService {
       fileName?: string | null;
       frozenAt?: string;
       label?: string;
+      copiedFromDocumentId?: string;
+      copiedFromVersionNo?: number;
     } | null | undefined;
     if (frozen?.documentId) {
-      const doc = documents.find((d) => d.id === frozen.documentId) ?? null;
+      const sourceDoc = await this.resolveTac1ReviewedSourceDocument(tenantId, proposal, documents);
+      const sourceVersionNo = sourceDoc?.versionNo ?? frozen.copiedFromVersionNo ?? frozen.versionNo ?? null;
+      const sourceFileName = sourceDoc?.fileName ?? frozen.fileName ?? 'dpr-complete.pdf';
+      const viewDocumentId = sourceDoc?.id ?? frozen.copiedFromDocumentId ?? frozen.documentId;
+
       return {
-        documentId: frozen.documentId,
-        versionNo: frozen.versionNo ?? doc?.versionNo ?? null,
-        fileName: frozen.fileName ?? doc?.fileName ?? 'dpr-complete.pdf',
+        documentId: viewDocumentId,
+        versionNo: sourceVersionNo,
+        fileName: sourceFileName,
         frozenAt: frozen.frozenAt ?? null,
         label: frozen.label ?? 'TAC Round 1 — Reviewed DPR (official)',
         isOfficial: true,
+        sourceCompleteDprVersionNo: sourceVersionNo,
+        sourceCompleteDprFileName: sourceFileName,
+        snapshotDocumentId: frozen.documentId,
       };
     }
     if (options?.officialOnly) return null;
@@ -3015,7 +3107,11 @@ export class DprPlanningService {
     };
   }
 
-  private assertRound2ExaminationDocumentsReady(proposal: DprProposal, documents: DprProposalDocument[]) {
+  private async assertRound2ExaminationDocumentsReady(
+    tenantId: string,
+    proposal: DprProposal,
+    documents: DprProposalDocument[],
+  ) {
     if (this.getRound2ExaminationDocumentMode(proposal) === 'ee_compliance_resubmit') {
       const dpr = this.resolveEeComplianceDprPackage(proposal, documents);
       const compliance = this.resolveEeComplianceDocPackage(proposal, documents);
@@ -3027,15 +3123,16 @@ export class DprPlanningService {
       }
       return;
     }
-    this.assertOfficialTac1PackageForSecretariat(proposal, documents);
+    await this.assertOfficialTac1PackageForSecretariat(tenantId, proposal, documents);
   }
 
   /** Secretariat Stage 7 — only the DPR frozen at TAC Round 1 clearance (not later division uploads). */
-  private assertOfficialTac1PackageForSecretariat(
+  private async assertOfficialTac1PackageForSecretariat(
+    tenantId: string,
     proposal: DprProposal,
     documents: DprProposalDocument[],
   ) {
-    const pkg = this.resolveOfficialTac1Package(proposal, documents, { officialOnly: true });
+    const pkg = await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents, { officialOnly: true });
     if (!pkg?.documentId) {
       throw new BadRequestException(
         'TAC Round 1 official DPR is not on file. Super Admin must approve TAC Round 1 (freezes the reviewed PDF) before Secretariat examination.',
@@ -3049,7 +3146,8 @@ export class DprPlanningService {
     }
   }
 
-  private buildStage6Readiness(
+  private async buildStage6Readiness(
+    tenantId: string,
     proposal: DprProposal,
     documents: DprProposalDocument[],
     roles: string[] = [],
@@ -3071,7 +3169,7 @@ export class DprPlanningService {
       { key: 'env_social', label: 'Environmental & Social', required: false },
       { key: 'technical_specs', label: 'Technical Specifications', required: false },
     ];
-    const officialTac1 = this.resolveOfficialTac1Package(proposal, documents);
+    const officialTac1 = await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents);
     const attachments = attachmentDefs.map((def) => {
       if (def.key === 'dpr_complete_pdf') {
         return {
@@ -3128,11 +3226,12 @@ export class DprPlanningService {
       missingAttachments,
       tacRecommendations,
       submission: secretariatData,
-      officialTac1Dpr: this.resolveOfficialTac1Package(proposal, documents),
+      officialTac1Dpr: await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents),
     };
   }
 
-  private buildStage7Readiness(
+  private async buildStage7Readiness(
+    tenantId: string,
     proposal: DprProposal,
     documents: DprProposalDocument[],
     roles: string[] = [],
@@ -3165,7 +3264,7 @@ export class DprPlanningService {
 
     const revisionActions = new Set(['suggest_corrections', 'return_revision', 'request_info']);
     const pendingObservations = observations.filter((o) => revisionActions.has(o.action ?? ''));
-    const officialTac1Dpr = this.resolveOfficialTac1Package(proposal, documents, { officialOnly: true });
+    const officialTac1Dpr = await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents, { officialOnly: true });
 
     return {
       status: proposal.status,
@@ -3197,7 +3296,8 @@ export class DprPlanningService {
     };
   }
 
-  private buildTacRound2ReviewState(
+  private async buildTacRound2ReviewState(
+    tenantId: string,
     proposal: DprProposal,
     roles: string[] = [],
     documents: DprProposalDocument[] = [],
@@ -3234,7 +3334,7 @@ export class DprPlanningService {
     const divisionTracking = inRound2Stage && isDivisionDprViewer(roles) && !canViewRound2Details;
     const adminTracking = inRound2Stage && isStateReviewer(roles) && !this.canReviewTacRound2(roles);
     const examinationDocumentMode = this.getRound2ExaminationDocumentMode(proposal);
-    const officialTac1Dpr = this.resolveOfficialTac1Package(proposal, documents, { officialOnly: true });
+    const officialTac1Dpr = await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents, { officialOnly: true });
     const eeComplianceDpr = examinationDocumentMode === 'ee_compliance_resubmit'
       ? this.resolveEeComplianceDprPackage(proposal, documents)
       : null;
@@ -3433,9 +3533,10 @@ export class DprPlanningService {
       at?: string;
     }>) ?? [];
 
-    const canActJe = proposal.status === 'tender_processing' && approvalLevel === 'je' && roles.includes('je');
-    const canActAe = proposal.status === 'tender_processing' && approvalLevel === 'ae' && roles.includes('ae');
-    const canActEe = proposal.status === 'tender_processing' && approvalLevel === 'ee' && roles.includes('ee');
+    const isEe = roles.includes('ee');
+    const canActJe = proposal.status === 'tender_processing' && approvalLevel === 'je' && (roles.includes('je') || isEe);
+    const canActAe = proposal.status === 'tender_processing' && approvalLevel === 'ae' && (roles.includes('ae') || isEe);
+    const canActEe = proposal.status === 'tender_processing' && approvalLevel === 'ee' && isEe;
     const canPublish = proposal.status === 'tender_processing' && approvalLevel === 'cleared' && this.canPublishTender(roles);
 
     return {
@@ -3444,7 +3545,7 @@ export class DprPlanningService {
         && missingDocuments.length === 0
         && this.canBeginTenderProcessing(roles),
       canUploadDocuments: DPR_TENDER_UPLOAD_STATUSES.includes(proposal.status as typeof DPR_TENDER_UPLOAD_STATUSES[number])
-        && this.canUploadTenderPrep(roles),
+        && this.canUploadTenderProcessing(roles),
       inProcessing: proposal.status === 'tender_processing',
       published: proposal.status === 'tender_published',
       preparationComplete: missingDocuments.length === 0,
@@ -3465,7 +3566,7 @@ export class DprPlanningService {
   }
 
   private canBeginTenderProcessing(roles: string[]) {
-    return roles.some((r) => ['ee'].includes(r));
+    return roles.includes('ee');
   }
 
   private assertCanBeginTenderProcessing(roles: string[]) {
@@ -3478,7 +3579,9 @@ export class DprPlanningService {
     assertNotSuperAdminRolesForOperations(roles, 'tender approval review');
     const roleMap: Record<string, string> = { je: 'je', ae: 'ae', ee: 'ee' };
     const required = roleMap[level];
-    if (!required || !roles.includes(required)) {
+    const isEe = roles.includes('ee');
+    const hasRole = !!required && (roles.includes(required) || ((level === 'je' || level === 'ae') && isEe));
+    if (!hasRole) {
       throw new ForbiddenException(`Only ${DPR_TENDER_APPROVAL_LABELS[level] ?? level} officials can act at this stage`);
     }
   }
@@ -3499,27 +3602,37 @@ export class DprPlanningService {
 
   private assertCanInitiateTenderPrep(roles: string[]) {
     if (!this.canInitiateTenderPrep(roles)) {
-      throw new ForbiddenException('Only HQ officials (SE/CE/CGM/MD) can initiate tender preparation');
+      throw new ForbiddenException('Only Super Admin / HQ officials can issue tender preparation task to Division EE');
     }
   }
 
   private canUploadTenderPrep(roles: string[]) {
-    return roles.some((r) => ['ee', 'je', 'ae'].includes(r));
+    return roles.includes('ee');
+  }
+
+  private canUploadTenderProcessing(roles: string[]) {
+    return roles.includes('ee');
   }
 
   private assertCanUploadTenderPrep(roles: string[]) {
     if (!this.canUploadTenderPrep(roles)) {
-      throw new ForbiddenException('Only division officials (EE, JE, AE) can upload tender preparation documents');
+      throw new ForbiddenException('Only Division EE can upload tender preparation documents');
+    }
+  }
+
+  private assertCanUploadTenderProcessing(roles: string[]) {
+    if (!this.canUploadTenderProcessing(roles)) {
+      throw new ForbiddenException('Only Division EE can upload tender processing documents');
     }
   }
 
   private canRecordSanction(roles: string[]) {
-    return isStateReviewer(roles);
+    return canRecordDprSanction(roles);
   }
 
   private assertCanRecordSanction(roles: string[]) {
     if (!this.canRecordSanction(roles)) {
-      throw new ForbiddenException('Only HQ officials (SE/CE/CGM/MD) can record administrative sanction');
+      throw new ForbiddenException('Only Secretariat officials can record administrative sanction');
     }
   }
 
@@ -3649,7 +3762,7 @@ export class DprPlanningService {
       if (!DPR_TENDER_UPLOAD_STATUSES.includes(proposal.status as typeof DPR_TENDER_UPLOAD_STATUSES[number])) {
         throw new BadRequestException('Tender processing documents can only be uploaded during tender preparation or processing');
       }
-      this.assertCanUploadTenderPrep(roles);
+      this.assertCanUploadTenderProcessing(roles);
     } else {
       throw new BadRequestException(`Upload not supported for document type "${def.label}" at this stage`);
     }

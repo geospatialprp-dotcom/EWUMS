@@ -13,6 +13,7 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { ProjectDivisionGuard } from '../../common/guards/project-division.guard';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { DecideProjectDeletionDto, RequestProjectDeletionDto } from './dto/project-deletion.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectsService } from './projects.service';
 
@@ -37,6 +38,35 @@ export class ProjectsController {
   @ApiOperation({ summary: 'Construction portfolio readiness (tender-published gate)' })
   portfolioReadiness(@CurrentUser() user: JwtPayload) {
     return this.projectsService.getPortfolioReadiness(user.tenantId, user);
+  }
+
+  @Get('deletion-requests/pending')
+  @RequirePermissions('project:read')
+  @ApiOperation({ summary: 'List project deletion requests (Super Admin own / EE pending)' })
+  listDeletionRequests(@CurrentUser() user: JwtPayload) {
+    return this.projectsService.listDeletionRequests(user.tenantId, user);
+  }
+
+  @Post('deletion-requests/:requestId/approve')
+  @RequirePermissions('project:update')
+  @ApiOperation({ summary: 'Approve scheme deletion (Division EE)' })
+  approveDeletionRequest(
+    @CurrentUser() user: JwtPayload,
+    @Param('requestId') requestId: string,
+    @Body() dto: DecideProjectDeletionDto,
+  ) {
+    return this.projectsService.approveDeletionRequest(user.tenantId, requestId, user, dto);
+  }
+
+  @Post('deletion-requests/:requestId/reject')
+  @RequirePermissions('project:update')
+  @ApiOperation({ summary: 'Reject scheme deletion (Division EE)' })
+  rejectDeletionRequest(
+    @CurrentUser() user: JwtPayload,
+    @Param('requestId') requestId: string,
+    @Body() dto: DecideProjectDeletionDto,
+  ) {
+    return this.projectsService.rejectDeletionRequest(user.tenantId, requestId, user, dto);
   }
 
   @Get(':id')
@@ -115,9 +145,20 @@ export class ProjectsController {
     return this.projectsService.removeOrthomosaic(user.tenantId, id, user);
   }
 
+  @Post(':id/deletion-requests')
+  @RequirePermissions('project:delete')
+  @ApiOperation({ summary: 'Request scheme deletion (Super Admin — requires EE approval)' })
+  requestDeletion(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: RequestProjectDeletionDto,
+  ) {
+    return this.projectsService.requestDeletion(user.tenantId, id, user, dto);
+  }
+
   @Delete(':id')
   @RequirePermissions('project:delete')
-  @ApiOperation({ summary: 'Delete a project (Super Admin only)' })
+  @ApiOperation({ summary: 'Delete a project (disabled — use deletion request flow)' })
   remove(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

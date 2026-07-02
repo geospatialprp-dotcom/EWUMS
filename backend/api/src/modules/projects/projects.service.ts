@@ -8,11 +8,13 @@ import { DivisionStaffProvisionerService } from '../divisions/division-staff-pro
 import { ProjectProgressSyncService, milestoneComponents } from '../construction/project-progress-sync.service';
 import { CreateMilestoneDto } from './dto/create-milestone.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { DecideProjectDeletionDto, RequestProjectDeletionDto } from './dto/project-deletion.dto';
 import { OrthomosaicConfigDto } from './dto/orthomosaic-config.dto';
 import { UpdateMilestoneDto } from './dto/update-milestone.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { DprProposal } from '../dpr-planning/entities/dpr-proposal.entity';
 import { ProjectMilestone } from './entities/project-milestone.entity';
+import { ProjectDeletionRequest } from './entities/project-deletion-request.entity';
 import { OrthomosaicConfig, Project } from './entities/project.entity';
 
 export type PortfolioReadinessPhase = 'no_dpr' | 'awaiting_tender' | 'ready';
@@ -43,7 +45,7 @@ import {
   uniqueOrthomosaicFileName,
 } from './utils/orthomosaic-files.util';
 import { buildProjectCodeFromName, isValidProjectCode } from './utils/project-code.util';
-import { assertNotSuperAdminForOperations } from '../../common/utils/operational-access.util';
+import { assertNotSuperAdminForOperations, isSuperAdmin } from '../../common/utils/operational-access.util';
 import { DPR_GIS_WORKSPACE_PROJECT_STATUS } from './constants/project-status.constants';
 import { LandAcquisitionService } from '../land-acquisition/land-acquisition.service';
 import { FeatureClassesService } from './feature-classes.service';
@@ -70,6 +72,7 @@ export class ProjectsService {
     @InjectRepository(Project) private projectsRepo: Repository<Project>,
     @InjectRepository(ProjectMilestone) private milestonesRepo: Repository<ProjectMilestone>,
     @InjectRepository(DprProposal) private dprProposalRepo: Repository<DprProposal>,
+    @InjectRepository(ProjectDeletionRequest) private deletionRequestRepo: Repository<ProjectDeletionRequest>,
     private progressSync: ProjectProgressSyncService,
     private divisionAccess: DivisionAccessService,
     private divisionStaff: DivisionStaffProvisionerService,
@@ -485,10 +488,142 @@ export class ProjectsService {
   }
 
   async remove(tenantId: string, id: string, user: JwtPayload) {
-    if (!user.roles?.includes('super_admin')) {
-      throw new ForbiddenException('Only Super Admin can delete schemes.');
+    throw new ForbiddenException(
+      'Direct project deletion is disabled. Super Admin must request deletion; Division EE must approve.',
+    );
+  }
+
+  async requestDeletion(
+    tenantId: string,
+    projectId: string,
+    user: JwtPayload,
+    dto: RequestProjectDeletionDto,
+  ) {
+    if (!isSuperAdmin(user.roles)) {
+      throw new ForbiddenException('Only Super Admin can request scheme deletion.');
     }
 
+    const project = await this.projectsRepo.findOne({ where: { id: projectId, tenantId } });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const existing = await this.deletionRequestRepo.findOne({
+      where: { tenantId, projectId, status: 'pending' },
+    });
+    if (existing) {
+      throw new BadRequestException('A deletion request is already pending EE approval for this scheme.');
+    }
+
+    const divisionId = project.divisionId ?? await this.divisionAccess.getProjectDivisionId(projectId);
+    const request = this.deletionRequestRepo.create({
+      tenantId,
+      projectId,
+      divisionId,
+      requestedBy: user.sub,
+      status: 'pending',
+      reason: dto.reason?.trim() || null,
+    });
+    const saved = await this.deletionRequestRepo.save(request);
+    return this.toDeletionRequestRecord(saved, project);
+  }
+
+  async listDeletionRequests(tenantId: string, user: JwtPayload) {
+    const qb = this.deletionRequestRepo.createQueryBuilder('r')
+      .where('r.tenant_id = :tenantId', { tenantId })
+      .orderBy('r.created_at', 'DESC')
+      .take(100);
+
+    if (isSuperAdmin(user.roles)) {
+      qb.andWhere('r.requested_by = :userId', { userId: user.sub });
+    } else if (user.roles?.includes('ee')) {
+      qb.andWhere('r.status = :status', { status: 'pending' });
+      const accessible = await this.divisionAccess.getAccessibleDivisionIds(user, tenantId);
+      if (accessible !== null) {
+        if (!accessible.length) return [];
+        qb.andWhere('r.division_id IN (:...divisionIds)', { divisionIds: accessible });
+      }
+    } else {
+      throw new ForbiddenException('Only Super Admin or Division EE can view deletion requests.');
+    }
+
+    const rows = await qb.getMany();
+    const projects = await this.projectsRepo.find({
+      where: { tenantId, id: In(rows.map((r) => r.projectId)) },
+    });
+    const projectById = new Map(projects.map((p) => [p.id, p]));
+    return rows.map((row) => this.toDeletionRequestRecord(row, projectById.get(row.projectId) ?? null));
+  }
+
+  async approveDeletionRequest(
+    tenantId: string,
+    requestId: string,
+    user: JwtPayload,
+    dto: DecideProjectDeletionDto,
+  ) {
+    const request = await this.requirePendingDeletionRequest(tenantId, requestId);
+    await this.assertDivisionEeForProject(user, request.projectId, tenantId);
+
+    request.status = 'approved';
+    request.decidedBy = user.sub;
+    request.decidedAt = new Date();
+    request.eeRemarks = dto.remarks?.trim() || null;
+    await this.deletionRequestRepo.save(request);
+
+    const result = await this.executeProjectDeletion(tenantId, request.projectId);
+    return { ...result, deletionRequestId: request.id, status: 'approved' as const };
+  }
+
+  async rejectDeletionRequest(
+    tenantId: string,
+    requestId: string,
+    user: JwtPayload,
+    dto: DecideProjectDeletionDto,
+  ) {
+    const request = await this.requirePendingDeletionRequest(tenantId, requestId);
+    await this.assertDivisionEeForProject(user, request.projectId, tenantId);
+
+    request.status = 'rejected';
+    request.decidedBy = user.sub;
+    request.decidedAt = new Date();
+    request.eeRemarks = dto.remarks?.trim() || null;
+    const saved = await this.deletionRequestRepo.save(request);
+    const project = await this.projectsRepo.findOne({ where: { id: saved.projectId, tenantId } });
+    return this.toDeletionRequestRecord(saved, project);
+  }
+
+  private async requirePendingDeletionRequest(tenantId: string, requestId: string) {
+    const request = await this.deletionRequestRepo.findOne({ where: { id: requestId, tenantId } });
+    if (!request) throw new NotFoundException('Deletion request not found');
+    if (request.status !== 'pending') {
+      throw new BadRequestException(`Deletion request is already ${request.status}`);
+    }
+    return request;
+  }
+
+  private async assertDivisionEeForProject(user: JwtPayload, projectId: string, tenantId: string) {
+    if (!user.roles?.includes('ee')) {
+      throw new ForbiddenException('Only Division Executive Engineer can approve or reject scheme deletion.');
+    }
+    await this.divisionAccess.assertProjectAccess(user, projectId, tenantId);
+  }
+
+  private toDeletionRequestRecord(request: ProjectDeletionRequest, project: Project | null) {
+    return {
+      id: request.id,
+      projectId: request.projectId,
+      projectCode: project?.projectCode ?? null,
+      projectName: project?.name ?? null,
+      divisionId: request.divisionId,
+      status: request.status,
+      reason: request.reason,
+      eeRemarks: request.eeRemarks,
+      requestedBy: request.requestedBy,
+      decidedBy: request.decidedBy,
+      decidedAt: request.decidedAt,
+      createdAt: request.createdAt,
+    };
+  }
+
+  private async executeProjectDeletion(tenantId: string, id: string) {
     const project = await this.projectsRepo.findOne({ where: { id, tenantId } });
     if (!project) throw new NotFoundException('Project not found');
 

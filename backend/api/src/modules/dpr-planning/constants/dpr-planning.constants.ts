@@ -15,9 +15,9 @@ export const DPR_PLANNING_STAGES = [
   { stage: 5, key: 'dpr-revision', name: 'DPR Revision & Finalization', ownerRoles: ['ee', 'je', 'ae'] },
   { stage: 6, key: 'secretariat', name: 'Secretariat / Sachiwalaya Submission', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
   { stage: 7, key: 'tac-round2', name: 'Second Round TAC / Govt Technical Exam', ownerRoles: [...DPR_SECRETARIAT_REVIEWER_ROLES] },
-  { stage: 8, key: 'sanction', name: 'Administrative Sanction & Budget Approval', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
-  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation', ownerRoles: [...DPR_STATE_STAGE_OWNER_ROLES] },
-  { stage: 10, key: 'tender-processing', name: 'Tender Processing & Procurement', ownerRoles: ['je', 'ae', 'ee'] },
+  { stage: 8, key: 'sanction', name: 'Administrative Sanction & Budget Approval', ownerRoles: ['super_admin', ...DPR_SECRETARIAT_REVIEWER_ROLES] },
+  { stage: 9, key: 'tender-initiation', name: 'Tender & BOQ Initiation', ownerRoles: ['ee'] },
+  { stage: 10, key: 'tender-processing', name: 'Tender Processing & Procurement', ownerRoles: ['ee'] },
   { stage: 11, key: 'governance', name: 'Audit Trail & Governance', ownerRoles: [] },
   { stage: 12, key: 'dashboard', name: 'Dashboard & Monitoring', ownerRoles: [] },
 ] as const;
@@ -337,6 +337,11 @@ export function isStateReviewer(roles: string[]): boolean {
 
 export function isSecretariatReviewer(roles: string[]): boolean {
   return roles.some((r) => (DPR_SECRETARIAT_REVIEWER_ROLES as readonly string[]).includes(r));
+}
+
+/** Stage 8 — Administrative sanction & budget approval (Secretariat; Super Admin for demo). */
+export function canRecordDprSanction(roles: string[]): boolean {
+  return roles.includes('super_admin') || isSecretariatReviewer(roles);
 }
 
 export function isDivisionFieldRole(roles: string[]): boolean {

@@ -141,6 +141,12 @@ export class DprPdfReviewService {
       createdBy: userId,
     });
     const saved = await this.annotationRepo.save(annotation);
+    if (review.reviewerScope === 'hq') {
+      const doc = await this.docRepo.findOne({ where: { id: dto.documentId, tenantId, proposalId } });
+      if (doc?.documentType === 'dpr_complete_pdf') {
+        await this.dprPlanning.recordTac1ReviewedDocument(tenantId, proposalId, dto.documentId);
+      }
+    }
     await this.audit.log(
       tenantId,
       userId,

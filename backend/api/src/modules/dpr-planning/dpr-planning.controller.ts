@@ -299,7 +299,7 @@ export class DprPlanningController {
 
   @Post('proposals/:id/initiate-tender-prep')
   @RequirePermissions('dpr_proposal:approve')
-  @ApiOperation({ summary: 'Stage 9 — HQ initiates tender preparation and issues Task Order to division' })
+  @ApiOperation({ summary: 'Stage 9 — Division EE initiates tender preparation and issues Task Order package' })
   initiateTenderPreparation(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -346,7 +346,7 @@ export class DprPlanningController {
 
   @Post('proposals/:id/publish-tender')
   @RequirePermissions('dpr_proposal:approve')
-  @ApiOperation({ summary: 'Stage 10 — Publish tender after EE approval' })
+  @ApiOperation({ summary: 'Stage 10 — Division EE publishes tender after approvals and uploads' })
   publishTenderProposal(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

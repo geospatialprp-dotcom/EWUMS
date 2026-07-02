@@ -51,10 +51,12 @@ type TacRound2State = {
   officialTac1Dpr?: {
     documentId: string;
     versionNo?: number | null;
+    sourceCompleteDprVersionNo?: number | null;
     fileName?: string | null;
     label?: string;
     isOfficial?: boolean;
     frozenAt?: string | null;
+    snapshotDocumentId?: string | null;
   } | null;
   officialTac1Missing?: boolean;
   examinationDocumentMode?: 'tac1_official' | 'ee_compliance_resubmit';
@@ -334,8 +336,12 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
             {canReview && !useEeComplianceDocs && pdfDoc && (
               <Alert severity="success" sx={{ mb: 2 }}>
                 <Typography variant="body2">
-                  You are viewing the <strong>TAC Round 1 checked PDF</strong>
-                  {officialPdf?.versionNo != null ? ` (version ${officialPdf.versionNo})` : ''} with Super Admin online markup.
+                  You are viewing the <strong>TAC Round 1 checked Complete DPR PDF</strong>
+                  {(() => {
+                    const v = officialPdf?.sourceCompleteDprVersionNo ?? officialPdf?.versionNo;
+                    return v != null ? ` (division DPR version ${v})` : '';
+                  })()}
+                  {' '}with Super Admin online markup from TAC Round 1 review.
                   This is not the latest division EE upload.
                 </Typography>
               </Alert>

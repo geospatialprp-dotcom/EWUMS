@@ -17,7 +17,7 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT 'b0000000-0000-0000-0000-000000000030', p.id, 'organization'
 FROM permissions p
-WHERE p.resource = 'dpr_proposal' AND p.action IN ('read', 'approve')
+WHERE p.resource = 'dpr_proposal' AND p.action IN ('read', 'approve', 'update')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_id, scope)
