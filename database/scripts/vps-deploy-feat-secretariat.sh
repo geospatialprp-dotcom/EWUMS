@@ -7,14 +7,20 @@ set -euo pipefail
 ROOT="/opt/egip"
 BRANCH="feat/secretariat-stage7-tac1-freeze"
 DEPLOY="${ROOT}/deploy/hostinger-kvm"
+APP_USER="egip"
 COMPOSE=(docker compose -f "${DEPLOY}/docker-compose.prod.yml" --env-file "${DEPLOY}/.env")
+
+if [[ "$(id -u)" -eq 0 ]] && id "${APP_USER}" &>/dev/null; then
+  echo "==> 0. Fix repo ownership (root-owned .git blocks egip git fetch)"
+  chown -R "${APP_USER}:${APP_USER}" "${ROOT}"
+fi
 
 echo "==> 1. Pull branch ${BRANCH} (NOT main — fixes are only on this branch)"
 cd "${ROOT}"
-sudo -u egip git fetch origin "${BRANCH}"
-sudo -u egip git checkout "${BRANCH}" 2>/dev/null || true
-sudo -u egip git reset --hard "origin/${BRANCH}"
-echo "    Commit: $(git rev-parse --short HEAD) $(git log -1 --format='%s')"
+sudo -u "${APP_USER}" git fetch origin "${BRANCH}"
+sudo -u "${APP_USER}" git checkout "${BRANCH}" 2>/dev/null || true
+sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
+echo "    Commit: $(sudo -u "${APP_USER}" git -C "${ROOT}" rev-parse --short HEAD) $(sudo -u "${APP_USER}" git -C "${ROOT}" log -1 --format='%s')"
 
 echo "==> 2. Secretariat user + permissions (097)"
 "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \

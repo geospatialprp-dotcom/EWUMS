@@ -20,6 +20,9 @@ source .env
 set +a
 
 echo "==> Pulling latest code"
+if [[ "$(id -u)" -eq 0 ]] && id egip &>/dev/null; then
+  chown -R egip:egip "$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+fi
 sudo -u egip git -C ../.. pull --ff-only origin "${BRANCH:-main}"
 
 echo "==> Building images (web + api)"
