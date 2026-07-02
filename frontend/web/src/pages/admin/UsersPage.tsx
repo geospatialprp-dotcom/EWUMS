@@ -196,12 +196,8 @@ export default function UsersPage() {
     }
   };
 
-  if (loading) {
-    return <PageShell loading loadingLabel="Loading users…" />;
-  }
-
   return (
-    <PageShell>
+    <PageShell loading={loading} loadingLabel="Loading users…">
       <PageHeader
         eyebrow="Administration"
         title="User Management"

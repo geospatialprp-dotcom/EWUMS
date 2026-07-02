@@ -149,3 +149,5 @@ const coordsLinkSx = {
   width: 'fit-content',
   '&:hover': { textDecoration: 'underline' },
 };
+
+export default AuditLocationDisplay;

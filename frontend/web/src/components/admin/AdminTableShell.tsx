@@ -109,3 +109,5 @@ export const adminTableContainerSx = {
   WebkitOverflowScrolling: 'touch',
   overscrollBehaviorX: 'contain',
 };
+
+export default AdminTableShell;
