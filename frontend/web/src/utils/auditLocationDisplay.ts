@@ -53,40 +53,81 @@ function cleanApproximateLabel(location: string): string {
   return location.replace(/\s*\(approximate[^)]*\)/gi, '').trim() || location;
 }
 
+export function normalizeAuditLocationFields(entry: AuditLocationFields): AuditLocationFields {
+  const latitude = entry.latitude != null ? Number(entry.latitude) : null;
+  const longitude = entry.longitude != null ? Number(entry.longitude) : null;
+  const locationAccuracyMeters =
+    entry.locationAccuracyMeters != null ? Number(entry.locationAccuracyMeters) : null;
+
+  return {
+    ...entry,
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+    locationAccuracyMeters: Number.isFinite(locationAccuracyMeters) ? locationAccuracyMeters : null,
+  };
+}
+
 export function getAuditLocationPresentation(entry: AuditLocationFields): AuditLocationPresentation {
-  if (entry.latitude != null && entry.longitude != null) {
+  const normalized = normalizeAuditLocationFields(entry);
+
+  if (normalized.latitude != null && normalized.longitude != null) {
     return {
       kind: 'gps',
-      address: extractAddressFromStoredLocation(entry.location, entry.latitude, entry.longitude),
-      latitude: entry.latitude,
-      longitude: entry.longitude,
-      accuracyMeters: entry.locationAccuracyMeters ?? null,
-      mapUrl: openStreetMapUrl(entry.latitude, entry.longitude),
+      address: extractAddressFromStoredLocation(
+        normalized.location,
+        normalized.latitude,
+        normalized.longitude,
+      ),
+      latitude: normalized.latitude,
+      longitude: normalized.longitude,
+      accuracyMeters: normalized.locationAccuracyMeters ?? null,
+      mapUrl: openStreetMapUrl(normalized.latitude, normalized.longitude),
     };
   }
 
-  if (entry.location) {
+  if (normalized.location) {
     return {
       kind: 'approximate',
-      label: cleanApproximateLabel(entry.location),
+      label: cleanApproximateLabel(normalized.location),
     };
   }
 
   return { kind: 'unknown' };
 }
 
+function formatGpsLocationLines(pres: Extract<AuditLocationPresentation, { kind: 'gps' }>): string[] {
+  const coords = `${pres.latitude.toFixed(6)}, ${pres.longitude.toFixed(6)}`;
+  const accuracy = pres.accuracyMeters != null ? ` ±${Math.round(pres.accuracyMeters)} m` : '';
+  const lines = ['[GPS]'];
+  if (pres.address) lines.push(pres.address);
+  lines.push(`${coords}${accuracy}`);
+  return lines;
+}
+
 export function formatAuditLocationForExport(entry: AuditLocationFields): string {
   const pres = getAuditLocationPresentation(entry);
 
   if (pres.kind === 'gps') {
-    const coords = `${pres.latitude.toFixed(6)}, ${pres.longitude.toFixed(6)}`;
-    const accuracy = pres.accuracyMeters != null ? ` ±${Math.round(pres.accuracyMeters)} m` : '';
-    if (pres.address) return `${pres.address} · ${coords}${accuracy} (GPS)`;
-    return `${coords}${accuracy} (GPS)`;
+    return formatGpsLocationLines(pres).join(' · ');
   }
 
   if (pres.kind === 'approximate') {
-    return `${pres.label} (approximate — IP)`;
+    return `[Approximate] ${pres.label}`;
+  }
+
+  return '—';
+}
+
+/** Multi-line location text for PDF cells (address + coordinates). */
+export function formatAuditLocationForPdf(entry: AuditLocationFields): string {
+  const pres = getAuditLocationPresentation(entry);
+
+  if (pres.kind === 'gps') {
+    return formatGpsLocationLines(pres).join('\n');
+  }
+
+  if (pres.kind === 'approximate') {
+    return `[Approximate]\n${pres.label}\nCity-level IP lookup`;
   }
 
   return '—';

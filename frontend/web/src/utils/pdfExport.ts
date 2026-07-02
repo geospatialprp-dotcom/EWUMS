@@ -5,7 +5,7 @@ import autoTable from 'jspdf-autotable';
 import { APP_BRAND } from '../constants/branding';
 import { DEFAULT_DEPARTMENT_ID, getDepartmentById } from '../constants/departments';
 import { OM_REVENUE_KPI_DEFINITIONS, formatInr, formatRevenueKpiValue } from '../constants/omBilling';
-import { formatAuditLocationForExport } from './auditLocationDisplay';
+import { formatAuditLocationForPdf } from './auditLocationDisplay';
 
 export const PDF_COLORS = {
   navy: [15, 23, 42] as const,
@@ -19,6 +19,7 @@ export type PdfTableSection = {
   heading?: string;
   columns: string[];
   rows: string[][];
+  columnStyles?: Record<number, { cellWidth?: number; overflow?: 'linebreak' | 'ellipsize' | 'hidden' | 'visible' }>;
 };
 
 export type PdfExportOptions = {
@@ -171,7 +172,7 @@ export function exportPdfDocument(options: PdfExportOptions): void {
         fontSize: 7.5,
       },
       alternateRowStyles: { fillColor: PDF_COLORS.lightBg },
-      columnStyles: index === 0 ? undefined : {},
+      columnStyles: section.columnStyles,
       didDrawPage: (data) => {
         if (data.pageNumber > 1 && data.cursor?.y === margin.top) {
           doc.setFontSize(8);
@@ -226,6 +227,12 @@ function formatAuditDetails(details: Record<string, unknown>): string {
   return text === '{}' ? '—' : text;
 }
 
+function formatAuditDetailsForPdf(details: Record<string, unknown>): string {
+  const cleaned = { ...details };
+  delete cleaned.locationSource;
+  return formatAuditDetails(cleaned);
+}
+
 export function exportAuditTrailPdf(
   rows: AuditPdfRow[],
   divisionScope?: string | null,
@@ -239,14 +246,23 @@ export function exportAuditTrailPdf(
     sections: [{
       heading: 'Activity Log',
       columns: ['Timestamp', 'User', 'Action', 'Resource', 'IP', 'Location', 'Details'],
+      columnStyles: {
+        0: { cellWidth: 30 },
+        1: { cellWidth: 34 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 22 },
+        5: { cellWidth: 54, overflow: 'linebreak' },
+        6: { cellWidth: 52, overflow: 'linebreak' },
+      },
       rows: rows.map((log) => [
         new Date(log.createdAt).toLocaleString('en-IN'),
-        formatAuditUser(log),
-        log.action,
-        formatAuditResource(log),
+        truncateCell(formatAuditUser(log), 48),
+        truncateCell(log.action, 24),
+        truncateCell(formatAuditResource(log), 36),
         log.ipAddress ?? '—',
-        formatAuditLocationForExport(log),
-        truncateCell(formatAuditDetails(log.details), 200),
+        formatAuditLocationForPdf(log),
+        truncateCell(formatAuditDetailsForPdf(log.details), 160),
       ]),
     }],
   });
