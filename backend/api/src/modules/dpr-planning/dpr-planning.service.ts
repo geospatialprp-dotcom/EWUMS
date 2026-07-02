@@ -52,7 +52,7 @@ import { validateDprPdfBuffer, type DprPdfValidationReport } from './utils/dpr-p
 import { buildDprValidationExcelExport } from './utils/dpr-excel-audit-export.util';
 import { LandAcquisitionService } from '../land-acquisition/land-acquisition.service';
 import type { LaReadiness } from '../land-acquisition/land-acquisition.service';
-import { assertNotSuperAdminRolesForOperations, isSuperAdmin } from '../../common/utils/operational-access.util';
+import { DprPdfReview } from '../dpr-pdf-review/entities/dpr-pdf-review.entity';
 
 type Transition = { next: string; stage: number };
 
@@ -65,6 +65,7 @@ export class DprPlanningService {
     @InjectRepository(DprWorkflowEvent) private eventRepo: Repository<DprWorkflowEvent>,
     @InjectRepository(DprSanction) private sanctionRepo: Repository<DprSanction>,
     @InjectRepository(DprTenderPackage) private tenderRepo: Repository<DprTenderPackage>,
+    @InjectRepository(DprPdfReview) private pdfReviewRepo: Repository<DprPdfReview>,
     private divisionAccess: DivisionAccessService,
     private landAcquisitionService: LandAcquisitionService,
   ) {}
@@ -485,6 +486,7 @@ export class DprPlanningService {
       ...existingHq,
       tacRound2: {
         ...((existingHq.tacRound2 ?? {}) as Record<string, unknown>),
+        examinationDocumentMode: 'tac1_official',
         examination: {
           committeeRef: dto.committeeRef?.trim() ?? null,
           examiningAuthority: dto.examiningAuthority?.trim() ?? 'Secretariat / Govt TAC Committee',
@@ -1448,7 +1450,7 @@ export class DprPlanningService {
 
     if (dto.action === 'approve') {
       const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
-      const officialPdf = this.getLatestDocumentByType(docs, 'dpr_complete_pdf');
+      const officialPdf = await this.resolveTac1OfficialDocumentForFreeze(tenantId, proposalId, docs);
       const tacRound1 = (proposal.hqVerification as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
       (proposal.hqVerification as { tacRound1: Record<string, unknown> }).tacRound1 = {
         ...tacRound1,
@@ -2712,6 +2714,37 @@ export class DprPlanningService {
         (max, d) => (!max || d.versionNo > max.versionNo ? d : max),
         null,
       );
+  }
+
+  /**
+   * Freeze the DPR PDF that Super Admin actually reviewed online at TAC Round 1 —
+   * not the latest EE re-upload (which may be a different version without markup).
+   */
+  private async resolveTac1OfficialDocumentForFreeze(
+    tenantId: string,
+    proposalId: string,
+    documents: DprProposalDocument[],
+  ): Promise<DprProposalDocument | null> {
+    const pdfDocs = documents.filter((d) => d.documentType === 'dpr_complete_pdf');
+    if (!pdfDocs.length) return null;
+
+    const reviews = await this.pdfReviewRepo.find({
+      where: { tenantId, proposalId, reviewerScope: 'hq' },
+      order: { updatedAt: 'DESC' },
+    });
+    if (reviews.length) {
+      const reviewByDoc = new Map(reviews.map((r) => [r.documentId, r]));
+      const reviewedDocs = pdfDocs
+        .filter((d) => reviewByDoc.has(d.id))
+        .sort((a, b) => {
+          const ra = reviewByDoc.get(a.id)!;
+          const rb = reviewByDoc.get(b.id)!;
+          return rb.updatedAt.getTime() - ra.updatedAt.getTime();
+        });
+      if (reviewedDocs.length) return reviewedDocs[0];
+    }
+
+    return this.getLatestDocumentByType(documents, 'dpr_complete_pdf');
   }
 
   private resolveOfficialTac1Package(

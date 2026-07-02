@@ -331,6 +331,16 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
               </Alert>
             )}
 
+            {canReview && !useEeComplianceDocs && pdfDoc && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  You are viewing the <strong>TAC Round 1 checked PDF</strong>
+                  {officialPdf?.versionNo != null ? ` (version ${officialPdf.versionNo})` : ''} with Super Admin online markup.
+                  This is not the latest division EE upload.
+                </Typography>
+              </Alert>
+            )}
+
             {canReview && !useEeComplianceDocs && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 <Typography variant="body2">

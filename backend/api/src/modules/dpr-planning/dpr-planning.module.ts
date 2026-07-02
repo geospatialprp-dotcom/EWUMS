@@ -12,6 +12,7 @@ import {
   DprTenderPackage,
   DprWorkflowEvent,
 } from './entities/dpr-planning-support.entity';
+import { DprPdfReview } from '../dpr-pdf-review/entities/dpr-pdf-review.entity';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import {
       DprWorkflowEvent,
       DprSanction,
       DprTenderPackage,
+      DprPdfReview,
     ]),
   ],
   controllers: [DprPlanningController],
