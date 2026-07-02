@@ -23,6 +23,7 @@ import { getDepartmentById, DEFAULT_DEPARTMENT_ID } from '../constants/departmen
 import { glassCardSx, loginFieldSx } from '../components/auth/loginPageTheme';
 import StandaloneChrome from '../components/layout/StandaloneChrome';
 import { useTranslation } from '../context/LanguageContext';
+import { captureLoginGeolocation } from '../utils/captureLoginGeolocation';
 import { getLocale, translate, translateList } from '../i18n';
 
 
@@ -58,6 +59,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [apiStatus, setApiStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  const [locationNotice, setLocationNotice] = useState('');
   const [forgotOpen, setForgotOpen] = useState(false);
   const { login, token, user } = useAuth();
   const { t, locale } = useTranslation();
@@ -76,9 +78,16 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLocationNotice('');
     setLoading(true);
     try {
-      const loggedInUser = await login(email.trim(), password);
+      const geo = await captureLoginGeolocation();
+      if (!geo) {
+        setLocationNotice(
+          'Location permission was not granted. Audit trail will record approximate IP-based location only. Allow location access for pinpoint GPS accuracy.',
+        );
+      }
+      const loggedInUser = await login(email.trim(), password, geo ?? undefined);
       navigate(getDefaultHomePath(loggedInUser.roles), { replace: true });
     } catch (err) {
       setError(getLoginErrorMessage(err));
@@ -221,6 +230,7 @@ export default function LoginPage() {
 
             <CardContent sx={{ p: 2.5, overflowY: 'auto', flex: 1, minHeight: 0 }}>
               {apiStatus && <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>{apiStatus}</Alert>}
+              {locationNotice && <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>{locationNotice}</Alert>}
               {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}
 
               <Stack

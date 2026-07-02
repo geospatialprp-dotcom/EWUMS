@@ -3,12 +3,26 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { extractAuditContext } from '../../common/utils/request-context.util';
+import { AuditContext, extractAuditContext } from '../../common/utils/request-context.util';
 import { AuthService } from './auth.service';
 import { PlatformStatsService } from './platform-stats.service';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
+
+function mergeLoginAuditContext(req: Request, dto: LoginDto): AuditContext {
+  const ctx = extractAuditContext(req);
+  if (typeof dto.latitude === 'number' && typeof dto.longitude === 'number') {
+    return {
+      ...ctx,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      locationAccuracyMeters: dto.locationAccuracyMeters,
+      locationSource: 'gps',
+    };
+  }
+  return ctx;
+}
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -27,7 +41,7 @@ export class AuthController {
   @Post('login')
   @ApiOperation({ summary: 'Authenticate user and receive JWT token' })
   login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.authService.login(dto, extractAuditContext(req));
+    return this.authService.login(dto, mergeLoginAuditContext(req, dto));
   }
 
   @Post('forgot-password')

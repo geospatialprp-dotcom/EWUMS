@@ -22,9 +22,9 @@ sudo -u "${APP_USER}" git checkout "${BRANCH}" 2>/dev/null || true
 sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
 echo "    Commit: $(sudo -u "${APP_USER}" git -C "${ROOT}" rev-parse --short HEAD) $(sudo -u "${APP_USER}" git -C "${ROOT}" log -1 --format='%s')"
 
-echo "==> 2. DB migrations (097–100)"
-for mig in 097_secretariat_dpr_role.sql 098_secretariat_stage8_dpr_update.sql \
-  099_ee_project_create_after_tender.sql 100_super_admin_no_dpr_proposal_create.sql; do
+echo "==> 2. DB migrations (096–101)"
+for mig in 096_project_deletion_ee_approval.sql 097_secretariat_dpr_role.sql 098_secretariat_stage8_dpr_update.sql \
+  099_ee_project_create_after_tender.sql 100_super_admin_no_dpr_proposal_create.sql 101_audit_log_gps_coordinates.sql; do
   if [[ -f "${ROOT}/database/migrations/${mig}" ]]; then
     "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
       < "${ROOT}/database/migrations/${mig}" || echo "WARN: ${mig} skipped"

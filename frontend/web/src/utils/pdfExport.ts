@@ -201,6 +201,9 @@ export type AuditPdfRow = {
   resourceId: string;
   ipAddress: string | null;
   location: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationAccuracyMeters?: number | null;
   details: Record<string, unknown>;
 };
 
@@ -222,6 +225,16 @@ function formatAuditDetails(details: Record<string, unknown>): string {
   return text === '{}' ? '—' : text;
 }
 
+function formatAuditLocation(row: AuditPdfRow): string {
+  if (row.latitude != null && row.longitude != null) {
+    const accuracy =
+      row.locationAccuracyMeters != null ? ` ±${Math.round(row.locationAccuracyMeters)} m` : '';
+    const coords = `${row.latitude.toFixed(6)}, ${row.longitude.toFixed(6)}${accuracy}`;
+    return row.location ? `${coords} — ${row.location}` : coords;
+  }
+  return row.location ?? '—';
+}
+
 export function exportAuditTrailPdf(
   rows: AuditPdfRow[],
   divisionScope?: string | null,
@@ -241,7 +254,7 @@ export function exportAuditTrailPdf(
         log.action,
         formatAuditResource(log),
         log.ipAddress ?? '—',
-        log.location ?? '—',
+        formatAuditLocation(log),
         truncateCell(formatAuditDetails(log.details), 200),
       ]),
     }],

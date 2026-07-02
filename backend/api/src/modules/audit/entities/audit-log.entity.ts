@@ -37,6 +37,15 @@ export class AuditLog {
   @Column({ length: 255, nullable: true })
   location: string;
 
+  @Column({ type: 'double precision', nullable: true })
+  latitude: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  longitude: number | null;
+
+  @Column({ name: 'location_accuracy_meters', type: 'double precision', nullable: true })
+  locationAccuracyMeters: number | null;
+
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'user_id' })
   user?: User;

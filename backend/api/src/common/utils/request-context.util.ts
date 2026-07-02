@@ -3,6 +3,18 @@ import type { Request } from 'express';
 export interface AuditContext {
   ipAddress?: string;
   location?: string;
+  latitude?: number;
+  longitude?: number;
+  locationAccuracyMeters?: number;
+  locationSource?: 'gps' | 'ip' | 'header';
+}
+
+export interface ResolvedAuditLocation {
+  location?: string;
+  latitude?: number;
+  longitude?: number;
+  locationAccuracyMeters?: number;
+  locationSource?: 'gps' | 'ip' | 'header';
 }
 
 export function getClientIp(req: Request): string | undefined {
@@ -63,4 +75,60 @@ export async function resolveIpLocation(ip: string): Promise<string | undefined>
   } catch {
     return undefined;
   }
+}
+
+export function formatGpsCoordinates(lat: number, lng: number, accuracyMeters?: number): string {
+  const coords = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  if (typeof accuracyMeters === 'number' && Number.isFinite(accuracyMeters)) {
+    return `${coords} (±${Math.round(accuracyMeters)} m GPS)`;
+  }
+  return `${coords} (GPS)`;
+}
+
+export async function reverseGeocodeGps(lat: number, lng: number): Promise<string | undefined> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      {
+        headers: { 'User-Agent': 'EGIP-Platform-Audit/1.0 (compliance audit trail)' },
+        signal: AbortSignal.timeout(4000),
+      },
+    );
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as { display_name?: string };
+    return data.display_name?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Prefer device GPS; fall back to CDN headers or IP geolocation (approximate). */
+export async function resolveAuditLocation(context: AuditContext): Promise<ResolvedAuditLocation> {
+  if (typeof context.latitude === 'number' && typeof context.longitude === 'number') {
+    const address = await reverseGeocodeGps(context.latitude, context.longitude);
+    const coords = formatGpsCoordinates(
+      context.latitude,
+      context.longitude,
+      context.locationAccuracyMeters,
+    );
+    const location = address ? `${address} · ${coords}` : coords;
+    return {
+      location,
+      latitude: context.latitude,
+      longitude: context.longitude,
+      locationAccuracyMeters: context.locationAccuracyMeters,
+      locationSource: 'gps',
+    };
+  }
+
+  let location = context.location;
+  let locationSource: ResolvedAuditLocation['locationSource'] = location ? 'header' : undefined;
+
+  if (!location && context.ipAddress) {
+    location = await resolveIpLocation(context.ipAddress);
+    locationSource = location ? 'ip' : undefined;
+    if (location) location = `${location} (approximate — IP only)`;
+  }
+
+  return { location, locationSource };
 }

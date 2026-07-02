@@ -94,8 +94,22 @@ export interface WorkflowInboxItem {
 }
 
 export const authApi = {
-  login: (email: string, password: string) =>
-    api.post<LoginResponse>('/auth/login', { email, password }),
+  login: (
+    email: string,
+    password: string,
+    geo?: { latitude: number; longitude: number; locationAccuracyMeters: number },
+  ) =>
+    api.post<LoginResponse>('/auth/login', {
+      email,
+      password,
+      ...(geo
+        ? {
+            latitude: geo.latitude,
+            longitude: geo.longitude,
+            locationAccuracyMeters: geo.locationAccuracyMeters,
+          }
+        : {}),
+    }),
   profile: () => api.get('/auth/profile'),
 };
 

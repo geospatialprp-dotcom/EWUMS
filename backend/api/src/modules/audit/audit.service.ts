@@ -29,6 +29,9 @@ export class AuditLogsService {
         resourceId: l.resourceId,
         ipAddress: l.ipAddress ?? null,
         location: l.location ?? null,
+        latitude: l.latitude ?? null,
+        longitude: l.longitude ?? null,
+        locationAccuracyMeters: l.locationAccuracyMeters ?? null,
         details: l.details,
         createdAt: l.createdAt,
       };

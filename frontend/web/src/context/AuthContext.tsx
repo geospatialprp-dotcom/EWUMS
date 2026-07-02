@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import axios from 'axios';
 import { authApi, setUnauthorizedHandler } from '../services/api';
+import type { LoginGeolocation } from '../utils/captureLoginGeolocation';
 
 interface User {
   id: string;
@@ -24,7 +25,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<User>;
+  login: (email: string, password: string, geo?: LoginGeolocation) => Promise<User>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
 }
@@ -107,9 +108,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     init();
   }, [clearSession]);
 
-  const login = async (email: string, password: string): Promise<User> => {
+  const login = async (email: string, password: string, geo?: LoginGeolocation): Promise<User> => {
     clearSession();
-    const { data } = await authApi.login(email.trim().toLowerCase(), password);
+    const { data } = await authApi.login(email.trim().toLowerCase(), password, geo);
     localStorage.setItem('egip_token', data.accessToken);
     localStorage.setItem('egip_user', JSON.stringify(data.user));
     setToken(data.accessToken);
