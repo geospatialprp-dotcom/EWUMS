@@ -179,6 +179,9 @@ export default function DprPlanningPage() {
   const visibleRows = isSecretariatOnly
     ? rows.filter((row) => row.currentStage <= 8)
     : rows;
+  const secretariatSanctionRows = isSecretariatOnly
+    ? rows.filter((row) => ['sanctioned', 'tender_prep_initiated', 'tender_processing', 'tender_published'].includes(row.status))
+    : [];
 
   const load = useCallback(() => {
     setBusy(true);
@@ -670,6 +673,62 @@ export default function DprPlanningPage() {
           </Table>
         </TableContainer>
       </SurfaceCard>
+
+      {isSecretariatOnly && secretariatSanctionRows.length > 0 && (
+        <SurfaceCard
+          header={(
+            <Box display="flex" alignItems="center" justifyContent="space-between" width="100%" gap={2} flexWrap="wrap">
+              <Typography sx={{ fontWeight: 700 }}>Sanction Details (Read-only)</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {secretariatSanctionRows.length} record{secretariatSanctionRows.length === 1 ? '' : 's'}
+              </Typography>
+            </Box>
+          )}
+          sx={{ mt: 2 }}
+        >
+          <TableContainer>
+            <Table size="small" sx={dataTableSx()}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Proposal ID</TableCell>
+                  <TableCell>Title</TableCell>
+                  <TableCell>Division</TableCell>
+                  <TableCell>Progress</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {secretariatSanctionRows.map((row) => (
+                  <TableRow key={`sanction-${row.id}`}>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={700} color="primary.main">{row.proposalNo}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={600}>{row.title}</Typography>
+                    </TableCell>
+                    <TableCell>{row.divisionName ?? '—'}</TableCell>
+                    <TableCell sx={{ minWidth: 140 }}>
+                      <Typography variant="caption" display="block" color="text.secondary" fontWeight={600} mb={0.5}>
+                        {row.stageLabel ?? `Stage ${row.currentStage}`}
+                      </Typography>
+                      <DprStageProgress currentStage={row.currentStage} />
+                    </TableCell>
+                    <TableCell>
+                      <DprStatusChip status={getDprDisplayStatusLabel(row.status, roles, row.statusLabel)} />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button size="small" startIcon={<AccountBalanceOutlinedIcon />} onClick={() => setSanctionOpen(row.id)}>
+                        Sanction Details
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </SurfaceCard>
+      )}
 
       <Box mt={2.5}>
         <SurfaceCard title="Workflow stages (1–10)">
