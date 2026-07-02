@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 
 import { auditApi } from '../../services/api';
+import axios from 'axios';
 
 import PageShell from '../../components/layout/PageShell';
 
@@ -189,7 +190,20 @@ export default function AuditLogsPage() {
         setLogs(r.data.logs);
         setDivisionScope(r.data.divisionScope ?? activeDivision?.name ?? null);
       })
-      .catch(() => setLoadError('Failed to load audit trail. Rebuild API on VPS if this persists after refresh.'))
+      .catch((err) => {
+        if (axios.isAxiosError(err)) {
+          const status = err.response?.status;
+          const msg = err.response?.data?.message;
+          const detail = Array.isArray(msg) ? msg.join(', ') : (typeof msg === 'string' ? msg : err.message);
+          setLoadError(
+            status
+              ? `Audit trail failed (${status}): ${detail}`
+              : `Audit trail unreachable. Rebuild API on VPS: docker compose build api && up -d api`,
+          );
+          return;
+        }
+        setLoadError('Failed to load audit trail.');
+      })
       .finally(() => setLoading(false));
   }, [divisionScopeKey, activeDivision?.name]);
 

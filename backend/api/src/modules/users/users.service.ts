@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -18,6 +19,8 @@ import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User) private usersRepo: Repository<User>,
     @InjectRepository(Role) private rolesRepo: Repository<Role>,
@@ -33,18 +36,37 @@ export class UsersService {
       .where('u.tenant_id = :tenantId', { tenantId })
       .orderBy('u.created_at', 'DESC');
 
-    await this.divisionAccess.applyUserDivisionMembershipScope(qb, user, 'u.id', tenantId);
+    await this.applyUserListDivisionScope(qb, user, tenantId);
 
     const users = await qb.getMany();
     const divisionSummaries = await this.divisionAccess.getDivisionSummariesForUserIds(
       users.map((u) => u.id),
     );
-    const divisionScope = await this.divisionAccess.getDivisionScopeLabel(user, tenantId);
+    let divisionScope: string | null = null;
+    try {
+      divisionScope = await this.divisionAccess.getDivisionScopeLabel(user, tenantId);
+    } catch (scopeErr) {
+      const scopeMessage = scopeErr instanceof Error ? scopeErr.message : String(scopeErr);
+      this.logger.warn(`User list division label skipped: ${scopeMessage}`);
+    }
 
     return {
       divisionScope,
       users: users.map((u) => this.toResponse(u, divisionSummaries.get(u.id))),
     };
+  }
+
+  private async applyUserListDivisionScope(
+    qb: ReturnType<Repository<User>['createQueryBuilder']>,
+    user: JwtPayload,
+    tenantId: string,
+  ): Promise<void> {
+    try {
+      await this.divisionAccess.applyUserDivisionMembershipScope(qb, user, 'u.id', tenantId);
+    } catch (scopeErr) {
+      const scopeMessage = scopeErr instanceof Error ? scopeErr.message : String(scopeErr);
+      this.logger.warn(`User list division scope skipped: ${scopeMessage}`);
+    }
   }
 
   async findOne(user: JwtPayload, id: string) {
