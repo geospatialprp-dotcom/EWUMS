@@ -282,7 +282,7 @@ export default function DprTenderInitiationPanel({ open, proposalId, onClose, on
               <>
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                  Sanctioned Official Package — Final Checked &amp; Signed Copy
+                  Sanctioned Official Package — TAC Round 2 Final Copy
                 </Typography>
                 {readiness?.sanctionedPackageFrozenAt && (
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>

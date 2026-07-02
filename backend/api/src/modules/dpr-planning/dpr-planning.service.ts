@@ -142,9 +142,14 @@ export class DprPlanningService {
         await this.proposalRepo.save(row);
       }
     }
-    const hq = (row.hqVerification ?? {}) as { sanctionedOfficialPackage?: unknown };
-    if (['sanctioned', 'tender_prep_initiated', 'tender_processing', 'tender_published'].includes(row.status)
-      && !hq.sanctionedOfficialPackage) {
+    const hq = (row.hqVerification ?? {}) as {
+      sanctionedOfficialPackage?: { items?: Array<{ label?: string }> };
+    };
+    const sanctionedStatuses = ['sanctioned', 'tender_prep_initiated', 'tender_processing', 'tender_published'];
+    const hasRound1DprLabel = hq.sanctionedOfficialPackage?.items?.some(
+      (i) => i.label?.includes('Round 1') || i.label?.includes('TAC Round 1'),
+    );
+    if (sanctionedStatuses.includes(row.status) && (!hq.sanctionedOfficialPackage || hasRound1DprLabel)) {
       const docs = await this.docRepo.find({ where: { tenantId, proposalId: id } });
       const sanctionedOfficialPackage = await this.buildSanctionedOfficialPackageAsync(tenantId, row, docs);
       row.hqVerification = { ...(row.hqVerification ?? {}), sanctionedOfficialPackage };
@@ -634,12 +639,22 @@ export class DprPlanningService {
       eventComments = dto.remarks ?? 'Government technical concurrence granted — Round 2 examination complete';
       const hq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
       const tac2 = (hq.tacRound2 ?? {}) as Record<string, unknown>;
+      const docsForFreeze = await this.docRepo.find({ where: { tenantId, proposalId } });
+      const examinedPkg = await this.resolveRound2SanctionedDprPackageAsync(tenantId, proposal, docsForFreeze);
       proposal.hqVerification = {
         ...hq,
         tacRound2: {
           ...tac2,
           concurrenceGrantedAt: reviewedAt,
           concurrenceGrantedBy: userId,
+          officialExaminedPackage: examinedPkg ? {
+            documentId: examinedPkg.documentId,
+            fileName: examinedPkg.fileName,
+            versionNo: examinedPkg.versionNo,
+            label: examinedPkg.label,
+            examinationDocumentMode: examinedPkg.examinationDocumentMode,
+            frozenAt: reviewedAt,
+          } : tac2.officialExaminedPackage ?? null,
         },
       };
     } else if (dto.action === 'suggest_corrections') {
@@ -3128,21 +3143,26 @@ export class DprPlanningService {
     };
 
     if (this.getRound2ExaminationDocumentMode(proposal) === 'ee_compliance_resubmit') {
-      const eeDpr = this.resolveEeComplianceDprPackage(proposal, documents);
+      const eeDpr = await this.resolveRound2SanctionedDprPackageAsync(tenantId, proposal, documents);
       if (eeDpr?.documentId) {
         pushDoc('dpr_complete_pdf', eeDpr.label, documents.find((d) => d.id === eeDpr.documentId), 'dpr');
       }
       const compliance = this.resolveEeComplianceDocPackage(proposal, documents);
       if (compliance?.documentId) {
-        pushDoc('tac_round2_compliance', compliance.label, documents.find((d) => d.id === compliance.documentId), 'supporting');
+        pushDoc(
+          'tac_round2_compliance',
+          'TAC Round 2 — Compliance Document (Secretariat examined)',
+          documents.find((d) => d.id === compliance.documentId),
+          'supporting',
+        );
       }
     } else {
-      const officialDpr = await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents, { officialOnly: true });
-      if (officialDpr?.documentId) {
+      const round2Dpr = await this.resolveRound2SanctionedDprPackageAsync(tenantId, proposal, documents);
+      if (round2Dpr?.documentId) {
         pushDoc(
           'dpr_complete_pdf',
-          'Final Sanctioned DPR (TAC Round 1 official)',
-          documents.find((d) => d.id === officialDpr.documentId),
+          round2Dpr.label,
+          documents.find((d) => d.id === round2Dpr.documentId),
           'dpr',
         );
       }
@@ -3168,7 +3188,73 @@ export class DprPlanningService {
       pushDoc(type, def?.label ?? type, this.getLatestDocumentByType(documents, type), 'supporting');
     }
 
-    return { frozenAt, items };
+    return {
+      frozenAt,
+      examinationDocumentMode: this.getRound2ExaminationDocumentMode(proposal),
+      round: 2,
+      items,
+    };
+  }
+
+  private async resolveRound2SanctionedDprPackageAsync(
+    tenantId: string,
+    proposal: DprProposal,
+    documents: DprProposalDocument[],
+  ) {
+    const tac2 = ((proposal.hqVerification ?? {}) as { tacRound2?: Record<string, unknown> }).tacRound2 ?? {};
+    const frozen = tac2.officialExaminedPackage as {
+      documentId?: string;
+      fileName?: string | null;
+      versionNo?: number | null;
+      label?: string;
+      examinationDocumentMode?: string;
+    } | null | undefined;
+    const mode = this.getRound2ExaminationDocumentMode(proposal);
+
+    if (frozen?.documentId) {
+      const doc = documents.find((d) => d.id === frozen.documentId);
+      if (doc?.fileUrl) {
+        return {
+          documentId: frozen.documentId,
+          fileName: frozen.fileName ?? doc.fileName ?? 'dpr-complete.pdf',
+          versionNo: frozen.versionNo ?? doc.versionNo ?? null,
+          label: frozen.label ?? this.round2SanctionedDprLabel(mode),
+          examinationDocumentMode: (frozen.examinationDocumentMode as typeof mode) ?? mode,
+        };
+      }
+    }
+
+    if (mode === 'ee_compliance_resubmit') {
+      const eeDpr = this.resolveEeComplianceDprPackage(proposal, documents);
+      if (eeDpr?.documentId) {
+        return {
+          documentId: eeDpr.documentId,
+          versionNo: eeDpr.versionNo,
+          fileName: eeDpr.fileName,
+          label: this.round2SanctionedDprLabel(mode),
+          examinationDocumentMode: mode,
+        };
+      }
+    }
+
+    const officialDpr = await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents, { officialOnly: true });
+    if (officialDpr?.documentId) {
+      return {
+        documentId: officialDpr.documentId,
+        versionNo: officialDpr.versionNo,
+        fileName: officialDpr.fileName,
+        label: this.round2SanctionedDprLabel(mode),
+        examinationDocumentMode: mode,
+      };
+    }
+    return null;
+  }
+
+  private round2SanctionedDprLabel(mode: 'tac1_official' | 'ee_compliance_resubmit') {
+    if (mode === 'ee_compliance_resubmit') {
+      return 'Final Sanctioned DPR (TAC Round 2 — EE revised & Secretariat examined)';
+    }
+    return 'Final Sanctioned DPR (TAC Round 2 — Secretariat examined & cleared)';
   }
 
   private async resolveOfficialTac1PackageAsync(
@@ -3727,9 +3813,20 @@ export class DprPlanningService {
     const canActEe = proposal.status === 'tender_processing' && approvalLevel === 'ee' && roles.includes('ee');
     const canPublish = proposal.status === 'tender_processing' && approvalLevel === 'cleared' && this.canPublishTender(roles);
     const canHighlightUkTender = proposal.status === 'tender_processing' && approvalLevel === 'cleared';
+    const allDocumentsReady = missingDocuments.length === 0;
+    const pendingVerificationLevel = proposal.status === 'tender_processing'
+      && approvalLevel
+      && approvalLevel !== 'cleared'
+      ? approvalLevel
+      : null;
 
     return {
       status: proposal.status,
+      allDocumentsReady,
+      pendingVerificationLevel,
+      pendingVerificationLabel: pendingVerificationLevel
+        ? (DPR_TENDER_APPROVAL_LABELS[pendingVerificationLevel] ?? pendingVerificationLevel)
+        : null,
       canBeginProcessing: proposal.status === 'tender_prep_initiated'
         && missingDocuments.length === 0
         && this.canBeginTenderProcessing(roles),
