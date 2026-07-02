@@ -36,7 +36,7 @@ import {
   isSecretariatReviewer,
   isStateReviewer,
 } from './constants/dpr-planning.constants';
-import { AdvanceDprProposalDto, AssignRound2ComplianceToEeDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
+import { AdvanceDprProposalDto, AssignRound2ComplianceToEeDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, ReviewRound2ComplianceAdminDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
 import { DprProposal } from './entities/dpr-proposal.entity';
 import {
   DprProposalDocument,
@@ -100,7 +100,7 @@ export class DprPlanningService {
       tacPending: rows.filter((r) => r.status.includes('tac') && !r.status.includes('cleared') && !r.status.includes('final') && !r.status.includes('concurrence')).length,
       secretariatPending: rows.filter((r) => r.status === 'secretariat_submitted').length,
       tacRound2Pending: rows.filter((r) =>
-        ['tac_round2_review', 'tac_round2_corrections_required', 'tac_round2_compliance'].includes(r.status),
+        ['tac_round2_review', 'tac_round2_corrections_required', 'tac_round2_compliance', 'tac_round2_compliance_submitted'].includes(r.status),
       ).length,
       govtConcurrencePending: rows.filter((r) => r.status === 'govt_technical_concurrence').length,
       tenderPrepPending: rows.filter((r) => r.status === 'sanctioned').length,
@@ -748,7 +748,7 @@ export class DprPlanningService {
       proposal.currentStage = 7;
     }
 
-    await this.assertTacPackageReady(tenantId, proposal);
+    await this.assertRound2CompliancePackageReady(tenantId, proposal);
 
     const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
     const existingCompliance = (existingHq.tacRound2Compliance ?? {}) as {
@@ -773,7 +773,7 @@ export class DprPlanningService {
       },
     };
 
-    proposal.status = 'tac_round2_review';
+    proposal.status = 'tac_round2_compliance_submitted';
     proposal.currentStage = 7;
     if (dto.comments?.trim()) proposal.tacRound2Remarks = dto.comments.trim();
 
@@ -788,8 +788,80 @@ export class DprPlanningService {
       saved.status,
       userId,
       actorRole,
-      dto.comments ?? 'Round 2 compliance and revised documents resubmitted to TAC / Govt committee',
+      dto.comments ?? 'Round 2 compliance submitted to Super Admin for online review',
       { observationResponse: dto.observationResponse.trim() },
+    );
+    return this.toRecord(tenantId, saved, true, roles);
+  }
+
+  async reviewRound2ComplianceByAdmin(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    dto: ReviewRound2ComplianceAdminDto,
+  ) {
+    if (!isSuperAdmin(roles)) {
+      throw new ForbiddenException('Only Super Admin can review and forward Round 2 compliance to Secretariat');
+    }
+    const proposal = await this.requireProposal(tenantId, proposalId);
+    if (proposal.status !== 'tac_round2_compliance_submitted') {
+      throw new BadRequestException('Round 2 compliance admin review is only available after division EE submission');
+    }
+
+    const documents = await this.docRepo.find({ where: { tenantId, proposalId } });
+    const uploadedTypes = new Set(documents.map((d) => d.documentType));
+    if (!uploadedTypes.has('dpr_complete_pdf') || !uploadedTypes.has('tac_round2_compliance')) {
+      throw new BadRequestException('Revised DPR PDF and Round 2 compliance document must be uploaded before admin review');
+    }
+
+    const fromStatus = proposal.status;
+    const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const existingCompliance = (existingHq.tacRound2Compliance ?? {}) as Record<string, unknown>;
+    const adminReview = {
+      action: dto.action,
+      remarks: dto.remarks?.trim() ?? null,
+      reviewedBy: userId,
+      reviewedAt: new Date().toISOString(),
+    };
+
+    if (dto.action === 'forward_secretariat') {
+      proposal.status = 'tac_round2_review';
+      proposal.currentStage = 7;
+    } else {
+      proposal.status = 'tac_round2_corrections_required';
+      proposal.currentStage = 7;
+    }
+
+    proposal.hqVerification = {
+      ...existingHq,
+      tacRound2Compliance: {
+        ...existingCompliance,
+        adminReview,
+        lastAdminAction: dto.action,
+        lastAdminRemarks: dto.remarks?.trim() ?? null,
+      },
+    };
+    if (dto.remarks?.trim()) proposal.tacRound2Remarks = dto.remarks.trim();
+
+    const saved = await this.proposalRepo.save(proposal);
+    const eventAction = dto.action === 'forward_secretariat'
+      ? 'forward_round2_compliance_to_secretariat'
+      : 'return_round2_compliance_to_ee';
+    const eventMsg = dto.action === 'forward_secretariat'
+      ? 'Super Admin reviewed compliance online and forwarded to Secretariat for Round 2 re-examination'
+      : 'Super Admin returned Round 2 compliance to division EE for revision';
+    await this.logEvent(
+      tenantId,
+      proposalId,
+      7,
+      eventAction,
+      fromStatus,
+      saved.status,
+      userId,
+      'super_admin',
+      dto.remarks ?? eventMsg,
+      { action: dto.action },
     );
     return this.toRecord(tenantId, saved, true, roles);
   }
@@ -2044,6 +2116,20 @@ export class DprPlanningService {
     return { validationMode, pdfValidation };
   }
 
+  private async assertRound2CompliancePackageReady(
+    tenantId: string,
+    proposal: DprProposal,
+  ) {
+    const docs = await this.docRepo.find({ where: { tenantId, proposalId: proposal.id } });
+    const uploaded = new Set(docs.map((d) => d.documentType));
+    if (!uploaded.has('dpr_complete_pdf')) {
+      throw new BadRequestException('Revised Complete DPR PDF is required for Round 2 compliance submission');
+    }
+    if (!uploaded.has('tac_round2_compliance')) {
+      throw new BadRequestException('Round 2 compliance document is required before submission');
+    }
+  }
+
   private async assertTacPackageReady(
     tenantId: string,
     proposal: DprProposal,
@@ -2270,7 +2356,8 @@ export class DprPlanningService {
         request_corrections: { next: 'tac_round2_corrections_required', stage: 7 },
       },
       tac_round2_corrections_required: { submit: { next: 'tac_round2_compliance', stage: 7 } },
-      tac_round2_compliance: { submit: { next: 'tac_round2_review', stage: 7 } },
+      tac_round2_compliance: { submit: { next: 'tac_round2_compliance_submitted', stage: 7 } },
+      tac_round2_compliance_submitted: { forward_secretariat: { next: 'tac_round2_review', stage: 7 } },
       govt_technical_concurrence: { record_sanction: { next: 'sanctioned', stage: 9 } },
       sanctioned: { initiate_tender: { next: 'tender_prep_initiated', stage: 9 } },
       tender_prep_initiated: { approve: { next: 'tender_processing', stage: 10 } },
@@ -2753,6 +2840,7 @@ export class DprPlanningService {
       'tac_round2_review',
       'tac_round2_corrections_required',
       'tac_round2_compliance',
+      'tac_round2_compliance_submitted',
       'govt_technical_concurrence',
     ];
     if (!stage7Statuses.includes(proposal.status)) return null;
@@ -2787,10 +2875,12 @@ export class DprPlanningService {
       ) && canPrepare,
       canSubmitCompliance: DPR_ROUND2_COMPLIANCE_STATUSES.includes(
         proposal.status as typeof DPR_ROUND2_COMPLIANCE_STATUSES[number],
-      ) && hasCompletePdf && canPrepare,
+      ) && hasCompletePdf && hasRound2ComplianceDoc && canPrepare,
       canAssignToEe: isSuperAdmin(roles) && DPR_ROUND2_COMPLIANCE_STATUSES.includes(
         proposal.status as typeof DPR_ROUND2_COMPLIANCE_STATUSES[number],
       ),
+      canReviewComplianceAdmin: isSuperAdmin(roles) && proposal.status === 'tac_round2_compliance_submitted',
+      canForwardComplianceToSecretariat: isSuperAdmin(roles) && proposal.status === 'tac_round2_compliance_submitted',
       eeComplianceAssignment: this.buildEeComplianceAssignmentView(proposal, roles),
       concurrenceGranted: proposal.status === 'govt_technical_concurrence',
       concurrenceGrantedAt: (tac2Data.concurrenceGrantedAt as string | null) ?? null,
@@ -2826,6 +2916,7 @@ export class DprPlanningService {
       'tac_round2_review',
       'tac_round2_corrections_required',
       'tac_round2_compliance',
+      'tac_round2_compliance_submitted',
       'govt_technical_concurrence',
     ].includes(proposal.status);
     const observations = Array.isArray(tacData.observations) ? tacData.observations : [];
@@ -3542,6 +3633,7 @@ export class DprPlanningService {
       tac_round2_review: ['approve', 'request_corrections'],
       tac_round2_corrections_required: ['submit'],
       tac_round2_compliance: ['submit'],
+      tac_round2_compliance_submitted: ['forward_secretariat', 'return_to_ee'],
       govt_technical_concurrence: ['record_sanction'],
       sanctioned: ['initiate_tender'],
       tender_prep_initiated: ['approve'],

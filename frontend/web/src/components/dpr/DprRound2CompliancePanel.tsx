@@ -352,9 +352,9 @@ export default function DprRound2CompliancePanel({ open, proposalId, liaisonMode
         <Button onClick={onClose}>Close</Button>
         {!liaisonMode && canSubmit && (
           <Button variant="contained" startIcon={<SendOutlinedIcon />}
-            disabled={busy || !hasBilingualContent(observationResponse) || !readiness?.hasCompletePdf}
+            disabled={busy || !hasBilingualContent(observationResponse) || !readiness?.hasCompletePdf || !readiness?.hasRound2ComplianceDoc}
             onClick={submitCompliance}>
-            Resubmit to Round 2 Committee
+            Submit to Super Admin for Review
           </Button>
         )}
       </DialogActions>

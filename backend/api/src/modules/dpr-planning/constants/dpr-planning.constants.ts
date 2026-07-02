@@ -40,6 +40,7 @@ export type DprProposalStatus =
   | 'tac_round2_review'
   | 'tac_round2_corrections_required'
   | 'tac_round2_compliance'
+  | 'tac_round2_compliance_submitted'
   | 'govt_technical_concurrence'
   | 'sanctioned'
   | 'tender_prep_initiated'
@@ -65,6 +66,7 @@ export const DPR_STATUS_LABELS: Record<DprProposalStatus, string> = {
   tac_round2_review: 'TAC / Govt Review — Round 2',
   tac_round2_corrections_required: 'Round 2 — Compliance Required',
   tac_round2_compliance: 'Round 2 — Compliance in Progress',
+  tac_round2_compliance_submitted: 'Round 2 — Compliance Submitted to Super Admin',
   govt_technical_concurrence: 'Govt Technical Concurrence',
   sanctioned: 'Sanctioned & Budget Approved',
   tender_prep_initiated: 'Tender Preparation Initiated',
@@ -91,6 +93,7 @@ export const DPR_STAGE_BY_STATUS: Record<DprProposalStatus, number> = {
   tac_round2_review: 7,
   tac_round2_corrections_required: 7,
   tac_round2_compliance: 7,
+  tac_round2_compliance_submitted: 7,
   govt_technical_concurrence: 8,
   sanctioned: 9,
   tender_prep_initiated: 9,
@@ -350,6 +353,7 @@ const DPR_DIVISION_VIEWER_STATUS_LABELS: Partial<Record<DprProposalStatus, strin
   tac_round2_review: 'Under Secretariat Examination',
   tac_round2_corrections_required: 'Action Required — Round 2 Compliance',
   tac_round2_compliance: 'Compliance Submission In Progress',
+  tac_round2_compliance_submitted: 'Submitted to Super Admin — Awaiting Review',
   govt_technical_concurrence: 'Govt Technical Concurrence',
 };
 

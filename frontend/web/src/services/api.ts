@@ -873,6 +873,8 @@ export const dprPlanningApi = {
     api.post(`/dpr-planning/proposals/${id}/assign-round2-compliance-to-ee`, data ?? {}),
   submitRound2Compliance: (id: string, data: object) =>
     api.post(`/dpr-planning/proposals/${id}/submit-round2-compliance`, data),
+  reviewRound2ComplianceByAdmin: (id: string, data: { action: 'forward_secretariat' | 'return_to_ee'; remarks?: string }) =>
+    api.post(`/dpr-planning/proposals/${id}/review-round2-compliance-admin`, data),
   recordAdministrativeSanction: (id: string, data: object) =>
     api.post(`/dpr-planning/proposals/${id}/record-sanction`, data),
   initiateTenderPreparation: (id: string, data: object) =>

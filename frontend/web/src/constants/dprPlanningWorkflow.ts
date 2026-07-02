@@ -208,6 +208,7 @@ const DPR_DIVISION_VIEWER_STATUS_LABELS: Record<string, string> = {
   tac_round2_review: 'Under Secretariat Examination',
   tac_round2_corrections_required: 'Action Required — Round 2 Compliance',
   tac_round2_compliance: 'Compliance Submission In Progress',
+  tac_round2_compliance_submitted: 'Submitted to Super Admin — Awaiting Review',
   govt_technical_concurrence: 'Govt Technical Concurrence',
 };
 

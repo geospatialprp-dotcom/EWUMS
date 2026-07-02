@@ -27,6 +27,7 @@ import {
   ResubmitRevisedDprDto,
   SubmitRound2ComplianceDto,
   AssignRound2ComplianceToEeDto,
+  ReviewRound2ComplianceAdminDto,
   RecordAdministrativeSanctionDto,
   InitiateTenderPreparationDto,
   BeginTenderProcessingDto,
@@ -244,13 +245,24 @@ export class DprPlanningController {
 
   @Post('proposals/:id/submit-round2-compliance')
   @RequirePermissions('dpr_proposal:update')
-  @ApiOperation({ summary: 'Stage 7 — Submit Round 2 compliance and resubmit to committee' })
+  @ApiOperation({ summary: 'Stage 7 — Submit Round 2 compliance to Super Admin for online review' })
   submitRound2Compliance(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: SubmitRound2ComplianceDto,
   ) {
     return this.service.submitRound2Compliance(user.tenantId, user.sub, user.roles ?? [], id, dto);
+  }
+
+  @Post('proposals/:id/review-round2-compliance-admin')
+  @RequirePermissions('dpr_proposal:approve')
+  @ApiOperation({ summary: 'Stage 7 — Super Admin reviews EE compliance online and forwards to Secretariat or returns to EE' })
+  reviewRound2ComplianceByAdmin(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: ReviewRound2ComplianceAdminDto,
+  ) {
+    return this.service.reviewRound2ComplianceByAdmin(user.tenantId, user.sub, user.roles ?? [], id, dto);
   }
 
   @Get('proposals/:id/tac-round2-report')

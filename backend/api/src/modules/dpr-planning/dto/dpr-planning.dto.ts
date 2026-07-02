@@ -267,6 +267,15 @@ export class AssignRound2ComplianceToEeDto {
   message?: string;
 }
 
+export class ReviewRound2ComplianceAdminDto {
+  @IsIn(['forward_secretariat', 'return_to_ee'])
+  action: 'forward_secretariat' | 'return_to_ee';
+
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+}
+
 export class RecordAdministrativeSanctionDto {
   @IsString()
   administrativeApprovalNo: string;

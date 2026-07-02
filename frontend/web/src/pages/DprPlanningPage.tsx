@@ -15,6 +15,7 @@ import ForwardToInboxOutlinedIcon from '@mui/icons-material/ForwardToInboxOutlin
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
+import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../services/api';
 import BilingualRemarkField from '../components/forms/BilingualRemarkField';
@@ -33,6 +34,7 @@ import DprRevisionPanel from '../components/dpr/DprRevisionPanel';
 import DprSecretariatPanel from '../components/dpr/DprSecretariatPanel';
 import DprTacRound2Panel from '../components/dpr/DprTacRound2Panel';
 import DprRound2CompliancePanel from '../components/dpr/DprRound2CompliancePanel';
+import DprRound2ComplianceAdminPanel from '../components/dpr/DprRound2ComplianceAdminPanel';
 import DprSanctionPanel from '../components/dpr/DprSanctionPanel';
 import DprTenderInitiationPanel from '../components/dpr/DprTenderInitiationPanel';
 import DprTenderProcessingPanel from '../components/dpr/DprTenderProcessingPanel';
@@ -137,6 +139,7 @@ export default function DprPlanningPage() {
   const [tacRound2Open, setTacRound2Open] = useState<string | null>(null);
   const [round2ComplianceOpen, setRound2ComplianceOpen] = useState<string | null>(null);
   const [round2ComplianceLiaisonMode, setRound2ComplianceLiaisonMode] = useState(false);
+  const [round2ComplianceAdminOpen, setRound2ComplianceAdminOpen] = useState<string | null>(null);
   const [sanctionOpen, setSanctionOpen] = useState<string | null>(null);
   const [tenderInitOpen, setTenderInitOpen] = useState<string | null>(null);
   const [tenderProcessingOpen, setTenderProcessingOpen] = useState<string | null>(null);
@@ -353,12 +356,29 @@ export default function DprPlanningPage() {
           </Typography>
         </Alert>
       )}
+      {canInitiateAsEe && rows.some((r) => r.status === 'tac_round2_compliance_submitted') && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Compliance submitted to Super Admin</Typography>
+          <Typography variant="body2">
+            Your Round 2 compliance is with Super Admin for online review. You will be notified when it is forwarded to Secretariat or returned for revision.
+          </Typography>
+        </Alert>
+      )}
       {canInitiateAsEe && rows.some((r) => ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(r.status) && !r.eeComplianceAssignmentPending) && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
           <Typography variant="subtitle2" fontWeight={700}>Action required — Round 2 compliance</Typography>
           <Typography variant="body2">
             Secretariat returned compliance requirements. Open <strong>Stage 7 — Submit Round 2 Compliance</strong>,
             begin submission, upload revised PDF and compliance document, then resubmit to the committee.
+          </Typography>
+        </Alert>
+      )}
+      {isSuperAdmin && rows.some((r) => r.status === 'tac_round2_compliance_submitted') && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>EE compliance submitted — review online before Secretariat</Typography>
+          <Typography variant="body2">
+            Open <strong>Stage 7 — Review EE Compliance</strong>, review revised DPR and compliance PDFs online,
+            then <strong>Forward to Secretariat</strong> or return to EE if more fixes are needed.
           </Typography>
         </Alert>
       )}
@@ -526,6 +546,11 @@ export default function DprPlanningPage() {
                     {row.status === 'govt_technical_concurrence' && (
                       <Button size="small" startIcon={<GavelOutlinedIcon />} onClick={() => setTacRound2Open(row.id)}>
                         Govt Concurrence Status
+                      </Button>
+                    )}
+                    {row.status === 'tac_round2_compliance_submitted' && isSuperAdmin && (
+                      <Button size="small" variant="contained" color="primary" startIcon={<RateReviewOutlinedIcon />} onClick={() => setRound2ComplianceAdminOpen(row.id)}>
+                        Stage 7 — Review EE Compliance
                       </Button>
                     )}
                     {canInitiateAsEe && (
@@ -764,9 +789,18 @@ export default function DprPlanningPage() {
           setRound2ComplianceLiaisonMode(false);
         }}
         onUpdated={load}
-        onResubmitted={(id) => {
-          setSuccess('Round 2 compliance resubmitted to committee.');
-          setTacRound2Open(id);
+        onResubmitted={() => {
+          setSuccess('Round 2 compliance submitted to Super Admin for online review.');
+        }}
+      />
+
+      <DprRound2ComplianceAdminPanel
+        open={!!round2ComplianceAdminOpen}
+        proposalId={round2ComplianceAdminOpen}
+        onClose={() => setRound2ComplianceAdminOpen(null)}
+        onUpdated={load}
+        onForwarded={() => {
+          setSuccess('Compliance reviewed and forwarded to Secretariat for Round 2 re-examination.');
         }}
       />
 
