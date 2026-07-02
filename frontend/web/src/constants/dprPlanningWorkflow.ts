@@ -199,9 +199,12 @@ export function canBeginEeDprTenderPrep(roles: string[]): boolean {
   return roles.includes('ee');
 }
 
-/** Super Admin may initiate proposals only — not post-creation pipeline actions. */
-export function canPlatformInitiateDpr(roles: string[]): boolean {
-  return roles.includes('super_admin');
+/** Stage 1 — Division EE/JE/AE only; Super Admin is view-only. */
+export const DPR_DIVISION_INITIATOR_ROLES = ['ee', 'je', 'ae'] as const;
+
+export function canInitiateDprProposal(roles: string[]): boolean {
+  if (!roles.length || roles.includes('super_admin')) return false;
+  return roles.some((r) => (DPR_DIVISION_INITIATOR_ROLES as readonly string[]).includes(r));
 }
 
 /** Division users (EE/JE/AE) without HQ state reviewer — read-only TAC tracking. */
@@ -230,4 +233,188 @@ export function getDprDisplayStatusLabel(
     return DPR_DIVISION_VIEWER_STATUS_LABELS[status];
   }
   return apiLabel ?? status.replace(/_/g, ' ');
+}
+
+export type DprWorkflowStageAction =
+  | 'stage1'
+  | 'hqReview'
+  | 'stage3'
+  | 'tacReview'
+  | 'revision'
+  | 'secretariat'
+  | 'tacRound2'
+  | 'round2Compliance'
+  | 'round2ComplianceAdmin'
+  | 'round2Liaison'
+  | 'sanction'
+  | 'tenderInit'
+  | 'tenderProcessing'
+  | 'documents';
+
+export function getDprWorkflowGuidance(
+  status: string,
+  roles: string[],
+  opts?: {
+    tenderPrepAuthorized?: boolean;
+    eeComplianceAssignmentPending?: boolean;
+  },
+): {
+  headline: string;
+  steps: string[];
+  actions: Array<{ key: DprWorkflowStageAction; label: string; variant?: 'contained' | 'outlined' }>;
+} {
+  const isSuperAdmin = roles.includes('super_admin');
+  const isEe = roles.includes('ee') || roles.includes('je') || roles.includes('ae');
+  const isSecretariat = isSecretariatReviewer(roles) && !isSuperAdmin;
+
+  const action = (
+    key: DprWorkflowStageAction,
+    label: string,
+    variant: 'contained' | 'outlined' = 'contained',
+  ) => ({ key, label, variant });
+
+  const map: Record<string, ReturnType<typeof getDprWorkflowGuidance>> = {
+    proposal_draft: {
+      headline: 'Stage 1 — Proposal initiation',
+      steps: ['Upload concept note, estimate, and GIS data.', 'Forward proposal for State / HQ review.'],
+      actions: isEe && !isSuperAdmin ? [action('stage1', 'Open Stage 1')] : [action('documents', 'View documents', 'outlined')],
+    },
+    proposal_returned: {
+      headline: 'Stage 1 — Returned for revision',
+      steps: ['Fix issues noted by HQ.', 'Revise documents and resubmit.'],
+      actions: [action('stage1', 'Revise & Resubmit')],
+    },
+    proposal_submitted: {
+      headline: 'Stage 2 — Awaiting State review',
+      steps: ['HQ / State officials review the proposal package.'],
+      actions: canPerformHqReview(roles) ? [action('hqReview', 'State Review')] : [action('documents', 'View documents', 'outlined')],
+    },
+    hq_review: {
+      headline: 'Stage 2 — State review in progress',
+      steps: ['Approve DPR preparation or return to division.'],
+      actions: canPerformHqReview(roles) ? [action('hqReview', 'State Review')] : [],
+    },
+    dpr_prep_approved: {
+      headline: 'Stage 3 — Begin DPR preparation',
+      steps: ['Upload complete DPR PDF, BOQ, designs, and supporting documents.'],
+      actions: [action('stage3', isEe && !isSuperAdmin ? 'Stage 3 — Prepare' : 'Stage 3 — Review')],
+    },
+    dpr_preparation: {
+      headline: 'Stage 3 — DPR preparation',
+      steps: ['Complete all mandatory uploads.', 'Submit DPR to HQ when ready.'],
+      actions: [action('stage3', isEe && !isSuperAdmin ? 'Stage 3 — Prepare' : 'Stage 3 — Review')],
+    },
+    dpr_submitted: {
+      headline: 'Stage 4 — Forward to TAC',
+      steps: ['HQ forwards package to TAC Round 1.'],
+      actions: canForwardDprToTac(roles) ? [action('tacReview', 'Forward to TAC')] : [action('tacReview', 'Track TAC status', 'outlined')],
+    },
+    tac_round1_review: {
+      headline: 'Stage 4 — TAC Round 1 review',
+      steps: ['TAC examines technical feasibility, BOQ, and designs.', 'Division tracks status here.'],
+      actions: [action('tacReview', canPerformTacReview(roles) ? 'TAC Review — Round 1' : 'Track TAC Status', canPerformTacReview(roles) ? 'contained' : 'outlined')],
+    },
+    tac_corrections_required: {
+      headline: 'Stage 5 — TAC corrections required',
+      steps: ['Division EE revises DPR and resubmits to TAC.'],
+      actions: [action('revision', 'Stage 5 — Revise DPR')],
+    },
+    dpr_revision: {
+      headline: 'Stage 5 — DPR revision',
+      steps: ['Upload revised PDF/BOQ and resubmit to TAC.'],
+      actions: [action('revision', 'Stage 5 — Revise DPR')],
+    },
+    tac_round1_cleared: {
+      headline: 'Stage 6 — Forward to Secretariat',
+      steps: ['HQ forwards cleared DPR to Secretariat / Sachiwalaya.'],
+      actions: canForwardToSecretariat(roles) ? [action('secretariat', 'Stage 6 — Forward to Secretariat')] : [action('secretariat', 'Secretariat status', 'outlined')],
+    },
+    tac_round1_final: {
+      headline: 'Stage 6 — Forward to Secretariat',
+      steps: ['HQ forwards final DPR to Secretariat.'],
+      actions: canForwardToSecretariat(roles) ? [action('secretariat', 'Stage 6 — Forward to Secretariat')] : [action('secretariat', 'Secretariat status', 'outlined')],
+    },
+    secretariat_submitted: {
+      headline: 'Stage 7 — Secretariat examination',
+      steps: ['Secretariat begins TAC Round 2 / Govt technical examination.'],
+      actions: isSecretariat
+        ? [action('tacRound2', 'Stage 7 — Begin Round 2 TAC')]
+        : [action('tacRound2', 'Track Secretariat examination', 'outlined')],
+    },
+    tac_round2_review: {
+      headline: 'Stage 7 — TAC Round 2 examination',
+      steps: ['Secretariat reviews official DPR and records examination.'],
+      actions: isSecretariat
+        ? [action('tacRound2', 'Stage 7 — Round 2 Review')]
+        : [action('tacRound2', 'Track examination', 'outlined')],
+    },
+    tac_round2_corrections_required: {
+      headline: 'Stage 7 — Round 2 compliance required',
+      steps: ['Super Admin may assign EE.', 'EE uploads revised DPR and compliance document.'],
+      actions: [
+        ...(isSuperAdmin ? [action('round2Liaison', 'Secretariat Liaison', 'outlined')] : []),
+        ...(isEe && !isSuperAdmin ? [action('round2Compliance', 'Submit Round 2 Compliance')] : []),
+      ],
+    },
+    tac_round2_compliance: {
+      headline: 'Stage 7 — Compliance in progress',
+      steps: ['EE prepares compliance response for Secretariat re-examination.'],
+      actions: isEe && !isSuperAdmin
+        ? [action('round2Compliance', 'Stage 7 — Submit Compliance')]
+        : isSuperAdmin
+          ? [action('round2Liaison', 'Secretariat Liaison')]
+          : [],
+    },
+    tac_round2_compliance_submitted: {
+      headline: 'Stage 7 — Compliance with Super Admin',
+      steps: ['Super Admin reviews online before forwarding to Secretariat.'],
+      actions: isSuperAdmin
+        ? [action('round2ComplianceAdmin', 'Review EE Compliance')]
+        : [action('round2Compliance', 'Track compliance', 'outlined')],
+    },
+    govt_technical_concurrence: {
+      headline: 'Stage 8 — Administrative sanction',
+      steps: ['Upload AA, ES, budget allocation, funding release.', 'Secretariat records sanction.'],
+      actions: isSecretariat
+        ? [action('sanction', 'Stage 8 — Record Sanction')]
+        : [action('sanction', 'Sanction status', 'outlined')],
+    },
+    sanctioned: {
+      headline: 'Stage 9 — Tender preparation authorization',
+      steps: [
+        'Super Admin authorizes Division EE.',
+        'EE downloads TAC Round 2 sanctioned package.',
+        'EE prepares BOQ and tender documents.',
+      ],
+      actions: isSuperAdmin && !opts?.tenderPrepAuthorized
+        ? [action('tenderInit', 'Authorize EE — Tender Prep')]
+        : isEe && !isSuperAdmin && opts?.tenderPrepAuthorized
+          ? [action('tenderInit', 'Stage 9 — Download & Prepare')]
+          : [action('tenderInit', 'Tender prep status', 'outlined')],
+    },
+    tender_prep_initiated: {
+      headline: 'Stage 9–10 — Tender preparation',
+      steps: ['Upload tender prep documents.', 'Begin JE → AE → EE verification.'],
+      actions: [
+        action('tenderInit', 'Tender Prep Status', 'outlined'),
+        action('tenderProcessing', 'Stage 10 — Tender Processing'),
+      ],
+    },
+    tender_processing: {
+      headline: 'Stage 10 — Tender processing',
+      steps: ['JE verifies → AE approves → EE approves.', 'UK Tender portal opens after clearance.'],
+      actions: [action('tenderProcessing', 'Tender Processing')],
+    },
+    tender_published: {
+      headline: 'Tender published',
+      steps: ['Tender is live on UK Tender portal.', 'Monitor bidding and award.'],
+      actions: [action('tenderProcessing', 'View published tender', 'outlined')],
+    },
+  };
+
+  return map[status] ?? {
+    headline: 'DPR workflow',
+    steps: ['Use the stage action buttons for this proposal status.'],
+    actions: [action('documents', 'View documents', 'outlined')],
+  };
 }

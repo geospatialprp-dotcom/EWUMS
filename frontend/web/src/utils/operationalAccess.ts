@@ -15,7 +15,6 @@ export function isHqStateReviewer(roles?: string[] | null): boolean {
 const SUPER_ADMIN_DEMO_OPERATIONAL = new Set([
   'om:create',
   'om:update',
-  'dpr_proposal:create',
   'dpr_proposal:approve',
   'dpr_pdf_review:annotate',
   'dpr_pdf_review:comment',

@@ -201,14 +201,10 @@ export class DprPlanningService {
     roles: string[],
     dto: CreateDprProposalDto,
   ) {
-    this.assertCanPlatformInitiate(roles);
+    this.assertCanInitiate(roles);
     const resolvedDivisionId = dto.divisionId ?? divisionId ?? null;
     if (!resolvedDivisionId) {
-      throw new BadRequestException(
-        isSuperAdmin(roles)
-          ? 'Select a field division before initiating a DPR proposal'
-          : 'Division EE must be assigned to a division to initiate a DPR proposal',
-      );
+      throw new BadRequestException('Division EE must be assigned to a division to initiate a DPR proposal');
     }
 
     const count = await this.proposalRepo.count({ where: { tenantId } });
@@ -233,9 +229,7 @@ export class DprPlanningService {
       longitude: dto.longitude ?? null,
     });
     const saved = await this.proposalRepo.save(record);
-    const initLabel = isSuperAdmin(roles)
-      ? 'Proposal initiated by Super Admin (platform setup)'
-      : 'Proposal initiated by Division EE';
+    const initLabel = 'Proposal initiated by Division EE';
     await this.logEvent(tenantId, saved.id, 1, 'create', null, saved.status, userId, null, initLabel);
     return this.toRecord(tenantId, saved, true);
   }
@@ -4319,11 +4313,6 @@ export class DprPlanningService {
     if (!this.isStateReviewerRole(roles)) {
       throw new ForbiddenException('Only Super Admin or HQ officials (SE/CE/CGM/MD) can review and approve DPR proposals');
     }
-  }
-
-  private assertCanPlatformInitiate(roles: string[]) {
-    if (isSuperAdmin(roles)) return;
-    this.assertCanInitiate(roles);
   }
 
   private assertCanInitiate(roles: string[]) {

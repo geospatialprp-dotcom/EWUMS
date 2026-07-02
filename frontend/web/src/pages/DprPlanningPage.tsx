@@ -5,7 +5,6 @@ import {
   TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
-import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditNoteOutlinedIcon from '@mui/icons-material/EditNoteOutlined';
 import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
@@ -17,6 +16,7 @@ import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
+import TimelineOutlinedIcon from '@mui/icons-material/TimelineOutlined';
 import axios from 'axios';
 import { dprPlanningApi } from '../services/api';
 import BilingualRemarkField from '../components/forms/BilingualRemarkField';
@@ -39,6 +39,7 @@ import DprRound2ComplianceAdminPanel from '../components/dpr/DprRound2Compliance
 import DprSanctionPanel from '../components/dpr/DprSanctionPanel';
 import DprTenderInitiationPanel from '../components/dpr/DprTenderInitiationPanel';
 import DprTenderProcessingPanel from '../components/dpr/DprTenderProcessingPanel';
+import DprWorkflowTrackPanel from '../components/dpr/DprWorkflowTrackPanel';
 import { useAuth } from '../context/AuthContext';
 import {
   canForwardDprToTac,
@@ -46,15 +47,17 @@ import {
   canPerformHqReview,
   canPerformTacReview,
   canPerformTacRound2Review,
-  canPlatformInitiateDpr,
   canRecordDprSanction,
+  canInitiateDprProposal,
   isDivisionDprViewer,
   isSecretariatReviewer,
-  DPR_ACTION_LABELS,
   DPR_DOCUMENT_TYPES,
+  DPR_PLANNING_STAGES,
   getDprDisplayStatusLabel,
+  type DprWorkflowStageAction,
 } from '../constants/dprPlanningWorkflow';
 import { useDivisionScopeKey, useDivisionScope } from '../context/DivisionContext';
+import { isSuperAdmin } from '../utils/operationalAccess';
 import {
   DprDialogHeader,
   DprPipelineTracker,
@@ -114,18 +117,18 @@ const UK_TENDER_PORTAL_URL = 'https://uktenders.gov.in/';
 export default function DprPlanningPage() {
   const { user } = useAuth();
   const roles = user?.roles ?? [];
-  const isSuperAdmin = roles.includes('super_admin');
-  const canInitiateAsEe = (roles.includes('ee') || roles.includes('je') || roles.includes('ae')) && !isSuperAdmin;
-  const canInitiateProposal = canInitiateAsEe || canPlatformInitiateDpr(roles);
+  const isSuperAdminUser = isSuperAdmin(roles);
+  const canInitiateAsEe = canInitiateDprProposal(roles);
+  const canInitiateProposal = canInitiateAsEe;
   const { activeDivisionId } = useDivisionScope();
   const canHqReview = canPerformHqReview(roles);
   const canForwardToTac = canForwardDprToTac(roles);
   const canTacReview = canPerformTacReview(roles);
   const canSecretariatForward = canForwardToSecretariat(roles);
   const canTacRound2Review = canPerformTacRound2Review(roles);
-  const canTrackSecretariatRound2 = (isDivisionDprViewer(roles) || isSuperAdmin) && !isSecretariatReviewer(roles);
+  const canTrackSecretariatRound2 = (isDivisionDprViewer(roles) || isSuperAdminUser) && !isSecretariatReviewer(roles);
   const canRecordSanction = canRecordDprSanction(roles);
-  const isSecretariatOnly = isSecretariatReviewer(roles) && !isSuperAdmin;
+  const isSecretariatOnly = isSecretariatReviewer(roles) && !isSuperAdminUser;
   const [dashboard, setDashboard] = useState<DashboardData>({});
   const [rows, setRows] = useState<ProposalRow[]>([]);
   const [error, setError] = useState('');
@@ -146,7 +149,7 @@ export default function DprPlanningPage() {
   const [sanctionOpen, setSanctionOpen] = useState<string | null>(null);
   const [tenderInitOpen, setTenderInitOpen] = useState<string | null>(null);
   const [tenderProcessingOpen, setTenderProcessingOpen] = useState<string | null>(null);
-  const [workflowOpen, setWorkflowOpen] = useState<ProposalRow | null>(null);
+  const [workflowTrackOpen, setWorkflowTrackOpen] = useState<string | null>(null);
   const [docOpen, setDocOpen] = useState<ProposalRow | null>(null);
 
   const [createForm, setCreateForm] = useState({
@@ -156,19 +159,6 @@ export default function DprPlanningPage() {
     priority: 'medium',
   });
   const [createSchemeJustification, setCreateSchemeJustification] = useState<BilingualText>(EMPTY_BILINGUAL);
-
-  const [advanceForm, setAdvanceForm] = useState({
-    action: 'submit',
-    secretariatRef: '',
-    administrativeApprovalNo: '',
-    expenditureSanctionNo: '',
-    sanctionedAmount: '',
-    budgetHead: '',
-    sanctionDate: '',
-    nitRef: '',
-    taskOrderRef: '',
-  });
-  const [workflowError, setWorkflowError] = useState('');
 
   const [docForm, setDocForm] = useState({
     documentType: DPR_DOCUMENT_TYPES[0].type,
@@ -190,8 +180,12 @@ export default function DprPlanningPage() {
     setError('');
     Promise.all([dprPlanningApi.dashboard(), dprPlanningApi.listProposals()])
       .then(([dashRes, listRes]) => {
+        const list = (listRes.data ?? []) as ProposalRow[];
         setDashboard(dashRes.data ?? {});
-        setRows(listRes.data ?? []);
+        setRows(list);
+        if (list.length) {
+          setTrackerStage(Math.max(...list.map((r) => r.currentStage)));
+        }
       })
       .catch((err) => setError(getApiError(err, 'Failed to load DPR pipeline')))
       .finally(() => setBusy(false));
@@ -199,19 +193,67 @@ export default function DprPlanningPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const handleWorkflowStage = (action: DprWorkflowStageAction, proposalId: string) => {
+    switch (action) {
+      case 'stage1':
+        setStage1Open(proposalId);
+        break;
+      case 'hqReview':
+        setHqReviewOpen(proposalId);
+        break;
+      case 'stage3':
+        setStage3Open(proposalId);
+        break;
+      case 'tacReview':
+        setTacReviewOpen(proposalId);
+        break;
+      case 'revision':
+        setRevisionOpen(proposalId);
+        break;
+      case 'secretariat':
+        setSecretariatOpen(proposalId);
+        break;
+      case 'tacRound2':
+        setTacRound2Open(proposalId);
+        break;
+      case 'round2Compliance':
+        setRound2ComplianceLiaisonMode(false);
+        setRound2ComplianceOpen(proposalId);
+        break;
+      case 'round2ComplianceAdmin':
+        setRound2ComplianceAdminOpen(proposalId);
+        break;
+      case 'round2Liaison':
+        setRound2ComplianceLiaisonMode(true);
+        setRound2ComplianceOpen(proposalId);
+        break;
+      case 'sanction':
+        setSanctionOpen(proposalId);
+        break;
+      case 'tenderInit':
+        setTenderInitOpen(proposalId);
+        break;
+      case 'tenderProcessing':
+        setTenderProcessingOpen(proposalId);
+        break;
+      case 'documents': {
+        const row = rows.find((r) => r.id === proposalId);
+        if (row) setDocOpen(row);
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
   const handleCreate = () => {
     if (!createForm.title.trim()) {
       setError('Proposal title is required');
       return;
     }
-    if (isSuperAdmin && !activeDivisionId) {
-      setError('Select a field division from the header switcher before initiating a proposal');
-      return;
-    }
     setBusy(true);
     dprPlanningApi.createProposal({
       title: createForm.title.trim(),
-      divisionId: isSuperAdmin ? activeDivisionId ?? undefined : undefined,
       schemeJustification: serializeBilingualText(createSchemeJustification).trim() || undefined,
       preliminaryEstimate: createForm.preliminaryEstimate ? Number(createForm.preliminaryEstimate) : undefined,
       fundingSource: createForm.fundingSource.trim() || undefined,
@@ -227,57 +269,6 @@ export default function DprPlanningPage() {
         load();
       })
       .catch((err) => setError(getApiError(err, 'Failed to create proposal')))
-      .finally(() => setBusy(false));
-  };
-
-  const openWorkflow = (row: ProposalRow) => {
-    if (row.status === 'govt_technical_concurrence' && canRecordSanction) {
-      setSanctionOpen(row.id);
-      return;
-    }
-    setWorkflowError('');
-    setWorkflowOpen(row);
-    dprPlanningApi.getProposal(row.id)
-      .then((res) => {
-        const detail = res.data as ProposalRow;
-        setWorkflowOpen(detail);
-        setAdvanceForm({
-          action: detail.allowedActions?.[0] ?? 'submit',
-          secretariatRef: '',
-          administrativeApprovalNo: '',
-          expenditureSanctionNo: '',
-          sanctionedAmount: '',
-          budgetHead: '',
-          sanctionDate: '',
-          nitRef: '',
-          taskOrderRef: '',
-        });
-        setAdvanceComments(EMPTY_BILINGUAL);
-      })
-      .catch((err) => setError(getApiError(err, 'Failed to load proposal')));
-  };
-
-  const handleAdvance = () => {
-    if (!workflowOpen) return;
-    setBusy(true);
-    setWorkflowError('');
-    dprPlanningApi.advanceProposal(workflowOpen.id, {
-      action: advanceForm.action,
-      comments: serializeBilingualText(advanceComments).trim() || undefined,
-      secretariatRef: advanceForm.secretariatRef.trim() || undefined,
-      administrativeApprovalNo: advanceForm.administrativeApprovalNo.trim() || undefined,
-      expenditureSanctionNo: advanceForm.expenditureSanctionNo.trim() || undefined,
-      sanctionedAmount: advanceForm.sanctionedAmount ? Number(advanceForm.sanctionedAmount) : undefined,
-      budgetHead: advanceForm.budgetHead.trim() || undefined,
-      sanctionDate: advanceForm.sanctionDate || undefined,
-      nitRef: advanceForm.nitRef.trim() || undefined,
-      taskOrderRef: advanceForm.taskOrderRef.trim() || undefined,
-    })
-      .then(() => {
-        setWorkflowOpen(null);
-        load();
-      })
-      .catch((err) => setWorkflowError(getApiError(err, 'Failed to advance workflow')))
       .finally(() => setBusy(false));
   };
 
@@ -337,6 +328,12 @@ export default function DprPlanningPage() {
       {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
+      {isSuperAdminUser && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          Super Admin has view-only access for proposal initiation. Division EE initiates Stage 1 proposals from their division login.
+        </Alert>
+      )}
+
       {canInitiateAsEe && rows.some((r) => r.status === 'tac_round1_review') && (
         <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
           <Typography variant="subtitle2" fontWeight={700}>Waiting for Super Admin review</Typography>
@@ -355,7 +352,7 @@ export default function DprPlanningPage() {
           </Typography>
         </Alert>
       )}
-      {isSuperAdmin && rows.some((r) => r.status === 'tac_round1_review') && (
+      {isSuperAdminUser && rows.some((r) => r.status === 'tac_round1_review') && (
         <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
           <Typography variant="subtitle2" fontWeight={700}>TAC review pending</Typography>
           <Typography variant="body2">
@@ -390,7 +387,7 @@ export default function DprPlanningPage() {
           </Typography>
         </Alert>
       )}
-      {isSuperAdmin && rows.some((r) => r.status === 'tac_round2_compliance_submitted') && (
+      {isSuperAdminUser && rows.some((r) => r.status === 'tac_round2_compliance_submitted') && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
           <Typography variant="subtitle2" fontWeight={700}>EE compliance submitted — review online before Secretariat</Typography>
           <Typography variant="body2">
@@ -399,7 +396,7 @@ export default function DprPlanningPage() {
           </Typography>
         </Alert>
       )}
-      {isSuperAdmin && rows.some((r) => ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(r.status)) && (
+      {isSuperAdminUser && rows.some((r) => ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(r.status)) && (
         <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
           <Typography variant="subtitle2" fontWeight={700}>Secretariat compliance required — assign to Division EE</Typography>
           <Typography variant="body2">
@@ -409,7 +406,18 @@ export default function DprPlanningPage() {
         </Alert>
       )}
 
-      {isSuperAdmin && rows.some((r) => r.status === 'sanctioned' && !r.tenderPrepAuthorized) && (
+      {isSuperAdminUser && !visibleRows.length && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>No proposals in current division view</Typography>
+          <Typography variant="body2">
+            {activeDivisionId
+              ? 'Switch the header division to Karanprayag (KPG) or clear division filter to see all proposals.'
+              : 'Select Karanprayag division in the header switcher to work on the Tharali demo proposal.'}
+          </Typography>
+        </Alert>
+      )}
+
+      {isSuperAdminUser && rows.some((r) => r.status === 'sanctioned' && !r.tenderPrepAuthorized) && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
           <Typography variant="subtitle2" fontWeight={700}>Sanctioned — authorize Division EE for tender preparation</Typography>
           <Typography variant="body2">
@@ -539,7 +547,7 @@ export default function DprPlanningPage() {
                           variant="outlined"
                         />
                       )}
-                      {row.eeComplianceAssignmentPending && isSuperAdmin && (
+                      {row.eeComplianceAssignmentPending && isSuperAdminUser && (
                         <Chip size="small" color="info" label="Awaiting EE" variant="outlined" />
                       )}
                     </Box>
@@ -582,7 +590,7 @@ export default function DprPlanningPage() {
                         Govt Concurrence Status
                       </Button>
                     )}
-                    {row.status === 'tac_round2_compliance_submitted' && isSuperAdmin && (
+                    {row.status === 'tac_round2_compliance_submitted' && isSuperAdminUser && (
                       <Button size="small" variant="contained" color="primary" startIcon={<RateReviewOutlinedIcon />} onClick={() => setRound2ComplianceAdminOpen(row.id)}>
                         Stage 7 — Review EE Compliance
                       </Button>
@@ -598,7 +606,7 @@ export default function DprPlanningPage() {
                         Stage 7 — Submit Round 2 Compliance
                       </Button>
                     )}
-                    {['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status) && isSuperAdmin && (
+                    {['tac_round2_corrections_required', 'tac_round2_compliance'].includes(row.status) && isSuperAdminUser && (
                       <Button size="small" startIcon={<EditNoteOutlinedIcon />} onClick={() => {
                         setRound2ComplianceLiaisonMode(true);
                         setRound2ComplianceOpen(row.id);
@@ -615,7 +623,7 @@ export default function DprPlanningPage() {
                     )}
                     {['sanctioned', 'tender_prep_initiated'].includes(row.status) && !isSecretariatReviewer(roles) && (
                       <Button size="small" startIcon={<AssignmentOutlinedIcon />} onClick={() => setTenderInitOpen(row.id)}>
-                        {row.status === 'sanctioned' && isSuperAdmin && !row.tenderPrepAuthorized
+                        {row.status === 'sanctioned' && isSuperAdminUser && !row.tenderPrepAuthorized
                           ? 'Authorize EE — Tender Prep'
                           : row.status === 'sanctioned' && canInitiateAsEe && row.tenderPrepAuthorized
                             ? 'Stage 9 — Download & Prepare'
@@ -683,7 +691,15 @@ export default function DprPlanningPage() {
                       </Button>
                     )}
                     <Button size="small" variant="outlined" onClick={() => setDocOpen(row)}>Documents</Button>
-                    <Button size="small" variant="contained" startIcon={<PlayArrowOutlinedIcon />} onClick={() => openWorkflow(row)}>Workflow</Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="secondary"
+                      startIcon={<TimelineOutlinedIcon />}
+                      onClick={() => setWorkflowTrackOpen(row.id)}
+                    >
+                      Track Workflow
+                    </Button>
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -765,19 +781,30 @@ export default function DprPlanningPage() {
       <Box mt={2.5}>
         <SurfaceCard title="Workflow stages (1–10)">
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Governance dashboard (stages 11–12) is covered by audit logs and platform monitoring.
+            Hover a proposal row to highlight its stage. Click <strong>Track Workflow</strong> on any row for next steps and quick actions.
           </Typography>
           <DprPipelineTracker activeStage={trackerStage} />
+          <Box display="flex" gap={0.75} flexWrap="wrap" mt={1.5}>
+            {DPR_PLANNING_STAGES.filter((s) => s.stage <= 10).map((s) => (
+              <Chip
+                key={s.key}
+                size="small"
+                label={`${s.stage}. ${s.name.split('(')[0].split('—')[0].trim()}`}
+                variant={trackerStage === s.stage ? 'filled' : 'outlined'}
+                color={trackerStage === s.stage ? 'primary' : 'default'}
+                onClick={() => setTrackerStage(s.stage)}
+                sx={{ cursor: 'pointer' }}
+              />
+            ))}
+          </Box>
         </SurfaceCard>
       </Box>
 
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
-        <DprDialogHeader stage={1} title={isSuperAdmin ? 'Initiate DPR Proposal (Platform Setup)' : 'Initiate DPR Proposal (Division EE)'} busy={busy} />
+      <Dialog open={createOpen && canInitiateProposal} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
+        <DprDialogHeader stage={1} title="Initiate DPR Proposal (Division EE)" busy={busy} />
         <DialogContent sx={dprDialogContentSx}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {isSuperAdmin
-              ? 'Super Admin can initiate proposals for a selected division. Division EE/JE/AE must prepare Stage 1 documents and forward for HQ review.'
-              : 'The system will generate a unique Project Proposal ID (e.g. DPRP-2025-26-KPG-0001). After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding for review.'}
+            The system will generate a unique Project Proposal ID (e.g. DPRP-2025-26-KPG-0001). After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding for review.
           </Typography>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12}>
@@ -922,7 +949,7 @@ export default function DprPlanningPage() {
       <DprTenderInitiationPanel
         open={!!tenderInitOpen}
         proposalId={tenderInitOpen}
-        isSuperAdmin={isSuperAdmin}
+        isSuperAdmin={isSuperAdminUser}
         onClose={() => setTenderInitOpen(null)}
         onUpdated={() => {
           setSuccess('Tender preparation workflow updated.');
@@ -940,89 +967,13 @@ export default function DprPlanningPage() {
         }}
       />
 
-      <Dialog open={!!workflowOpen} onClose={() => setWorkflowOpen(null)} maxWidth="md" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
-        <DprDialogHeader
-          stage={workflowOpen?.currentStage ?? 1}
-          title="Workflow action"
-          proposalNo={workflowOpen?.proposalNo}
-          statusLabel={workflowOpen?.statusLabel ?? workflowOpen?.status}
-          busy={busy}
-        />
-        <DialogContent sx={dprDialogContentSx}>
-          {workflowError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setWorkflowError('')}>{workflowError}</Alert>}
-          {workflowOpen && (
-            <>
-              <Box sx={{ mb: 2.5, p: 1.75, borderRadius: 2, bgcolor: '#fff', border: '1px solid #e2e8f0' }}>
-                <Typography variant="subtitle2" fontWeight={700} gutterBottom>{workflowOpen.title}</Typography>
-                <DprStageProgress currentStage={workflowOpen.currentStage} />
-                <Box mt={1.5}>
-                  <DprPipelineTracker activeStage={workflowOpen.currentStage} compact />
-                </Box>
-              </Box>
-              <TextField
-                select fullWidth size="small" label="Action" sx={{ mb: 2 }}
-                value={advanceForm.action}
-                onChange={(e) => setAdvanceForm({ ...advanceForm, action: e.target.value })}
-                SelectProps={{ native: true }}
-              >
-                {(workflowOpen.allowedActions ?? ['submit']).map((a) => (
-                  <option key={a} value={a}>{DPR_ACTION_LABELS[a] ?? a}</option>
-                ))}
-              </TextField>
-              <Box sx={{ mb: 2 }}>
-                <BilingualRemarkField
-                  label="Comments / Observations"
-                  pdfTitle="DPR Workflow Comments"
-                  pdfSubtitle={workflowOpen.title}
-                  pdfMeta={[
-                    { label: 'Proposal No.', value: workflowOpen.proposalNo ?? '' },
-                    { label: 'Action', value: advanceForm.action },
-                  ]}
-                  value={advanceComments}
-                  onChange={setAdvanceComments}
-                  minRows={2}
-                />
-              </Box>
-              {advanceForm.action === 'forward_secretariat' && (
-                <TextField fullWidth size="small" label="Secretariat Reference No." sx={{ mb: 2 }}
-                  value={advanceForm.secretariatRef} onChange={(e) => setAdvanceForm({ ...advanceForm, secretariatRef: e.target.value })} />
-              )}
-              {advanceForm.action === 'record_sanction' && (
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <TextField fullWidth size="small" label="Administrative Approval (AA) No."
-                      value={advanceForm.administrativeApprovalNo} onChange={(e) => setAdvanceForm({ ...advanceForm, administrativeApprovalNo: e.target.value })} />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField fullWidth size="small" label="Expenditure Sanction (ES) No."
-                      value={advanceForm.expenditureSanctionNo} onChange={(e) => setAdvanceForm({ ...advanceForm, expenditureSanctionNo: e.target.value })} />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField fullWidth size="small" type="number" label="Sanctioned Amount (₹)"
-                      value={advanceForm.sanctionedAmount} onChange={(e) => setAdvanceForm({ ...advanceForm, sanctionedAmount: e.target.value })} />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField fullWidth size="small" type="date" label="Sanction Date" InputLabelProps={{ shrink: true }}
-                      value={advanceForm.sanctionDate} onChange={(e) => setAdvanceForm({ ...advanceForm, sanctionDate: e.target.value })} />
-                  </Grid>
-                </Grid>
-              )}
-              {(advanceForm.action === 'initiate_tender' || advanceForm.action === 'publish_tender') && (
-                <TextField fullWidth size="small" label={advanceForm.action === 'publish_tender' ? 'NIT Reference' : 'Task Order Reference'} sx={{ mt: 1 }}
-                  value={advanceForm.action === 'publish_tender' ? advanceForm.nitRef : advanceForm.taskOrderRef}
-                  onChange={(e) => setAdvanceForm({
-                    ...advanceForm,
-                    ...(advanceForm.action === 'publish_tender' ? { nitRef: e.target.value } : { taskOrderRef: e.target.value }),
-                  })} />
-              )}
-            </>
-          )}
-        </DialogContent>
-        <DialogActions sx={dprDialogActionsSx}>
-          <Button onClick={() => setWorkflowOpen(null)}>Close</Button>
-          <Button variant="contained" onClick={handleAdvance} disabled={busy} startIcon={<PlayArrowOutlinedIcon />}>Execute Action</Button>
-        </DialogActions>
-      </Dialog>
+      <DprWorkflowTrackPanel
+        open={!!workflowTrackOpen}
+        proposalId={workflowTrackOpen}
+        roles={roles}
+        onClose={() => setWorkflowTrackOpen(null)}
+        onOpenStage={handleWorkflowStage}
+      />
 
       <Dialog open={!!docOpen} onClose={() => setDocOpen(null)} maxWidth="sm" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
         <DprDialogHeader

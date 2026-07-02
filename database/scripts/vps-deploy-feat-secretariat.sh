@@ -22,21 +22,28 @@ sudo -u "${APP_USER}" git checkout "${BRANCH}" 2>/dev/null || true
 sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
 echo "    Commit: $(sudo -u "${APP_USER}" git -C "${ROOT}" rev-parse --short HEAD) $(sudo -u "${APP_USER}" git -C "${ROOT}" log -1 --format='%s')"
 
-echo "==> 2. Secretariat user + permissions (097, 098)"
-"${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
-  < "${ROOT}/database/migrations/097_secretariat_dpr_role.sql"
-"${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
-  < "${ROOT}/database/migrations/098_secretariat_stage8_dpr_update.sql"
+echo "==> 2. DB migrations (097–100)"
+for mig in 097_secretariat_dpr_role.sql 098_secretariat_stage8_dpr_update.sql \
+  099_ee_project_create_after_tender.sql 100_super_admin_no_dpr_proposal_create.sql; do
+  if [[ -f "${ROOT}/database/migrations/${mig}" ]]; then
+    "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
+      < "${ROOT}/database/migrations/${mig}" || echo "WARN: ${mig} skipped"
+  fi
+done
 
 echo "==> 3. Freeze TAC1 official PDF for Tharali demo"
 "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
   < "${ROOT}/database/scripts/vps-freeze-tac1-official.sql" || echo "WARN: freeze skipped (no dpr_complete_pdf?)"
 
-echo "==> 4. Rebuild API + Web (no cache on web)"
+echo "==> 4. Rebuild API + Web (web --no-cache so UI fixes always apply)"
 cd "${DEPLOY}"
 "${COMPOSE[@]}" build api
 "${COMPOSE[@]}" build --no-cache web
 "${COMPOSE[@]}" up -d api web
+
+echo "==> 4b. Prune old Docker layers (keeps running app)"
+docker image prune -af
+docker builder prune -af 2>/dev/null || true
 
 echo ""
 echo "==> 5. Verify"
@@ -51,6 +58,7 @@ echo "==> 6. Optional — LA readiness for Stage 8 sanction (Tharali demo)"
 
 echo ""
 echo "DONE."
+echo "  IMPORTANT: Push latest commits to origin/${BRANCH} before running this script."
 echo "  1) Log OUT in browser, then Ctrl+Shift+R (hard refresh)"
 echo "  2) Secretariat Stage 7: secretariat@egip.local / Sec@123"
 echo "     - Opens TAC1-reviewed DPR (annotated source PDF, not latest EE upload)"
