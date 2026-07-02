@@ -11,6 +11,7 @@ import PersonOffIcon from '@mui/icons-material/PersonOff';
 import PersonIcon from '@mui/icons-material/Person';
 import axios from 'axios';
 import { usersApi, rolesApi, UserRecord, RoleRecord } from '../../services/api';
+import { useDivisionScope, useDivisionScopeKey } from '../../context/DivisionContext';
 import PageShell from '../../components/layout/PageShell';
 import PageHeader from '../../components/layout/PageHeader';
 import SurfaceCard from '../../components/layout/SurfaceCard';
@@ -30,7 +31,10 @@ function getErrorMessage(err: unknown): string {
 }
 
 export default function UsersPage() {
+  const { activeDivision } = useDivisionScope();
+  const divisionScopeKey = useDivisionScopeKey();
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [divisionScope, setDivisionScope] = useState<string | null>(null);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -47,7 +51,8 @@ export default function UsersPage() {
     setLoadError('');
     try {
       const [usersRes, rolesRes] = await Promise.all([usersApi.list(), rolesApi.list()]);
-      setUsers(usersRes.data);
+      setUsers(usersRes.data.users ?? []);
+      setDivisionScope(usersRes.data.divisionScope ?? activeDivision?.name ?? null);
       setRoles(rolesRes.data);
     } catch (err) {
       setLoadError(getErrorMessage(err));
@@ -56,7 +61,7 @@ export default function UsersPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [divisionScopeKey]);
 
   const openCreate = () => {
     setEditing(null);
@@ -154,6 +159,11 @@ export default function UsersPage() {
       />
 
       {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
+      {divisionScope && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Showing users for division scope: <strong>{divisionScope}</strong>
+        </Alert>
+      )}
 
       <SurfaceCard title="Organization Users" flush>
         <Table sx={dataTableSx()}>
@@ -161,6 +171,7 @@ export default function UsersPage() {
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Email</TableCell>
+              <TableCell>Division</TableCell>
               <TableCell>Department</TableCell>
               <TableCell>Roles</TableCell>
               <TableCell>Status</TableCell>
@@ -172,6 +183,7 @@ export default function UsersPage() {
               <TableRow key={u.id} hover>
                 <TableCell>{u.firstName} {u.lastName}</TableCell>
                 <TableCell>{u.email}</TableCell>
+                <TableCell>{u.divisionName ?? '—'}</TableCell>
                 <TableCell>{u.department ?? '—'}</TableCell>
                 <TableCell>
                   {u.roles.map((r) => (

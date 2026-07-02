@@ -18,6 +18,6 @@ export class AuditController {
   @RequirePermissions('audit:read')
   @ApiOperation({ summary: 'List audit log entries' })
   logs(@CurrentUser() user: JwtPayload, @Query('limit') limit?: string) {
-    return this.auditService.findAll(user.tenantId, limit ? parseInt(limit, 10) : 100);
+    return this.auditService.findAll(user, limit ? parseInt(limit, 10) : 100);
   }
 }

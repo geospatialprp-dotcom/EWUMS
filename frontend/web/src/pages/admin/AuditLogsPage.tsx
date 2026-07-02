@@ -11,12 +11,11 @@ import PageShell from '../../components/layout/PageShell';
 
 import PageHeader from '../../components/layout/PageHeader';
 
-import SurfaceCard from '../../components/layout/SurfaceCard';
-
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { exportAuditTrailPdf } from '../../utils/pdfExport';
 import { AuditLocationDisplay } from '../../components/audit/AuditLocationDisplay';
-import { useDivisionScope } from '../../context/DivisionContext';
+import { AdminTableShell, adminTableContainerSx } from '../../components/admin/AdminTableShell';
+import { useDivisionScope, useDivisionScopeKey } from '../../context/DivisionContext';
 import ExportPdfButton from '../../components/common/ExportPdfButton';
 
 interface AuditEntry {
@@ -37,8 +36,8 @@ interface AuditEntry {
 }
 
 const STICKY_TIMESTAMP_WIDTH = 168;
-const STICKY_USER_WIDTH = 220;
-const AUDIT_TABLE_MIN_WIDTH = 1180;
+const STICKY_USER_WIDTH = 200;
+const AUDIT_TABLE_MIN_WIDTH = 1160;
 
 const auditTableSx = {
   ...dataTableSx(),
@@ -93,27 +92,37 @@ const auditTableSx = {
   },
 };
 
-const tableContainerSx = {
-  display: { xs: 'none', md: 'block' },
-  width: '100%',
-  maxWidth: '100%',
-  overflowX: 'auto',
-  overflowY: 'visible',
-  WebkitOverflowScrolling: 'touch',
-  overscrollBehaviorX: 'contain',
-};
-
-function formatUser(entry: AuditEntry): string {
-  if (entry.userEmail) {
-    return entry.userName ? `${entry.userName} (${entry.userEmail})` : entry.userEmail;
-  }
-  if (entry.userName) return entry.userName;
-  return entry.userId ?? '—';
-}
-
 function formatDetails(details: Record<string, unknown>): string {
   const text = JSON.stringify(details);
   return text === '{}' ? '—' : text;
+}
+
+function formatActionLabel(action: string): string {
+  return action
+    .replace(/\./g, ' · ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function actionColor(action: string): 'error' | 'success' | 'info' | 'default' {
+  if (action.includes('delete') || action.includes('reject') || action.includes('deactivate')) return 'error';
+  if (action.includes('create') || action.includes('approve')) return 'success';
+  if (action.includes('login')) return 'info';
+  return 'default';
+}
+
+function AuditUserCell({ log }: { log: AuditEntry }) {
+  return (
+    <Stack spacing={0.2}>
+      <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>
+        {log.userName ?? '—'}
+      </Typography>
+      {log.userEmail ? (
+        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}>
+          {log.userEmail}
+        </Typography>
+      ) : null}
+    </Stack>
+  );
 }
 
 function AuditField({ label, children }: { label: string; children: ReactNode }) {
@@ -132,38 +141,28 @@ function AuditField({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor: (action: string) => string }) {
+function AuditLogMobileCard({ log }: { log: AuditEntry }) {
   const detailsText = formatDetails(log.details);
 
   return (
-    <Box
-      sx={{
-        border: '1px solid #e2e8f0',
-        borderRadius: 1.5,
-        p: 1.5,
-        bgcolor: '#fff',
-      }}
-    >
+    <Box sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5, p: 1.5, bgcolor: '#fff' }}>
       <AuditField label="Timestamp">
         <Typography variant="body2">{new Date(log.createdAt).toLocaleString()}</Typography>
       </AuditField>
       <AuditField label="User">
-        <Typography variant="body2">{formatUser(log)}</Typography>
+        <AuditUserCell log={log} />
       </AuditField>
       <AuditField label="Action">
-        <Chip label={log.action} size="small" color={actionColor(log.action) as 'success'} />
+        <Chip label={formatActionLabel(log.action)} size="small" color={actionColor(log.action)} />
       </AuditField>
       <AuditField label="Resource">
-        <Typography variant="body2">
-          {log.resourceType ?? '—'}
-          {log.resourceId ? ` · ${log.resourceId}` : ''}
-        </Typography>
+        <Typography variant="body2">{log.resourceType ?? '—'}</Typography>
       </AuditField>
       <AuditField label="IP Address">
         <Typography variant="body2" fontFamily="monospace">{log.ipAddress ?? '—'}</Typography>
       </AuditField>
       <AuditField label="Location">
-        <AuditLocationDisplay entry={log} />
+        <AuditLocationDisplay entry={log} variant="compact" />
       </AuditField>
       <AuditField label="Details">
         <Typography variant="caption" sx={{ wordBreak: 'break-word', fontFamily: 'monospace', display: 'block' }}>
@@ -176,21 +175,20 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
 
 export default function AuditLogsPage() {
   const { activeDivision } = useDivisionScope();
+  const divisionScopeKey = useDivisionScopeKey();
   const [logs, setLogs] = useState<AuditEntry[]>([]);
+  const [divisionScope, setDivisionScope] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     auditApi.logs(200)
-      .then((r) => setLogs(r.data))
+      .then((r) => {
+        setLogs(r.data.logs ?? []);
+        setDivisionScope(r.data.divisionScope ?? activeDivision?.name ?? null);
+      })
       .finally(() => setLoading(false));
-  }, []);
-
-  const actionColor = (action: string) => {
-    if (action.includes('delete') || action.includes('reject')) return 'error';
-    if (action.includes('create') || action.includes('approve')) return 'success';
-    if (action.includes('login')) return 'info';
-    return 'default';
-  };
+  }, [divisionScopeKey, activeDivision?.name]);
 
   return (
     <PageShell loading={loading} loadingLabel="Loading audit trail…">
@@ -201,118 +199,110 @@ export default function AuditLogsPage() {
         actions={(
           <ExportPdfButton
             disabled={loading || logs.length === 0}
-            onClick={() => exportAuditTrailPdf(logs, activeDivision?.name ?? null)}
+            onClick={() => exportAuditTrailPdf(logs, divisionScope ?? activeDivision?.name ?? null)}
           />
         )}
       />
 
-      <SurfaceCard
+      <AdminTableShell
         title="Activity Log"
-        flush
-        cardSx={{ overflow: 'visible' }}
-        contentSx={{ overflow: 'visible', minWidth: 0, p: 0, '&:last-child': { pb: 0 } }}
+        count={logs.length}
+        divisionScope={divisionScope}
+        toolbarHint="Scroll right for Location and Details. Timestamp and User columns stay fixed."
+        emptyLabel="No audit activity recorded for this division scope."
       >
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{
-            display: { xs: 'none', md: 'block' },
-            px: 2,
-            py: 1,
-            borderBottom: '1px solid #e2e8f0',
-            bgcolor: '#f8fafc',
-          }}
-        >
-          Timestamp and User stay fixed while you scroll right for Location and Details.
-        </Typography>
-        <Stack
-          spacing={1.25}
-          sx={{ display: { xs: 'flex', md: 'none' }, px: 1.5, py: 1.5 }}
-        >
+        <Stack spacing={1.25} sx={{ display: { xs: 'flex', md: 'none' }, px: 1.5, py: 1.5 }}>
           {logs.map((log) => (
-            <AuditLogMobileCard key={log.id} log={log} actionColor={actionColor} />
+            <AuditLogMobileCard key={log.id} log={log} />
           ))}
         </Stack>
 
-        <TableContainer sx={tableContainerSx}>
-            <Table
-              size="small"
-              stickyHeader
-              sx={auditTableSx}
-            >
-              <TableHead>
-                <TableRow>
-                  <TableCell className="audit-sticky audit-sticky--time" sx={{ whiteSpace: 'nowrap' }}>
-                    Timestamp
-                  </TableCell>
-                  <TableCell className="audit-sticky audit-sticky--user">User</TableCell>
-                  <TableCell sx={{ minWidth: 128 }}>Action</TableCell>
-                  <TableCell sx={{ minWidth: 96 }}>Resource</TableCell>
-                  <TableCell sx={{ minWidth: 132 }}>IP Address</TableCell>
-                  <TableCell sx={{ minWidth: 260 }}>Location</TableCell>
-                  <TableCell sx={{ minWidth: 220 }}>Details</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {logs.map((log) => {
-                  const detailsText = formatDetails(log.details);
-                  const detailsPreview = detailsText.length > 80 ? `${detailsText.slice(0, 80)}…` : detailsText;
+        <TableContainer sx={{ ...adminTableContainerSx, display: { xs: 'none', md: 'block' } }}>
+          <Table size="small" stickyHeader sx={auditTableSx}>
+            <TableHead>
+              <TableRow>
+                <TableCell className="audit-sticky audit-sticky--time">Timestamp</TableCell>
+                <TableCell className="audit-sticky audit-sticky--user">User</TableCell>
+                <TableCell sx={{ minWidth: 120 }}>Action</TableCell>
+                <TableCell sx={{ minWidth: 88 }}>Resource</TableCell>
+                <TableCell sx={{ minWidth: 128 }}>IP Address</TableCell>
+                <TableCell sx={{ minWidth: 280 }}>Location</TableCell>
+                <TableCell sx={{ minWidth: 200 }}>Details</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {logs.map((log) => {
+                const detailsText = formatDetails(log.details);
+                const detailsPreview = detailsText.length > 72 ? `${detailsText.slice(0, 72)}…` : detailsText;
 
-                  return (
-                    <TableRow key={log.id} hover>
-                      <TableCell className="audit-sticky audit-sticky--time" sx={{ whiteSpace: 'nowrap' }}>
+                return (
+                  <TableRow key={log.id} hover>
+                    <TableCell className="audit-sticky audit-sticky--time" sx={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                      <Typography variant="body2" fontSize="0.8125rem">
                         {new Date(log.createdAt).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="audit-sticky audit-sticky--user">
-                        <Typography variant="body2" sx={{ lineHeight: 1.35 }}>
-                          {formatUser(log)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 128 }}>
-                        <Chip label={log.action} size="small" color={actionColor(log.action) as 'success'} />
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 96 }}>{log.resourceType ?? '—'}</TableCell>
-                      <TableCell sx={{ minWidth: 132 }}>
-                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
-                          {log.ipAddress ?? '—'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 260 }}>
-                        <AuditLocationDisplay entry={log} />
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 220, maxWidth: 320 }}>
-                        <Tooltip
-                          title={
-                            <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                              {detailsText}
-                            </Typography>
-                          }
-                          arrow
-                          placement="top-start"
-                          enterTouchDelay={0}
-                        >
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              display: 'block',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              cursor: detailsText.length > 80 ? 'help' : 'default',
-                              fontFamily: 'monospace',
-                            }}
-                          >
-                            {detailsPreview}
+                      </Typography>
+                    </TableCell>
+                    <TableCell className="audit-sticky audit-sticky--user" sx={{ verticalAlign: 'top' }}>
+                      <AuditUserCell log={log} />
+                    </TableCell>
+                    <TableCell sx={{ verticalAlign: 'top' }}>
+                      <Chip
+                        label={formatActionLabel(log.action)}
+                        size="small"
+                        color={actionColor(log.action)}
+                        sx={{ fontWeight: 600, maxWidth: 140 }}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ verticalAlign: 'top' }}>
+                      <Chip
+                        label={log.resourceType ?? '—'}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontWeight: 600, bgcolor: '#fff' }}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ verticalAlign: 'top' }}>
+                      <Typography variant="body2" fontFamily="monospace" fontSize="0.78rem">
+                        {log.ipAddress ?? '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ verticalAlign: 'top' }}>
+                      <AuditLocationDisplay entry={log} variant="compact" />
+                    </TableCell>
+                    <TableCell sx={{ verticalAlign: 'top', maxWidth: 280 }}>
+                      <Tooltip
+                        title={(
+                          <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {detailsText}
                           </Typography>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
-      </SurfaceCard>
+                        )}
+                        arrow
+                        placement="top-start"
+                        enterTouchDelay={0}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            display: 'block',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            cursor: detailsText.length > 72 ? 'help' : 'default',
+                            fontFamily: 'monospace',
+                            color: '#475569',
+                          }}
+                        >
+                          {detailsPreview}
+                        </Typography>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </AdminTableShell>
     </PageShell>
   );
 }

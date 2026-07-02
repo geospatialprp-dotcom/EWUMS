@@ -64,8 +64,36 @@ export interface UserRecord {
   department: string;
   status: string;
   roles: Array<{ id: string; code: string; name: string }>;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  divisionCode?: string | null;
   createdAt: string;
 }
+
+export type UsersListResponse = {
+  divisionScope: string | null;
+  users: UserRecord[];
+};
+
+export type AuditLogsResponse = {
+  divisionScope: string | null;
+  logs: Array<{
+    id: string;
+    userId: string;
+    userEmail: string | null;
+    userName: string | null;
+    action: string;
+    resourceType: string;
+    resourceId: string;
+    ipAddress: string | null;
+    location: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    locationAccuracyMeters: number | null;
+    details: Record<string, unknown>;
+    createdAt: string;
+  }>;
+};
 
 export interface RoleRecord {
   id: string;
@@ -455,7 +483,7 @@ export const featureClassesApi = {
 };
 
 export const usersApi = {
-  list: () => api.get<UserRecord[]>('/users'),
+  list: () => api.get<UsersListResponse>('/users'),
   get: (id: string) => api.get<UserRecord>(`/users/${id}`),
   create: (data: object) => api.post<UserRecord>('/users', data),
   update: (id: string, data: object) => api.patch<UserRecord>(`/users/${id}`, data),
@@ -479,7 +507,7 @@ export const workflowsApi = {
 };
 
 export const auditApi = {
-  logs: (limit?: number) => api.get('/audit/logs', { params: { limit } }),
+  logs: (limit?: number) => api.get<AuditLogsResponse>('/audit/logs', { params: { limit } }),
 };
 
 export type SchemeType = 'gravity' | 'pumping';

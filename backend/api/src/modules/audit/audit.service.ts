@@ -1,23 +1,32 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { DivisionAccessService } from '../divisions/division-access.service';
+import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { AuditLog } from './entities/audit-log.entity';
 
 @Injectable()
 export class AuditLogsService {
   constructor(
     @InjectRepository(AuditLog) private auditRepo: Repository<AuditLog>,
+    private divisionAccess: DivisionAccessService,
   ) {}
 
-  async findAll(tenantId: string, limit = 100) {
-    const logs = await this.auditRepo.find({
-      where: { tenantId },
-      relations: ['user'],
-      order: { createdAt: 'DESC' },
-      take: limit,
-    });
+  async findAll(user: JwtPayload, limit = 100) {
+    const tenantId = user.tenantId;
+    const qb = this.auditRepo
+      .createQueryBuilder('al')
+      .leftJoinAndSelect('al.user', 'user')
+      .where('al.tenant_id = :tenantId', { tenantId })
+      .orderBy('al.created_at', 'DESC')
+      .take(limit);
 
-    return logs.map((l) => {
+    await this.divisionAccess.applyUserDivisionMembershipScope(qb, user, 'al.user_id', tenantId);
+
+    const logs = await qb.getMany();
+    const divisionScope = await this.divisionAccess.getDivisionScopeLabel(user, tenantId);
+
+    const mapped = logs.map((l) => {
       const userName = [l.user?.firstName, l.user?.lastName].filter(Boolean).join(' ').trim();
       return {
         id: l.id,
@@ -36,5 +45,7 @@ export class AuditLogsService {
         createdAt: l.createdAt,
       };
     });
+
+    return { divisionScope, logs: mapped };
   }
 }

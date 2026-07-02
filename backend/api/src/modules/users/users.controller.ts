@@ -30,23 +30,23 @@ export class UsersController {
 
   @Get()
   @RequirePermissions('user:read')
-  @ApiOperation({ summary: 'List all users in tenant' })
+  @ApiOperation({ summary: 'List users in accessible division scope' })
   findAll(@CurrentUser() user: JwtPayload) {
-    return this.usersService.findAll(user.tenantId);
+    return this.usersService.findAll(user);
   }
 
   @Get(':id')
   @RequirePermissions('user:read')
   @ApiOperation({ summary: 'Get user by ID' })
   findOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    return this.usersService.findOne(user.tenantId, id);
+    return this.usersService.findOne(user, id);
   }
 
   @Post()
   @RequirePermissions('user:create')
   @ApiOperation({ summary: 'Create new user' })
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateUserDto, @Req() req: Request) {
-    return this.usersService.create(user.tenantId, user.sub, dto, extractAuditContext(req));
+    return this.usersService.create(user.tenantId, user, dto, extractAuditContext(req));
   }
 
   @Patch(':id')
@@ -58,13 +58,13 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
     @Req() req: Request,
   ) {
-    return this.usersService.update(user.tenantId, user.sub, id, dto, extractAuditContext(req));
+    return this.usersService.update(user.tenantId, user, id, dto, extractAuditContext(req));
   }
 
   @Delete(':id')
   @RequirePermissions('user:delete')
   @ApiOperation({ summary: 'Deactivate user' })
   remove(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Req() req: Request) {
-    return this.usersService.remove(user.tenantId, user.sub, id, extractAuditContext(req));
+    return this.usersService.remove(user.tenantId, user, id, extractAuditContext(req));
   }
 }

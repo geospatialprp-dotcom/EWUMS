@@ -727,6 +727,143 @@ export class DivisionAccessService {
     await this.applyDivisionScope(qb as SelectQueryBuilder<ObjectLiteral>, user, alias, tenantId);
   }
 
+  /**
+   * Restrict rows to users whose division membership falls within the accessible set.
+   * Used for audit logs (actor user_id) and user management listings.
+   */
+  async applyUserDivisionMembershipScope(
+    qb: SelectQueryBuilder<ObjectLiteral>,
+    user: JwtPayload,
+    userIdColumn: string,
+    tenantId?: string,
+  ): Promise<void> {
+    if (!(await this.isDivisionSchemaReady())) return;
+    const tid = tenantId ?? user.tenantId;
+    const divisionIds = await this.getAccessibleDivisionIds(user, tid);
+    if (divisionIds === null) return;
+    if (divisionIds.length === 0) {
+      qb.andWhere('1 = 0');
+      return;
+    }
+
+    const useAssignments = await this.usesAssignmentTable();
+    if (useAssignments) {
+      qb.andWhere(
+        `${userIdColumn} IN (
+          SELECT DISTINCT u.id
+          FROM users u
+          LEFT JOIN user_division_assignments uda ON uda.user_id = u.id
+          WHERE u.tenant_id = :tenantId
+            AND COALESCE(uda.division_id, u.division_id) IN (:...accessibleDivisionIds)
+        )`,
+        { tenantId: tid, accessibleDivisionIds: divisionIds },
+      );
+      return;
+    }
+
+    qb.andWhere(
+      `${userIdColumn} IN (
+        SELECT u.id FROM users u
+        WHERE u.tenant_id = :tenantId AND u.division_id IN (:...accessibleDivisionIds)
+      )`,
+      { tenantId: tid, accessibleDivisionIds: divisionIds },
+    );
+  }
+
+  async assertUserDivisionAccess(
+    user: JwtPayload,
+    targetUserId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const accessible = await this.getAccessibleDivisionIds(user, tenantId);
+    if (accessible === null) return;
+    if (accessible.length === 0) {
+      throw new ForbiddenException('No division access');
+    }
+    const targetDivisions = await this.loadUserDivisionIds(targetUserId);
+    if (!targetDivisions.some((id) => accessible.includes(id))) {
+      throw new ForbiddenException('User is outside your division scope');
+    }
+  }
+
+  async getDivisionSummariesForUserIds(
+    userIds: string[],
+  ): Promise<Map<string, { divisionId: string | null; divisionName: string | null; divisionCode: string | null }>> {
+    const map = new Map<string, { divisionId: string | null; divisionName: string | null; divisionCode: string | null }>();
+    if (userIds.length === 0 || !(await this.isDivisionSchemaReady())) return map;
+
+    const useAssignments = await this.usesAssignmentTable();
+    const joinClause = useAssignments
+      ? `LEFT JOIN user_division_assignments uda ON uda.user_id = u.id
+         LEFT JOIN divisions d ON d.id = COALESCE(uda.division_id, u.division_id)`
+      : `LEFT JOIN divisions d ON d.id = u.division_id`;
+
+    const rows = await this.userRepo.query(
+      `SELECT u.id AS user_id,
+              d.id AS division_id,
+              d.name AS division_name,
+              d.code AS division_code
+       FROM users u
+       ${joinClause}
+       WHERE u.id = ANY($1::uuid[])`,
+      [userIds],
+    ) as Array<{ user_id: string; division_id: string | null; division_name: string | null; division_code: string | null }>;
+
+    for (const row of rows) {
+      map.set(String(row.user_id), {
+        divisionId: row.division_id ? String(row.division_id) : null,
+        divisionName: row.division_name ? String(row.division_name) : null,
+        divisionCode: row.division_code ? String(row.division_code) : null,
+      });
+    }
+    return map;
+  }
+
+  async getDivisionScopeLabel(user: JwtPayload, tenantId: string): Promise<string | null> {
+    const divisionIds = await this.getAccessibleDivisionIds(user, tenantId);
+    if (divisionIds === null) return null;
+    if (divisionIds.length === 0) return 'No division access';
+    const divisions = await this.divisionRepo.find({
+      where: { id: In(divisionIds), tenantId, status: 'active' },
+      order: { name: 'ASC' },
+    });
+    if (divisions.length === 0) return 'Division scope';
+    if (divisions.length === 1) return divisions[0].name;
+    return divisions.map((d) => d.name).join(', ');
+  }
+
+  /** Field division for a newly created user (active division or caller's division). */
+  async resolveDivisionIdForUserCreate(user: JwtPayload): Promise<string> {
+    if (!(await this.isDivisionSchemaReady())) {
+      throw new BadRequestException('Division assignments are not available yet.');
+    }
+    const accessible = await this.getAccessibleDivisionIds(user, user.tenantId);
+    if (accessible === null) {
+      const active = user.activeDivisionId?.trim();
+      if (!active) {
+        throw new BadRequestException('Select a division in the header before creating users.');
+      }
+      return active;
+    }
+    if (accessible.length !== 1) {
+      throw new BadRequestException('Select a single division before creating users.');
+    }
+    return accessible[0];
+  }
+
+  async assignUserToDivision(userId: string, divisionId: string): Promise<void> {
+    if (!(await this.isDivisionSchemaReady())) return;
+    await this.userRepo.query('UPDATE users SET division_id = $1 WHERE id = $2', [divisionId, userId]);
+    if (await this.usesAssignmentTable()) {
+      await this.userRepo.query(
+        `INSERT INTO user_division_assignments (user_id, division_id)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE SET division_id = EXCLUDED.division_id`,
+        [userId, divisionId],
+      );
+    }
+  }
+
   async getProjectDivisionId(projectId: string): Promise<string | null> {
     if (!(await this.isDivisionSchemaReady())) return null;
     const rows = await this.projectRepo.query(

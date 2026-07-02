@@ -134,7 +134,7 @@ export default function OmBreakdownStage() {
         const plist = (pRes.data ?? []) as ProjectOption[];
         setProjects(plist);
         if (plist.length && !selectedProject) setSelectedProject(plist[0]);
-        setUsers(uRes.data ?? []);
+        setUsers(uRes.data?.users ?? []);
       })
       .catch(() => setError('Failed to load reference data'));
   // eslint-disable-next-line react-hooks/exhaustive-deps
