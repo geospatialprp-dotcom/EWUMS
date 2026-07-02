@@ -53,6 +53,7 @@ import { buildDprValidationExcelExport } from './utils/dpr-excel-audit-export.ut
 import { LandAcquisitionService } from '../land-acquisition/land-acquisition.service';
 import type { LaReadiness } from '../land-acquisition/land-acquisition.service';
 import { DprPdfReview } from '../dpr-pdf-review/entities/dpr-pdf-review.entity';
+import { assertNotSuperAdminRolesForOperations, isSuperAdmin } from '../../common/utils/operational-access.util';
 
 type Transition = { next: string; stage: number };
 
