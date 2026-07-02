@@ -143,8 +143,9 @@ export default function DprRound2ComplianceAdminPanel({ open, proposalId, onClos
         {detail && (
           <>
             <Alert severity="info" sx={{ mb: 2 }}>
-              Review the revised DPR PDF and compliance document <strong>online</strong> before forwarding to Secretariat.
-              Secretariat will re-examine only after you forward.
+              Review the <strong>Division EE revised Complete DPR</strong> and compliance document online.
+              This is not the frozen TAC Round 1 PDF — it is the EE&apos;s compliance submission.
+              Forward to Secretariat only after both documents are checked.
             </Alert>
 
             <Typography variant="subtitle1" fontWeight={600} gutterBottom>{detail.title}</Typography>
@@ -189,7 +190,7 @@ export default function DprRound2ComplianceAdminPanel({ open, proposalId, onClos
               {dprPdf && proposalId && (
                 <Button size="small" variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
                   onClick={() => setDprPdfOpen(true)}>
-                  Review Revised DPR PDF Online
+                  Review EE Revised DPR Online
                 </Button>
               )}
               {compliancePdf && proposalId && (

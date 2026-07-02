@@ -57,6 +57,18 @@ type TacRound2State = {
     frozenAt?: string | null;
   } | null;
   officialTac1Missing?: boolean;
+  examinationDocumentMode?: 'tac1_official' | 'ee_compliance_resubmit';
+  eeComplianceDpr?: {
+    documentId: string;
+    fileName?: string | null;
+    label?: string;
+  } | null;
+  eeComplianceDoc?: {
+    documentId: string;
+    fileName?: string | null;
+    label?: string;
+  } | null;
+  eeCompliancePackageMissing?: boolean;
   canViewRound2Details?: boolean;
   resultsPublished?: boolean;
   awaitingAdminLiaison?: boolean;
@@ -126,6 +138,7 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
     fundingRequirements: false,
   });
   const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
+  const [compliancePdfViewerOpen, setCompliancePdfViewerOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!proposalId) return;
@@ -174,14 +187,22 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
   const canViewDetails = tac2?.canViewRound2Details !== false;
   const isTracking = tac2?.viewMode === 'track';
   const needsRound2Compliance = ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(detail?.status ?? '');
+  const eeCompliancePending = detail?.status === 'tac_round2_compliance_submitted';
+  const useEeComplianceDocs = tac2?.examinationDocumentMode === 'ee_compliance_resubmit';
   const concurrenceGranted = tac2?.concurrenceGranted === true || detail?.status === 'govt_technical_concurrence';
   const allReviewed = DPR_TAC_ROUND2_CHECKLIST.every((item) => checklist[item.key as keyof typeof checklist]);
 
   const officialPdf = tac2?.officialTac1Dpr ?? null;
   const officialTac1Missing = tac2?.officialTac1Missing === true || !officialPdf?.isOfficial;
-  const pdfDoc = officialPdf?.documentId && officialPdf.isOfficial !== false
-    ? { id: officialPdf.documentId, fileName: officialPdf.fileName ?? 'dpr-complete.pdf' }
-    : null;
+  const eeDpr = tac2?.eeComplianceDpr ?? null;
+  const eeComplianceDoc = tac2?.eeComplianceDoc ?? null;
+  const eePackageMissing = tac2?.eeCompliancePackageMissing === true;
+  const pdfDoc = useEeComplianceDocs && eeDpr?.documentId
+    ? { id: eeDpr.documentId, fileName: eeDpr.fileName ?? 'dpr-revised.pdf' }
+    : officialPdf?.documentId && officialPdf.isOfficial !== false
+      ? { id: officialPdf.documentId, fileName: officialPdf.fileName ?? 'dpr-complete.pdf' }
+      : null;
+  const showTac1Actions = !useEeComplianceDocs && !needsRound2Compliance && !eeCompliancePending;
 
   const download = async (docId: string, fileName: string) => {
     if (!proposalId) return;
@@ -301,7 +322,16 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
               </Alert>
             )}
 
-            {canReview && (
+            {canReview && useEeComplianceDocs && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  Re-examining <strong>Division EE compliance submission</strong> — use the revised Complete DPR PDF
+                  and compliance document below. The frozen TAC Round 1 PDF is not used for this step.
+                </Typography>
+              </Alert>
+            )}
+
+            {canReview && !useEeComplianceDocs && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 <Typography variant="body2">
                   You may review only the <strong>TAC Round 1 official DPR</strong> — the same PDF Super Admin
@@ -363,7 +393,7 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
             </Box>
 
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
-              {pdfDoc && proposalId && (
+              {showTac1Actions && pdfDoc && proposalId && (
                 <>
                   <Button size="small" variant="contained" color="error" startIcon={<RateReviewOutlinedIcon />}
                     onClick={() => setPdfViewerOpen(true)}>
@@ -375,11 +405,40 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
                   </Button>
                 </>
               )}
-              {!pdfDoc && (canReview || canBegin) && officialTac1Missing && (
+              {useEeComplianceDocs && eeDpr && proposalId && (
+                <>
+                  <Button size="small" variant="contained" color="warning" startIcon={<RateReviewOutlinedIcon />}
+                    onClick={() => setPdfViewerOpen(true)}>
+                    Review EE Revised DPR Online
+                  </Button>
+                  <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
+                    onClick={() => download(eeDpr.documentId, eeDpr.fileName ?? 'dpr-revised.pdf')}>
+                    {eeDpr.label ?? 'EE Revised DPR PDF'}
+                  </Button>
+                </>
+              )}
+              {useEeComplianceDocs && eeComplianceDoc && proposalId && (
+                <>
+                  <Button size="small" variant="contained" color="primary" startIcon={<RateReviewOutlinedIcon />}
+                    onClick={() => setCompliancePdfViewerOpen(true)}>
+                    Review EE Compliance Doc Online
+                  </Button>
+                  <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />}
+                    onClick={() => download(eeComplianceDoc.documentId, eeComplianceDoc.fileName ?? 'round2-compliance.pdf')}>
+                    {eeComplianceDoc.label ?? 'Compliance Document'}
+                  </Button>
+                </>
+              )}
+              {showTac1Actions && !pdfDoc && (canReview || canBegin) && officialTac1Missing && (
                 <Alert severity="error" sx={{ width: '100%' }}>
                   <strong>TAC Round 1 official DPR is not frozen.</strong> Secretariat cannot examine until Super Admin
                   completes TAC Round 1 approval on the current system (or the VPS freeze script is run for this proposal).
                   Only the TAC1-checked PDF may be used — not the latest Complete DPR upload.
+                </Alert>
+              )}
+              {useEeComplianceDocs && eePackageMissing && (canReview || isTracking) && (
+                <Alert severity="error" sx={{ width: '100%' }}>
+                  Division EE compliance package is incomplete. Super Admin must forward the revised DPR and compliance document before Secretariat re-examination.
                 </Alert>
               )}
               <Button size="small" variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={downloadReport}>
@@ -503,7 +562,7 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
         )}
         {canReview && (
           <Button variant="contained" startIcon={<GavelOutlinedIcon />}
-            disabled={busy || officialTac1Missing || (action === 'approve' && !allReviewed)} onClick={submitReview}>
+            disabled={busy || (useEeComplianceDocs ? eePackageMissing : officialTac1Missing) || (action === 'approve' && !allReviewed)} onClick={submitReview}>
             {action === 'approve' ? 'Grant Govt Technical Concurrence' : 'Submit Committee Action'}
           </Button>
         )}
@@ -513,9 +572,19 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
           open={pdfViewerOpen}
           proposalId={proposalId}
           documentId={pdfDoc.id}
-          fileName={officialPdf?.label ?? pdfDoc.fileName}
+          fileName={useEeComplianceDocs ? (eeDpr?.label ?? pdfDoc.fileName) : (officialPdf?.label ?? pdfDoc.fileName)}
           readOnly={!canReview}
           onClose={() => setPdfViewerOpen(false)}
+        />
+      )}
+      {proposalId && eeComplianceDoc && (
+        <DprPdfReviewViewer
+          open={compliancePdfViewerOpen}
+          proposalId={proposalId}
+          documentId={eeComplianceDoc.documentId}
+          fileName={eeComplianceDoc.label ?? eeComplianceDoc.fileName ?? 'round2-compliance.pdf'}
+          readOnly={!canReview}
+          onClose={() => setCompliancePdfViewerOpen(false)}
         />
       )}
     </Dialog>

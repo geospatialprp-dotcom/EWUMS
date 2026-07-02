@@ -532,7 +532,7 @@ export class DprPlanningService {
     }
     this.assertCanReviewTacRound2(roles);
     const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
-    this.assertOfficialTac1PackageForSecretariat(proposal, docs);
+    this.assertRound2ExaminationDocumentsReady(proposal, docs);
 
     const checklist = {
       technicalExamination: !!dto.technicalExamination,
@@ -828,20 +828,43 @@ export class DprPlanningService {
     if (dto.action === 'forward_secretariat') {
       proposal.status = 'tac_round2_review';
       proposal.currentStage = 7;
+      const dprDoc = this.getLatestDocumentByType(documents, 'dpr_complete_pdf');
+      const complianceDoc = this.getLatestDocumentByType(documents, 'tac_round2_compliance');
+      const existingTac2 = (existingHq.tacRound2 ?? {}) as Record<string, unknown>;
+      proposal.hqVerification = {
+        ...existingHq,
+        tacRound2: {
+          ...existingTac2,
+          examinationDocumentMode: 'ee_compliance_resubmit',
+          eeCompliancePackage: {
+            dprDocumentId: dprDoc?.id ?? null,
+            complianceDocumentId: complianceDoc?.id ?? null,
+            dprFileName: dprDoc?.fileName ?? null,
+            complianceFileName: complianceDoc?.fileName ?? null,
+            forwardedAt: new Date().toISOString(),
+            forwardedBy: userId,
+          },
+        },
+        tacRound2Compliance: {
+          ...existingCompliance,
+          adminReview,
+          lastAdminAction: dto.action,
+          lastAdminRemarks: dto.remarks?.trim() ?? null,
+        },
+      };
     } else {
       proposal.status = 'tac_round2_corrections_required';
       proposal.currentStage = 7;
+      proposal.hqVerification = {
+        ...existingHq,
+        tacRound2Compliance: {
+          ...existingCompliance,
+          adminReview,
+          lastAdminAction: dto.action,
+          lastAdminRemarks: dto.remarks?.trim() ?? null,
+        },
+      };
     }
-
-    proposal.hqVerification = {
-      ...existingHq,
-      tacRound2Compliance: {
-        ...existingCompliance,
-        adminReview,
-        lastAdminAction: dto.action,
-        lastAdminRemarks: dto.remarks?.trim() ?? null,
-      },
-    };
     if (dto.remarks?.trim()) proposal.tacRound2Remarks = dto.remarks.trim();
 
     const saved = await this.proposalRepo.save(proposal);
@@ -2728,6 +2751,68 @@ export class DprPlanningService {
     };
   }
 
+  private getRound2ExaminationDocumentMode(proposal: DprProposal): 'tac1_official' | 'ee_compliance_resubmit' {
+    const tac2 = ((proposal.hqVerification ?? {}) as { tacRound2?: Record<string, unknown> }).tacRound2 ?? {};
+    if (tac2.examinationDocumentMode === 'ee_compliance_resubmit') {
+      return 'ee_compliance_resubmit';
+    }
+    return 'tac1_official';
+  }
+
+  private resolveEeComplianceDprPackage(proposal: DprProposal, documents: DprProposalDocument[]) {
+    const tac2 = ((proposal.hqVerification ?? {}) as { tacRound2?: Record<string, unknown> }).tacRound2 ?? {};
+    const pkg = tac2.eeCompliancePackage as {
+      dprDocumentId?: string;
+      dprFileName?: string | null;
+    } | null | undefined;
+    const doc = pkg?.dprDocumentId
+      ? documents.find((d) => d.id === pkg.dprDocumentId) ?? null
+      : this.getLatestDocumentByType(documents, 'dpr_complete_pdf');
+    if (!doc) return null;
+    return {
+      documentId: doc.id,
+      versionNo: doc.versionNo,
+      fileName: pkg?.dprFileName ?? doc.fileName ?? 'dpr-revised.pdf',
+      label: 'Division EE — Revised Complete DPR',
+      isOfficial: false,
+      isEeCompliance: true,
+    };
+  }
+
+  private resolveEeComplianceDocPackage(proposal: DprProposal, documents: DprProposalDocument[]) {
+    const tac2 = ((proposal.hqVerification ?? {}) as { tacRound2?: Record<string, unknown> }).tacRound2 ?? {};
+    const pkg = tac2.eeCompliancePackage as {
+      complianceDocumentId?: string;
+      complianceFileName?: string | null;
+    } | null | undefined;
+    const doc = pkg?.complianceDocumentId
+      ? documents.find((d) => d.id === pkg.complianceDocumentId) ?? null
+      : this.getLatestDocumentByType(documents, 'tac_round2_compliance');
+    if (!doc) return null;
+    return {
+      documentId: doc.id,
+      versionNo: doc.versionNo,
+      fileName: pkg?.complianceFileName ?? doc.fileName ?? 'round2-compliance.pdf',
+      label: 'Division EE — Round 2 Compliance Document',
+      isEeCompliance: true,
+    };
+  }
+
+  private assertRound2ExaminationDocumentsReady(proposal: DprProposal, documents: DprProposalDocument[]) {
+    if (this.getRound2ExaminationDocumentMode(proposal) === 'ee_compliance_resubmit') {
+      const dpr = this.resolveEeComplianceDprPackage(proposal, documents);
+      const compliance = this.resolveEeComplianceDocPackage(proposal, documents);
+      if (!dpr?.documentId || !documents.find((d) => d.id === dpr.documentId)?.fileUrl) {
+        throw new BadRequestException('Division EE revised Complete DPR PDF is missing for compliance re-examination');
+      }
+      if (!compliance?.documentId || !documents.find((d) => d.id === compliance.documentId)?.fileUrl) {
+        throw new BadRequestException('Round 2 compliance document is missing for Secretariat re-examination');
+      }
+      return;
+    }
+    this.assertOfficialTac1PackageForSecretariat(proposal, documents);
+  }
+
   /** Secretariat Stage 7 — only the DPR frozen at TAC Round 1 clearance (not later division uploads). */
   private assertOfficialTac1PackageForSecretariat(
     proposal: DprProposal,
@@ -2931,7 +3016,14 @@ export class DprPlanningService {
       || (isDivisionDprViewer(roles) && resultsPublished);
     const divisionTracking = inRound2Stage && isDivisionDprViewer(roles) && !canViewRound2Details;
     const adminTracking = inRound2Stage && isStateReviewer(roles) && !this.canReviewTacRound2(roles);
+    const examinationDocumentMode = this.getRound2ExaminationDocumentMode(proposal);
     const officialTac1Dpr = this.resolveOfficialTac1Package(proposal, documents, { officialOnly: true });
+    const eeComplianceDpr = examinationDocumentMode === 'ee_compliance_resubmit'
+      ? this.resolveEeComplianceDprPackage(proposal, documents)
+      : null;
+    const eeComplianceDoc = examinationDocumentMode === 'ee_compliance_resubmit'
+      ? this.resolveEeComplianceDocPackage(proposal, documents)
+      : null;
 
     return {
       pending,
@@ -2941,6 +3033,7 @@ export class DprPlanningService {
       concurrenceGranted: proposal.status === 'govt_technical_concurrence',
       concurrenceGrantedAt: (tacData.concurrenceGrantedAt as string | null) ?? null,
       examination: (tacData.examination as Record<string, unknown> | null) ?? null,
+      examinationDocumentMode,
       viewMode: canBeginExamination
         ? 'initiate' as const
         : canReview
@@ -2952,8 +3045,12 @@ export class DprPlanningService {
       resultsPublished,
       canViewRound2Details,
       awaitingAdminLiaison: adminTracking,
-      officialTac1Dpr,
-      officialTac1Missing: !officialTac1Dpr?.documentId,
+      officialTac1Dpr: examinationDocumentMode === 'tac1_official' ? officialTac1Dpr : null,
+      officialTac1Missing: examinationDocumentMode === 'tac1_official' && !officialTac1Dpr?.documentId,
+      eeComplianceDpr,
+      eeComplianceDoc,
+      eeCompliancePackageMissing: examinationDocumentMode === 'ee_compliance_resubmit'
+        && (!eeComplianceDpr?.documentId || !eeComplianceDoc?.documentId),
       checklist,
       allReviewed,
       complianceNotes: canViewRound2Details ? ((tacData.complianceNotes as string | null) ?? null) : null,

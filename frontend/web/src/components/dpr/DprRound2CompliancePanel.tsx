@@ -232,6 +232,12 @@ export default function DprRound2CompliancePanel({ open, proposalId, liaisonMode
 
         {detail && (
           <>
+            {!liaisonMode && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Upload your division&apos;s <strong>revised Complete DPR PDF</strong> and compliance document.
+                This is EE compliance work — not the frozen TAC Round 1 copy used in the first Secretariat examination.
+              </Alert>
+            )}
             <Typography variant="subtitle1" fontWeight={600} gutterBottom>{detail.title}</Typography>
             <Chip size="small" label={detail.statusLabel ?? detail.status} sx={{ mb: 2 }} />
 
