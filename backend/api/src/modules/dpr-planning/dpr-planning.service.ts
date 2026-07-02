@@ -52,7 +52,8 @@ import { validateDprPdfBuffer, type DprPdfValidationReport } from './utils/dpr-p
 import { buildDprValidationExcelExport } from './utils/dpr-excel-audit-export.util';
 import { LandAcquisitionService } from '../land-acquisition/land-acquisition.service';
 import type { LaReadiness } from '../land-acquisition/land-acquisition.service';
-import { DprPdfReview } from '../dpr-pdf-review/entities/dpr-pdf-review.entity';
+import { readFileSync } from 'fs';
+import { DprPdfReview, DprPdfAnnotation } from '../dpr-pdf-review/entities/dpr-pdf-review.entity';
 import { assertNotSuperAdminRolesForOperations, isSuperAdmin } from '../../common/utils/operational-access.util';
 
 type Transition = { next: string; stage: number };
@@ -67,6 +68,7 @@ export class DprPlanningService {
     @InjectRepository(DprSanction) private sanctionRepo: Repository<DprSanction>,
     @InjectRepository(DprTenderPackage) private tenderRepo: Repository<DprTenderPackage>,
     @InjectRepository(DprPdfReview) private pdfReviewRepo: Repository<DprPdfReview>,
+    @InjectRepository(DprPdfAnnotation) private pdfAnnotationRepo: Repository<DprPdfAnnotation>,
     private divisionAccess: DivisionAccessService,
     private landAcquisitionService: LandAcquisitionService,
   ) {}
@@ -124,9 +126,21 @@ export class DprPlanningService {
     return Promise.all(rows.map((r) => this.toRecord(tenantId, r, false, user.roles ?? [])));
   }
 
-  async getProposal(tenantId: string, id: string, roles: string[] = []) {
+  async getProposal(tenantId: string, id: string, roles: string[] = [], userId?: string) {
     const row = await this.proposalRepo.findOne({ where: { id, tenantId } });
     if (!row) throw new NotFoundException('DPR proposal not found');
+    if (userId && (isSecretariatReviewer(roles) || isSuperAdmin(roles))) {
+      const needsTac1Snap = [
+        'secretariat_submitted',
+        'tac_round2_review',
+      ].includes(row.status)
+        && this.getRound2ExaminationDocumentMode(row) === 'tac1_official';
+      if (needsTac1Snap) {
+        const docs = await this.docRepo.find({ where: { tenantId, proposalId: id } });
+        await this.ensureTac1OfficialSnapshot(tenantId, userId, row, docs);
+        await this.proposalRepo.save(row);
+      }
+    }
     return this.toRecord(tenantId, row, true, roles);
   }
 
@@ -478,7 +492,12 @@ export class DprPlanningService {
     }
     this.assertCanReviewTacRound2(roles);
     const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
-    this.assertOfficialTac1PackageForSecretariat(proposal, docs);
+    if (this.getRound2ExaminationDocumentMode(proposal) === 'tac1_official') {
+      await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
+      await this.proposalRepo.save(proposal);
+    }
+    const docsForAssert = await this.docRepo.find({ where: { tenantId, proposalId } });
+    this.assertRound2ExaminationDocumentsReady(proposal, docsForAssert);
 
     const fromStatus = proposal.status;
     const startedAt = new Date();
@@ -535,7 +554,14 @@ export class DprPlanningService {
     }
     this.assertCanReviewTacRound2(roles);
     const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
-    this.assertRound2ExaminationDocumentsReady(proposal, docs);
+    if (this.getRound2ExaminationDocumentMode(proposal) === 'tac1_official') {
+      await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
+      await this.proposalRepo.save(proposal);
+      const docsRefreshed = await this.docRepo.find({ where: { tenantId, proposalId } });
+      this.assertRound2ExaminationDocumentsReady(proposal, docsRefreshed);
+    } else {
+      this.assertRound2ExaminationDocumentsReady(proposal, docs);
+    }
 
     const checklist = {
       technicalExamination: !!dto.technicalExamination,
@@ -1451,18 +1477,18 @@ export class DprPlanningService {
 
     if (dto.action === 'approve') {
       const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
-      const officialPdf = await this.resolveTac1OfficialDocumentForFreeze(tenantId, proposalId, docs);
+      const snapDoc = await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
       const tacRound1 = (proposal.hqVerification as { tacRound1?: Record<string, unknown> }).tacRound1 ?? {};
       (proposal.hqVerification as { tacRound1: Record<string, unknown> }).tacRound1 = {
         ...tacRound1,
-        officialPackage: officialPdf
+        officialPackage: snapDoc
           ? {
-              documentId: officialPdf.id,
-              versionNo: officialPdf.versionNo,
-              fileName: officialPdf.fileName,
+              documentId: snapDoc.id,
+              versionNo: snapDoc.versionNo,
+              fileName: snapDoc.fileName,
               frozenAt: new Date().toISOString(),
               source: 'tac_round1_cleared',
-              label: 'TAC Round 1 — Reviewed DPR (official)',
+              label: 'TAC Round 1 — Reviewed DPR (official snapshot)',
             }
           : null,
       };
@@ -2746,6 +2772,163 @@ export class DprPlanningService {
     }
 
     return this.getLatestDocumentByType(documents, 'dpr_complete_pdf');
+  }
+
+  private async countHqPdfAnnotations(tenantId: string, documentId: string): Promise<number> {
+    const reviews = await this.pdfReviewRepo.find({
+      where: { tenantId, documentId, reviewerScope: 'hq' },
+    });
+    if (!reviews.length) return 0;
+    let total = 0;
+    for (const review of reviews) {
+      total += await this.pdfAnnotationRepo.count({ where: { tenantId, reviewId: review.id } });
+    }
+    return total;
+  }
+
+  private async clonePdfReviewMarkup(
+    tenantId: string,
+    userId: string,
+    proposalId: string,
+    sourceDocumentId: string,
+    destDocumentId: string,
+  ) {
+    const sourceReview = await this.pdfReviewRepo.findOne({
+      where: { tenantId, proposalId, documentId: sourceDocumentId, reviewerScope: 'hq' },
+      order: { updatedAt: 'DESC' },
+    });
+    if (!sourceReview) return;
+
+    let destReview = await this.pdfReviewRepo.findOne({
+      where: { tenantId, proposalId, documentId: destDocumentId, reviewerScope: 'hq' },
+    });
+    if (!destReview) {
+      destReview = await this.pdfReviewRepo.save(this.pdfReviewRepo.create({
+        tenantId,
+        proposalId,
+        documentId: destDocumentId,
+        reviewerScope: 'hq',
+        status: 'verified',
+        createdBy: userId,
+      }));
+    }
+
+    const annotations = await this.pdfAnnotationRepo.find({
+      where: { tenantId, reviewId: sourceReview.id },
+    });
+    await this.pdfAnnotationRepo.delete({ tenantId, reviewId: destReview.id });
+    for (const ann of annotations) {
+      await this.pdfAnnotationRepo.save(this.pdfAnnotationRepo.create({
+        tenantId,
+        reviewId: destReview.id,
+        proposalId,
+        documentId: destDocumentId,
+        pageNumber: ann.pageNumber,
+        annotationType: ann.annotationType,
+        geometry: ann.geometry,
+        color: ann.color,
+        content: ann.content,
+        createdBy: ann.createdBy,
+        updatedBy: userId,
+      }));
+    }
+  }
+
+  /**
+   * Immutable TAC1 official PDF + copied Super Admin markup for Secretariat.
+   * EE re-uploads to dpr_complete_pdf cannot change this snapshot.
+   */
+  async ensureTac1OfficialSnapshot(
+    tenantId: string,
+    userId: string,
+    proposal: DprProposal,
+    documents: DprProposalDocument[],
+  ): Promise<DprProposalDocument | null> {
+    const hq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const tacRound1 = (hq.tacRound1 ?? {}) as Record<string, unknown>;
+    const frozen = tacRound1.officialPackage as { documentId?: string } | null | undefined;
+
+    const existingSnap = frozen?.documentId
+      ? documents.find((d) => d.id === frozen.documentId && d.documentType === 'tac_round1_official_pdf') ?? null
+      : this.getLatestDocumentByType(documents, 'tac_round1_official_pdf');
+
+    if (existingSnap) {
+      const markupCount = await this.countHqPdfAnnotations(tenantId, existingSnap.id);
+      if (markupCount > 0) {
+        tacRound1.officialPackage = {
+          ...(frozen ?? {}),
+          documentId: existingSnap.id,
+          versionNo: existingSnap.versionNo,
+          fileName: existingSnap.fileName,
+          frozenAt: (frozen as { frozenAt?: string })?.frozenAt ?? new Date().toISOString(),
+          source: 'tac_round1_official_snapshot',
+          label: 'TAC Round 1 — Reviewed DPR (official snapshot)',
+        };
+        proposal.hqVerification = { ...hq, tacRound1 };
+        return existingSnap;
+      }
+    }
+
+    const source = await this.resolveTac1OfficialDocumentForFreeze(tenantId, proposal.id, documents);
+    if (!source?.fileUrl) return null;
+
+    const absPath = resolveDprProposalFilePath(source.fileUrl);
+    if (!fileExists(absPath)) return null;
+
+    const buffer = readFileSync(absPath);
+    const savedFile = saveDprProposalFile(proposal.id, {
+      buffer,
+      originalname: source.fileName ?? 'tac1-official-snapshot.pdf',
+    });
+    const snapDoc = await this.saveDocumentVersion(
+      tenantId,
+      userId,
+      proposal,
+      'tac_round1_official_pdf',
+      savedFile.fileName,
+      savedFile.fileUrl,
+      'TAC Round 1 official snapshot — Secretariat examination copy',
+    );
+
+    await this.clonePdfReviewMarkup(tenantId, userId, proposal.id, source.id, snapDoc.id);
+
+    proposal.hqVerification = {
+      ...hq,
+      tacRound1: {
+        ...tacRound1,
+        officialPackage: {
+          documentId: snapDoc.id,
+          versionNo: snapDoc.versionNo,
+          fileName: snapDoc.fileName,
+          frozenAt: new Date().toISOString(),
+          source: 'tac_round1_official_snapshot',
+          label: 'TAC Round 1 — Reviewed DPR (official snapshot)',
+          copiedFromDocumentId: source.id,
+        },
+      },
+    };
+
+    return snapDoc;
+  }
+
+  async rebuildTac1OfficialSnapshot(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+  ) {
+    if (!isSuperAdmin(roles)) {
+      throw new ForbiddenException('Only Super Admin can rebuild the TAC Round 1 official snapshot');
+    }
+    const proposal = await this.requireProposal(tenantId, proposalId);
+    const docs = await this.docRepo.find({ where: { tenantId, proposalId } });
+    const hq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const tacRound1 = (hq.tacRound1 ?? {}) as Record<string, unknown>;
+    tacRound1.officialPackage = null;
+    proposal.hqVerification = { ...hq, tacRound1 };
+    await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
+    const saved = await this.proposalRepo.save(proposal);
+    return this.toRecord(tenantId, saved, true, roles);
   }
 
   private resolveOfficialTac1Package(

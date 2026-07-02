@@ -228,6 +228,7 @@ export const DPR_DOCUMENT_TYPES = [
   { type: 'technical_specs', label: 'Technical Specifications', stage: 3 },
   { type: 'dpr_complete_pdf', label: 'Complete DPR (PDF for TAC)', stage: 3 },
   { type: 'boq_tac_excel', label: 'Complete BOQ Excel (TAC)', stage: 3 },
+  { type: 'tac_round1_official_pdf', label: 'TAC Round 1 Official DPR (frozen snapshot)', stage: 6 },
   { type: 'tac_compliance', label: 'TAC Compliance Report', stage: 5 },
   { type: 'tac_round2_compliance', label: 'Round 2 Compliance Submission', stage: 7 },
   { type: 'sanction_aa', label: 'Administrative Approval (AA)', stage: 8 },

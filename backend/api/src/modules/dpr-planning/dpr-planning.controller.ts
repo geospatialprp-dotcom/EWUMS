@@ -73,7 +73,7 @@ export class DprPlanningController {
   @Get('proposals/:id')
   @RequirePermissions('dpr_proposal:read')
   getProposal(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    return this.service.getProposal(user.tenantId, id, user.roles ?? []);
+    return this.service.getProposal(user.tenantId, id, user.roles ?? [], user.sub);
   }
 
   @Post('proposals/:id/stage3-hq-remarks')
@@ -252,6 +252,13 @@ export class DprPlanningController {
     @Body() dto: SubmitRound2ComplianceDto,
   ) {
     return this.service.submitRound2Compliance(user.tenantId, user.sub, user.roles ?? [], id, dto);
+  }
+
+  @Post('proposals/:id/rebuild-tac1-official-snapshot')
+  @RequirePermissions('dpr_proposal:approve')
+  @ApiOperation({ summary: 'Rebuild immutable TAC Round 1 official PDF snapshot with Super Admin markup' })
+  rebuildTac1OfficialSnapshot(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.rebuildTac1OfficialSnapshot(user.tenantId, user.sub, user.roles ?? [], id);
   }
 
   @Post('proposals/:id/review-round2-compliance-admin')
