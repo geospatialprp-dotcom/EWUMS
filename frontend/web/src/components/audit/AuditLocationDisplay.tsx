@@ -3,7 +3,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import {
   AuditLocationFields,
   getAuditLocationPresentation,
-} from './auditLocationDisplay';
+} from '../../utils/auditLocationDisplay';
 
 export function AuditLocationDisplay({ entry }: { entry: AuditLocationFields }) {
   const pres = getAuditLocationPresentation(entry);

@@ -15,7 +15,7 @@ import SurfaceCard from '../../components/layout/SurfaceCard';
 
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { exportAuditTrailPdf } from '../../utils/pdfExport';
-import AuditLocationDisplay from '../../components/audit/AuditLocationDisplay';
+import { AuditLocationDisplay } from '../../components/audit/AuditLocationDisplay';
 import { useDivisionScope } from '../../context/DivisionContext';
 import ExportPdfButton from '../../components/common/ExportPdfButton';
 
