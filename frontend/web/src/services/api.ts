@@ -95,6 +95,28 @@ export type AuditLogsResponse = {
   }>;
 };
 
+function normalizeUsersListResponse(data: unknown): UsersListResponse {
+  if (Array.isArray(data)) {
+    return { divisionScope: null, users: data as UserRecord[] };
+  }
+  const payload = data as UsersListResponse | null | undefined;
+  return {
+    divisionScope: payload?.divisionScope ?? null,
+    users: payload?.users ?? [],
+  };
+}
+
+function normalizeAuditLogsResponse(data: unknown): AuditLogsResponse {
+  if (Array.isArray(data)) {
+    return { divisionScope: null, logs: data as AuditLogsResponse['logs'] };
+  }
+  const payload = data as AuditLogsResponse | null | undefined;
+  return {
+    divisionScope: payload?.divisionScope ?? null,
+    logs: payload?.logs ?? [],
+  };
+}
+
 export interface RoleRecord {
   id: string;
   code: string;
@@ -483,7 +505,10 @@ export const featureClassesApi = {
 };
 
 export const usersApi = {
-  list: () => api.get<UsersListResponse>('/users'),
+  list: async () => {
+    const res = await api.get<UsersListResponse | UserRecord[]>('/users');
+    return { ...res, data: normalizeUsersListResponse(res.data) };
+  },
   get: (id: string) => api.get<UserRecord>(`/users/${id}`),
   create: (data: object) => api.post<UserRecord>('/users', data),
   update: (id: string, data: object) => api.patch<UserRecord>(`/users/${id}`, data),
@@ -507,7 +532,10 @@ export const workflowsApi = {
 };
 
 export const auditApi = {
-  logs: (limit?: number) => api.get<AuditLogsResponse>('/audit/logs', { params: { limit } }),
+  logs: async (limit?: number) => {
+    const res = await api.get<AuditLogsResponse | AuditLogsResponse['logs']>('/audit/logs', { params: { limit } });
+    return { ...res, data: normalizeAuditLogsResponse(res.data) };
+  },
 };
 
 export type SchemeType = 'gravity' | 'pumping';

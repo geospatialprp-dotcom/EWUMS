@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 
 import {
   Box, Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tooltip, Typography,
+  Tooltip, Typography, Alert,
 } from '@mui/material';
 
 import { auditApi } from '../../services/api';
@@ -178,15 +178,18 @@ export default function AuditLogsPage() {
   const divisionScopeKey = useDivisionScopeKey();
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [divisionScope, setDivisionScope] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
+    setLoadError('');
     auditApi.logs(200)
       .then((r) => {
-        setLogs(r.data.logs ?? []);
+        setLogs(r.data.logs);
         setDivisionScope(r.data.divisionScope ?? activeDivision?.name ?? null);
       })
+      .catch(() => setLoadError('Failed to load audit trail. Rebuild API on VPS if this persists after refresh.'))
       .finally(() => setLoading(false));
   }, [divisionScopeKey, activeDivision?.name]);
 
@@ -203,6 +206,8 @@ export default function AuditLogsPage() {
           />
         )}
       />
+
+      {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
 
       <AdminTableShell
         title="Activity Log"
