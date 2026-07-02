@@ -749,6 +749,10 @@ export default function DprPlanningPage() {
         onComplianceRequired={() => {
           setSuccess('Round 2 compliance required — ask Division EE to open Stage 7 — Submit Round 2 Compliance.');
         }}
+        onOpenCompliance={(id) => {
+          setRound2ComplianceLiaisonMode(false);
+          setRound2ComplianceOpen(id);
+        }}
       />
 
       <DprRound2CompliancePanel

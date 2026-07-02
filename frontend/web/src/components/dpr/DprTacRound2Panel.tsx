@@ -102,9 +102,10 @@ interface Props {
   onClose: () => void;
   onUpdated: () => void;
   onComplianceRequired?: (proposalId: string) => void;
+  onOpenCompliance?: (proposalId: string) => void;
 }
 
-export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated, onComplianceRequired }: Props) {
+export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated, onComplianceRequired, onOpenCompliance }: Props) {
   const [detail, setDetail] = useState<ProposalDetail | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -172,6 +173,7 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
   const canReview = tac2?.canReview === true;
   const canViewDetails = tac2?.canViewRound2Details !== false;
   const isTracking = tac2?.viewMode === 'track';
+  const needsRound2Compliance = ['tac_round2_corrections_required', 'tac_round2_compliance'].includes(detail?.status ?? '');
   const concurrenceGranted = tac2?.concurrenceGranted === true || detail?.status === 'govt_technical_concurrence';
   const allReviewed = DPR_TAC_ROUND2_CHECKLIST.every((item) => checklist[item.key as keyof typeof checklist]);
 
@@ -318,7 +320,25 @@ export default function DprTacRound2Panel({ open, proposalId, onClose, onUpdated
               </Alert>
             )}
 
-            {isTracking && !canViewDetails && !concurrenceGranted && (
+            {isTracking && needsRound2Compliance && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700}>Action required — Round 2 compliance</Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Secretariat returned the DPR for compliance (see &quot;Last&quot; chip above). Close this tracker and use{' '}
+                  <strong>Stage 7 — Submit Round 2 Compliance</strong> on the proposal row to upload revised documents.
+                </Typography>
+                {proposalId && onOpenCompliance && (
+                  <Button size="small" variant="contained" color="warning" onClick={() => {
+                    onClose();
+                    onOpenCompliance(proposalId);
+                  }}>
+                    Open compliance submission
+                  </Button>
+                )}
+              </Alert>
+            )}
+
+            {isTracking && !needsRound2Compliance && !canViewDetails && !concurrenceGranted && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 <Typography variant="body2">
                   DPR is under Secretariat / Govt examination. Detailed observations will appear here after concurrence is granted.
