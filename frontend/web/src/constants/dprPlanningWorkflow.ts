@@ -188,7 +188,15 @@ export function canRecordDprSanction(roles: string[]): boolean {
 }
 
 export function canInitiateDprTenderPrep(roles: string[]): boolean {
-  return isStateReviewer(roles);
+  return roles.includes('super_admin');
+}
+
+export function canAuthorizeDprTenderPrep(roles: string[]): boolean {
+  return roles.includes('super_admin');
+}
+
+export function canBeginEeDprTenderPrep(roles: string[]): boolean {
+  return roles.includes('ee');
 }
 
 /** Super Admin may initiate proposals only — not post-creation pipeline actions. */

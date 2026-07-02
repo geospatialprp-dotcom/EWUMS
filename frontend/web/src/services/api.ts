@@ -881,6 +881,10 @@ export const dprPlanningApi = {
     api.post(`/dpr-planning/proposals/${id}/record-sanction`, data),
   initiateTenderPreparation: (id: string, data: object) =>
     api.post(`/dpr-planning/proposals/${id}/initiate-tender-prep`, data),
+  authorizeTenderPrepForEe: (id: string, data?: object) =>
+    api.post(`/dpr-planning/proposals/${id}/initiate-tender-prep`, data ?? {}),
+  beginEeTenderPrep: (id: string, data?: object) =>
+    api.post(`/dpr-planning/proposals/${id}/begin-ee-tender-prep`, data ?? {}),
   downloadTenderTaskOrder: async (id: string) => {
     const { data } = await api.get(`/dpr-planning/proposals/${id}/tender-task-order`, { responseType: 'blob' });
     return data as Blob;

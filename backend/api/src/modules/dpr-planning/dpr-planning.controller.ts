@@ -30,6 +30,7 @@ import {
   ReviewRound2ComplianceAdminDto,
   RecordAdministrativeSanctionDto,
   InitiateTenderPreparationDto,
+  BeginEeTenderPrepDto,
   BeginTenderProcessingDto,
   TenderApprovalReviewDto,
   PublishTenderDto,
@@ -299,13 +300,24 @@ export class DprPlanningController {
 
   @Post('proposals/:id/initiate-tender-prep')
   @RequirePermissions('dpr_proposal:approve')
-  @ApiOperation({ summary: 'Stage 9 — Division EE initiates tender preparation and issues Task Order package' })
-  initiateTenderPreparation(
+  @ApiOperation({ summary: 'Stage 9 — Super Admin authorizes Division EE to download sanctioned package and prepare tender docs' })
+  authorizeTenderPrepForEe(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: InitiateTenderPreparationDto,
   ) {
-    return this.service.initiateTenderPreparation(user.tenantId, user.sub, user.roles ?? [], id, dto);
+    return this.service.authorizeTenderPrepForEe(user.tenantId, user.sub, user.roles ?? [], id, dto);
+  }
+
+  @Post('proposals/:id/begin-ee-tender-prep')
+  @RequirePermissions('dpr_proposal:approve', 'dpr_proposal:update')
+  @ApiOperation({ summary: 'Stage 9 — Division EE acknowledges sanctioned package and begins tender preparation' })
+  beginEeTenderPrep(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: BeginEeTenderPrepDto,
+  ) {
+    return this.service.beginEeTenderPrep(user.tenantId, user.sub, user.roles ?? [], id, dto);
   }
 
   @Get('proposals/:id/tender-task-order')

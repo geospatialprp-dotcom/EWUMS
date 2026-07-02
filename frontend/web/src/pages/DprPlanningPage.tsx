@@ -43,7 +43,6 @@ import { useAuth } from '../context/AuthContext';
 import {
   canForwardDprToTac,
   canForwardToSecretariat,
-  canInitiateDprTenderPrep,
   canPerformHqReview,
   canPerformTacReview,
   canPerformTacRound2Review,
@@ -84,6 +83,7 @@ type ProposalRow = {
     assignedAt?: string | null;
     message?: string | null;
   } | null;
+  tenderPrepAuthorized?: boolean;
 };
 
 type DashboardData = {
@@ -125,7 +125,6 @@ export default function DprPlanningPage() {
   const canTacRound2Review = canPerformTacRound2Review(roles);
   const canTrackSecretariatRound2 = (isDivisionDprViewer(roles) || isSuperAdmin) && !isSecretariatReviewer(roles);
   const canRecordSanction = canRecordDprSanction(roles);
-  const canInitiateTender = canInitiateDprTenderPrep(roles);
   const isSecretariatOnly = isSecretariatReviewer(roles) && !isSuperAdmin;
   const [dashboard, setDashboard] = useState<DashboardData>({});
   const [rows, setRows] = useState<ProposalRow[]>([]);
@@ -410,6 +409,15 @@ export default function DprPlanningPage() {
         </Alert>
       )}
 
+      {isSuperAdmin && rows.some((r) => r.status === 'sanctioned' && !r.tenderPrepAuthorized) && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Sanctioned — authorize Division EE for tender preparation</Typography>
+          <Typography variant="body2">
+            After Secretariat sanction, open <strong>Authorize EE — Tender Prep</strong> so Division EE can download the final sanctioned DPR package and prepare BOQ / tender documents.
+          </Typography>
+        </Alert>
+      )}
+
       <Box
         sx={{
           mb: 2.5,
@@ -607,9 +615,11 @@ export default function DprPlanningPage() {
                     )}
                     {['sanctioned', 'tender_prep_initiated'].includes(row.status) && !isSecretariatReviewer(roles) && (
                       <Button size="small" startIcon={<AssignmentOutlinedIcon />} onClick={() => setTenderInitOpen(row.id)}>
-                        {row.status === 'sanctioned' && canInitiateTender
-                          ? 'Stage 9 — Initiate Tender'
-                          : 'Tender Prep Status'}
+                        {row.status === 'sanctioned' && isSuperAdmin && !row.tenderPrepAuthorized
+                          ? 'Authorize EE — Tender Prep'
+                          : row.status === 'sanctioned' && canInitiateAsEe && row.tenderPrepAuthorized
+                            ? 'Stage 9 — Download & Prepare'
+                            : 'Tender Prep Status'}
                       </Button>
                     )}
                     {['tender_prep_initiated', 'tender_processing', 'tender_published'].includes(row.status) && !isSecretariatReviewer(roles) && (
@@ -912,9 +922,10 @@ export default function DprPlanningPage() {
       <DprTenderInitiationPanel
         open={!!tenderInitOpen}
         proposalId={tenderInitOpen}
+        isSuperAdmin={isSuperAdmin}
         onClose={() => setTenderInitOpen(null)}
         onUpdated={() => {
-          setSuccess('Tender Preparation Task Order issued — tender prep initiated.');
+          setSuccess('Tender preparation workflow updated.');
           load();
         }}
       />

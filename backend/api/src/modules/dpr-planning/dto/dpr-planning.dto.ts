@@ -301,7 +301,8 @@ export class RecordAdministrativeSanctionDto {
   comments?: string;
 }
 
-export class InitiateTenderPreparationDto {
+/** Super Admin authorizes Division EE to download sanctioned package and begin tender preparation. */
+export class AuthorizeTenderPrepDto {
   @IsOptional()
   @IsString()
   divisionInstructions?: string;
@@ -309,21 +310,15 @@ export class InitiateTenderPreparationDto {
   @IsOptional()
   @IsString()
   comments?: string;
+}
 
-  @IsOptional()
-  finalBoqPrep?: boolean;
+/** @deprecated Use AuthorizeTenderPrepDto — kept for route compatibility */
+export class InitiateTenderPreparationDto extends AuthorizeTenderPrepDto {}
 
+export class BeginEeTenderPrepDto {
   @IsOptional()
-  sorVerification?: boolean;
-
-  @IsOptional()
-  bidPackagePrep?: boolean;
-
-  @IsOptional()
-  techSpecsFinalization?: boolean;
-
-  @IsOptional()
-  tenderDocGeneration?: boolean;
+  @IsString()
+  comments?: string;
 }
 
 export class BeginTenderProcessingDto {

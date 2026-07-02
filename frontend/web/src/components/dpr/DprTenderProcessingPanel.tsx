@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import PublishOutlinedIcon from '@mui/icons-material/PublishOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
@@ -34,6 +35,8 @@ type Stage10Readiness = {
   canActAe?: boolean;
   canActEe?: boolean;
   canPublish?: boolean;
+  canHighlightUkTender?: boolean;
+  canDownloadForVerification?: boolean;
   canReview?: boolean;
   approvals?: Array<{ level?: string; action?: string; remarks?: string | null; at?: string }>;
   packageNo?: string | null;
@@ -116,6 +119,8 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
   const canReview = readiness?.canReview === true;
   const canPublish = readiness?.canPublish === true;
   const published = readiness?.published === true;
+  const highlightUkTender = readiness?.canHighlightUkTender === true;
+  const canDownloadForVerification = readiness?.canDownloadForVerification === true;
 
   const activeStep = APPROVAL_STEPS.indexOf(
     (readiness?.approvalLevel ?? 'je') as typeof APPROVAL_STEPS[number],
@@ -252,6 +257,26 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
             <Typography variant="subtitle1" fontWeight={600} gutterBottom>{detail.title}</Typography>
             <Chip size="small" label={detail.statusLabel ?? detail.status} sx={{ mb: 2 }} />
 
+            {highlightUkTender && (
+              <Alert severity="success" sx={{ mb: 2, border: '2px solid', borderColor: 'success.main' }}>
+                <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                  Tender Cleared — Ready for UK Tender Portal
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1.5 }}>
+                  JE, AE, and EE sequential verification is complete. Download final documents below, then publish the tender on the UK Tender portal.
+                </Typography>
+                <Button
+                  size="medium"
+                  variant="contained"
+                  color="success"
+                  startIcon={<OpenInNewOutlinedIcon />}
+                  onClick={() => window.open(UK_TENDER_PORTAL_URL, '_blank', 'noopener,noreferrer')}
+                >
+                  Open UK Tender Portal for Bidding
+                </Button>
+              </Alert>
+            )}
+
             {published && (
               <Alert severity="success" sx={{ mb: 2 }}>
                 <Typography variant="subtitle2">Tender Published</Typography>
@@ -285,20 +310,22 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
             <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
               Tender Package Preparation
             </Typography>
-            <Alert severity="info" sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                UK Tender portal link is available throughout Stage 10 for EE reference.
-              </Typography>
-              <Button
-                size="small"
-                variant="contained"
-                color="secondary"
-                startIcon={<OpenInNewOutlinedIcon />}
-                onClick={() => window.open(UK_TENDER_PORTAL_URL, '_blank', 'noopener,noreferrer')}
-              >
-                Open UK Tender Portal
-              </Button>
-            </Alert>
+            {!highlightUkTender && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  UK Tender portal link is available throughout Stage 10 for EE reference.
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<OpenInNewOutlinedIcon />}
+                  onClick={() => window.open(UK_TENDER_PORTAL_URL, '_blank', 'noopener,noreferrer')}
+                >
+                  Open UK Tender Portal
+                </Button>
+              </Alert>
+            )}
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
               {(readiness?.prepDocuments ?? DPR_TENDER_PROCESSING_DOCUMENT_TYPES.map((d) => ({
                 key: d.type, label: d.label, attached: false, required: true,
@@ -351,6 +378,35 @@ export default function DprTenderProcessingPanel({ open, proposalId, onClose, on
                     </ListItem>
                   ))}
                 </List>
+              </>
+            )}
+
+            {canDownloadForVerification && (
+              <>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="overline" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                  Download for Verification
+                </Typography>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Download all tender documents, verify, and forward through JE → AE → EE approval chain.
+                </Alert>
+                <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
+                  {requiredBeforePublish.map((item) => {
+                    const doc = slotMap.get(item.key)?.document;
+                    return (
+                      <Button
+                        key={item.key}
+                        size="small"
+                        variant="outlined"
+                        disabled={!doc?.id}
+                        startIcon={<DownloadOutlinedIcon />}
+                        onClick={() => doc?.id && download(doc.id, doc.fileName ?? `${item.key}.pdf`)}
+                      >
+                        {doc?.id ? item.label : `${item.label} (missing)`}
+                      </Button>
+                    );
+                  })}
+                </Box>
               </>
             )}
 

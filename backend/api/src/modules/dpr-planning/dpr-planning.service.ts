@@ -37,7 +37,7 @@ import {
   isSecretariatReviewer,
   isStateReviewer,
 } from './constants/dpr-planning.constants';
-import { AdvanceDprProposalDto, AssignRound2ComplianceToEeDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, ReviewRound2ComplianceAdminDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
+import { AdvanceDprProposalDto, AssignRound2ComplianceToEeDto, BeginEeTenderPrepDto, BeginTacRound2ExaminationDto, BeginTenderProcessingDto, CreateDprProposalDto, ForwardToSecretariatDto, ForwardToTacDto, HqReviewDprProposalDto, InitiateTenderPreparationDto, PublishTenderDto, RecordAdministrativeSanctionDto, ResubmitRevisedDprDto, ReviewRound2ComplianceAdminDto, Stage3HqRemarksDto, SubmitDprProposalDto, SubmitDprToHqDto, SubmitRound2ComplianceDto, TacReviewDprProposalDto, TacRound2ReviewDto, TacValidationModeDto, TenderApprovalReviewDto, UpdateDprProposalDto, UploadDprDocumentDto } from './dto/dpr-planning.dto';
 import { DprProposal } from './entities/dpr-proposal.entity';
 import {
   DprProposalDocument,
@@ -141,6 +141,14 @@ export class DprPlanningService {
         await this.ensureTac1OfficialSnapshot(tenantId, userId, row, docs);
         await this.proposalRepo.save(row);
       }
+    }
+    const hq = (row.hqVerification ?? {}) as { sanctionedOfficialPackage?: unknown };
+    if (['sanctioned', 'tender_prep_initiated', 'tender_processing', 'tender_published'].includes(row.status)
+      && !hq.sanctionedOfficialPackage) {
+      const docs = await this.docRepo.find({ where: { tenantId, proposalId: id } });
+      const sanctionedOfficialPackage = await this.buildSanctionedOfficialPackageAsync(tenantId, row, docs);
+      row.hqVerification = { ...(row.hqVerification ?? {}), sanctionedOfficialPackage };
+      await this.proposalRepo.save(row);
     }
     return this.toRecord(tenantId, row, true, roles);
   }
@@ -1045,9 +1053,11 @@ export class DprPlanningService {
     await this.sanctionRepo.save(row);
 
     const recordedAt = new Date().toISOString();
+    const sanctionedOfficialPackage = await this.buildSanctionedOfficialPackageAsync(tenantId, proposal, documents);
     const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
     proposal.hqVerification = {
       ...existingHq,
+      sanctionedOfficialPackage,
       administrativeSanction: {
         administrativeApprovalNo: dto.administrativeApprovalNo.trim(),
         expenditureSanctionNo: dto.expenditureSanctionNo.trim(),
@@ -1091,7 +1101,7 @@ export class DprPlanningService {
     return this.toRecord(tenantId, saved, true, roles);
   }
 
-  async initiateTenderPreparation(
+  async authorizeTenderPrepForEe(
     tenantId: string,
     userId: string,
     roles: string[],
@@ -1100,29 +1110,93 @@ export class DprPlanningService {
   ) {
     const proposal = await this.requireProposal(tenantId, proposalId);
     if (proposal.status !== 'sanctioned') {
-      throw new BadRequestException('Tender preparation can only be initiated after Administrative Sanction & Budget Approval');
+      throw new BadRequestException('Tender preparation can only be authorized after Administrative Sanction');
     }
-    this.assertCanInitiateTenderPrep(roles);
+    this.assertCanAuthorizeTenderPrep(roles);
 
     const sanction = await this.sanctionRepo.findOne({ where: { tenantId, proposalId } });
     if (!sanction?.administrativeApprovalNo && !sanction?.expenditureSanctionNo) {
-      throw new BadRequestException('Administrative sanction must be recorded before initiating tender preparation');
+      throw new BadRequestException('Administrative sanction must be recorded before authorizing tender preparation');
     }
 
-    const checklist = {
-      finalBoqPrep: !!dto.finalBoqPrep,
-      sorVerification: !!dto.sorVerification,
-      bidPackagePrep: !!dto.bidPackagePrep,
-      techSpecsFinalization: !!dto.techSpecsFinalization,
-      tenderDocGeneration: !!dto.tenderDocGeneration,
+    const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const existingAuth = (existingHq.tenderPrepAuthorization ?? {}) as { authorizedAt?: string };
+    if (existingAuth.authorizedAt) {
+      throw new BadRequestException('Division EE is already authorized for tender preparation');
+    }
+
+    let divisionName: string | null = null;
+    if (proposal.divisionId) {
+      const div = await this.proposalRepo.query(
+        'SELECT name FROM divisions WHERE id = $1 AND tenant_id = $2',
+        [proposal.divisionId, tenantId],
+      ) as Array<{ name?: string }>;
+      divisionName = div[0]?.name ?? null;
+    }
+
+    const authorizedAt = new Date().toISOString();
+    proposal.hqVerification = {
+      ...existingHq,
+      tenderPrepAuthorization: {
+        authorizedAt,
+        authorizedBy: userId,
+        divisionId: proposal.divisionId,
+        divisionName,
+        divisionInstructions: dto.divisionInstructions?.trim() ?? null,
+        comments: dto.comments?.trim() ?? null,
+        sanctionSummary: {
+          administrativeApprovalNo: sanction.administrativeApprovalNo,
+          expenditureSanctionNo: sanction.expenditureSanctionNo,
+          sanctionedAmount: sanction.sanctionedAmount,
+          budgetHead: sanction.budgetHead,
+          sanctionDate: sanction.sanctionDate,
+        },
+      },
     };
-    const missing = DPR_TENDER_PREP_CHECKLIST.filter((item) => !checklist[item.key]);
-    if (missing.length) {
-      throw new BadRequestException(
-        `Confirm all division addressal items before initiating: ${missing.map((m) => m.label).join(', ')}`,
-      );
+
+    const saved = await this.proposalRepo.save(proposal);
+    const actorRole = roles.find((r) => r !== 'super_admin') ?? roles[0] ?? null;
+    await this.logEvent(
+      tenantId,
+      proposalId,
+      9,
+      'authorize_tender_prep',
+      proposal.status,
+      saved.status,
+      userId,
+      actorRole,
+      dto.comments ?? `Super Admin authorized ${divisionName ?? 'Division EE'} to download sanctioned package and prepare tender documents`,
+      { divisionName, authorizedAt },
+    );
+    return this.toRecord(tenantId, saved, true, roles);
+  }
+
+  async beginEeTenderPrep(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    dto: BeginEeTenderPrepDto,
+  ) {
+    const proposal = await this.requireProposal(tenantId, proposalId);
+    if (proposal.status !== 'sanctioned') {
+      throw new BadRequestException('Tender preparation can only begin after Super Admin authorization');
+    }
+    this.assertCanBeginEeTenderPrep(roles);
+
+    const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
+    const auth = (existingHq.tenderPrepAuthorization ?? {}) as { authorizedAt?: string };
+    if (!auth.authorizedAt) {
+      throw new BadRequestException('Super Admin must authorize tender preparation before Division EE can begin');
+    }
+    if (!existingHq.sanctionedOfficialPackage) {
+      const documents = await this.docRepo.find({ where: { tenantId, proposalId } });
+      const sanctionedOfficialPackage = await this.buildSanctionedOfficialPackageAsync(tenantId, proposal, documents);
+      existingHq.sanctionedOfficialPackage = sanctionedOfficialPackage;
+      proposal.hqVerification = existingHq;
     }
 
+    const sanction = await this.sanctionRepo.findOne({ where: { tenantId, proposalId } });
     const taskOrderNo = await this.generateTaskOrderNo(tenantId);
     const initiatedAt = new Date().toISOString();
     let divisionName: string | null = null;
@@ -1142,7 +1216,6 @@ export class DprPlanningService {
     tender.status = 'prep_initiated';
     await this.tenderRepo.save(tender);
 
-    const existingHq = (proposal.hqVerification ?? {}) as Record<string, unknown>;
     proposal.hqVerification = {
       ...existingHq,
       tenderInitiation: {
@@ -1152,21 +1225,17 @@ export class DprPlanningService {
         initiatedBy: userId,
         divisionId: proposal.divisionId,
         divisionName,
-        divisionInstructions: dto.divisionInstructions?.trim() ?? null,
-        comments: dto.comments?.trim() ?? null,
-        checklist,
-        addressalItems: DPR_TENDER_PREP_CHECKLIST.map((item) => ({
-          key: item.key,
-          label: item.label,
-          addressed: checklist[item.key],
-        })),
-        sanctionSummary: {
+        divisionInstructions: (auth as { divisionInstructions?: string }).divisionInstructions ?? null,
+        comments: dto.comments?.trim() ?? (auth as { comments?: string }).comments ?? null,
+        authorizedAt: auth.authorizedAt,
+        authorizedBy: (auth as { authorizedBy?: string }).authorizedBy ?? null,
+        sanctionSummary: sanction ? {
           administrativeApprovalNo: sanction.administrativeApprovalNo,
           expenditureSanctionNo: sanction.expenditureSanctionNo,
           sanctionedAmount: sanction.sanctionedAmount,
           budgetHead: sanction.budgetHead,
           sanctionDate: sanction.sanctionDate,
-        },
+        } : null,
       },
     };
 
@@ -1180,15 +1249,26 @@ export class DprPlanningService {
       tenantId,
       proposalId,
       9,
-      'initiate_tender_prep',
+      'begin_ee_tender_prep',
       fromStatus,
       saved.status,
       userId,
       actorRole,
-      dto.comments ?? `Tender Preparation Task Order ${taskOrderNo} issued to ${divisionName ?? 'division'}`,
+      dto.comments ?? `Division EE began tender preparation — Task Order ${taskOrderNo}`,
       { taskOrderNo, packageNo, divisionName },
     );
     return this.toRecord(tenantId, saved, true, roles);
+  }
+
+  /** @deprecated Use authorizeTenderPrepForEe */
+  async initiateTenderPreparation(
+    tenantId: string,
+    userId: string,
+    roles: string[],
+    proposalId: string,
+    dto: InitiateTenderPreparationDto,
+  ) {
+    return this.authorizeTenderPrepForEe(tenantId, userId, roles, proposalId, dto);
   }
 
   async exportTenderTaskOrder(tenantId: string, proposalId: string): Promise<{
@@ -1199,6 +1279,7 @@ export class DprPlanningService {
     const tender = await this.tenderRepo.findOne({ where: { tenantId, proposalId } });
     const sanction = await this.sanctionRepo.findOne({ where: { tenantId, proposalId } });
     const init = ((proposal.hqVerification ?? {}) as { tenderInitiation?: Record<string, unknown> }).tenderInitiation ?? {};
+    const auth = ((proposal.hqVerification ?? {}) as { tenderPrepAuthorization?: Record<string, unknown> }).tenderPrepAuthorization ?? {};
 
     const lines: string[] = [
       'TENDER PREPARATION TASK ORDER',
@@ -1208,7 +1289,8 @@ export class DprPlanningService {
       `Proposal No: ${proposal.proposalNo}`,
       `Title: ${proposal.title}`,
       `Division: ${(init.divisionName as string) ?? '—'}`,
-      `Issued: ${(init.initiatedAt as string) ? new Date(init.initiatedAt as string).toLocaleString('en-IN') : '—'}`,
+      `Authorized by Super Admin: ${(auth.authorizedAt as string) ? new Date(auth.authorizedAt as string).toLocaleString('en-IN') : '—'}`,
+      `EE began preparation: ${(init.initiatedAt as string) ? new Date(init.initiatedAt as string).toLocaleString('en-IN') : '—'}`,
       '',
       'ADMINISTRATIVE SANCTION SUMMARY',
       '-------------------------------',
@@ -1218,20 +1300,17 @@ export class DprPlanningService {
       `Budget Head: ${sanction?.budgetHead ?? '—'}`,
       `Sanction Date: ${sanction?.sanctionDate ?? '—'}`,
       '',
-      'HQ ADDRESSES CONCERNED DIVISION FOR',
-      '-----------------------------------',
+      'DIVISION EE — TENDER PREPARATION SCOPE',
+      '--------------------------------------',
+      '[X] Download sanctioned official DPR & supporting documents',
+      '[X] Prepare final BOQ and tender documents',
+      '[X] Submit for JE / AE / EE sequential verification',
     ];
-    const addressal = (init.addressalItems as Array<{ label?: string; addressed?: boolean }>) ?? [];
-    if (addressal.length) {
-      addressal.forEach((item) => lines.push(`[${item.addressed ? 'X' : ' '}] ${item.label ?? 'Item'}`));
-    } else {
-      DPR_TENDER_PREP_CHECKLIST.forEach((item) => lines.push(`[ ] ${item.label}`));
+    if (init.divisionInstructions || auth.divisionInstructions) {
+      lines.push('', 'SUPER ADMIN INSTRUCTIONS', '----------------------', String(init.divisionInstructions ?? auth.divisionInstructions));
     }
-    if (init.divisionInstructions) {
-      lines.push('', 'DIVISION INSTRUCTIONS', '--------------------', String(init.divisionInstructions));
-    }
-    if (init.comments) {
-      lines.push('', 'HQ REMARKS', '----------', String(init.comments));
+    if (init.comments || auth.comments) {
+      lines.push('', 'REMARKS', '-------', String(init.comments ?? auth.comments));
     }
     const safeNo = proposal.proposalNo.replace(/[^a-zA-Z0-9-_]/g, '_');
     return {
@@ -2560,6 +2639,8 @@ export class DprPlanningService {
       closedAt: row.closedAt,
       eeComplianceAssignment: this.buildEeComplianceAssignmentView(row, roles),
       eeComplianceAssignmentPending: this.isEeComplianceAssignmentPending(row),
+      tenderPrepAuthorized: !!((row.hqVerification as { tenderPrepAuthorization?: { authorizedAt?: string } } | null)
+        ?.tenderPrepAuthorization?.authorizedAt),
     };
 
     if (!includeDetails) return base;
@@ -3011,6 +3092,83 @@ export class DprPlanningService {
     await this.ensureTac1OfficialSnapshot(tenantId, userId, proposal, docs);
     const saved = await this.proposalRepo.save(proposal);
     return this.toRecord(tenantId, saved, true, roles);
+  }
+
+  private async buildSanctionedOfficialPackageAsync(
+    tenantId: string,
+    proposal: DprProposal,
+    documents: DprProposalDocument[],
+  ) {
+    const frozenAt = new Date().toISOString();
+    const items: Array<{
+      key: string;
+      label: string;
+      documentId: string;
+      fileName: string | null;
+      versionNo: number | null;
+      category: 'dpr' | 'sanction' | 'supporting';
+    }> = [];
+
+    const pushDoc = (
+      key: string,
+      label: string,
+      doc: DprProposalDocument | null | undefined,
+      category: 'dpr' | 'sanction' | 'supporting',
+    ) => {
+      if (!doc?.id || !doc.fileUrl) return;
+      if (items.some((i) => i.documentId === doc.id)) return;
+      items.push({
+        key,
+        label,
+        documentId: doc.id,
+        fileName: doc.fileName ?? null,
+        versionNo: doc.versionNo ?? null,
+        category,
+      });
+    };
+
+    if (this.getRound2ExaminationDocumentMode(proposal) === 'ee_compliance_resubmit') {
+      const eeDpr = this.resolveEeComplianceDprPackage(proposal, documents);
+      if (eeDpr?.documentId) {
+        pushDoc('dpr_complete_pdf', eeDpr.label, documents.find((d) => d.id === eeDpr.documentId), 'dpr');
+      }
+      const compliance = this.resolveEeComplianceDocPackage(proposal, documents);
+      if (compliance?.documentId) {
+        pushDoc('tac_round2_compliance', compliance.label, documents.find((d) => d.id === compliance.documentId), 'supporting');
+      }
+    } else {
+      const officialDpr = await this.resolveOfficialTac1PackageAsync(tenantId, proposal, documents, { officialOnly: true });
+      if (officialDpr?.documentId) {
+        pushDoc(
+          'dpr_complete_pdf',
+          'Final Sanctioned DPR (TAC Round 1 official)',
+          documents.find((d) => d.id === officialDpr.documentId),
+          'dpr',
+        );
+      }
+    }
+
+    for (const type of DPR_STAGE_8_SANCTION_DOCUMENT_TYPES) {
+      const def = DPR_DOCUMENT_TYPES.find((d) => d.type === type);
+      pushDoc(type, def?.label ?? type, this.getLatestDocumentByType(documents, type), 'sanction');
+    }
+
+    const supportingTypes = [
+      'boq_tac_excel',
+      'boq_draft',
+      'cost_estimate',
+      'engineering_design',
+      'hydraulic_design',
+      'technical_specs',
+      'survey_drawings',
+      'env_social',
+    ] as const;
+    for (const type of supportingTypes) {
+      const def = DPR_DOCUMENT_TYPES.find((d) => d.type === type);
+      pushDoc(type, def?.label ?? type, this.getLatestDocumentByType(documents, type), 'supporting');
+    }
+
+    return { frozenAt, items };
   }
 
   private async resolveOfficialTac1PackageAsync(
@@ -3466,6 +3624,21 @@ export class DprPlanningService {
     const stage9Statuses = ['sanctioned', 'tender_prep_initiated', 'tender_processing', 'tender_published'];
     if (!stage9Statuses.includes(proposal.status)) return null;
 
+    const hq = (proposal.hqVerification ?? {}) as {
+      tenderPrepAuthorization?: Record<string, unknown>;
+      sanctionedOfficialPackage?: {
+        frozenAt?: string;
+        items?: Array<{
+          key: string;
+          label: string;
+          documentId: string;
+          fileName?: string | null;
+          versionNo?: number | null;
+        }>;
+      };
+      tenderInitiation?: Record<string, unknown>;
+    };
+
     const uploadedTypes = new Set(documents.map((d) => d.documentType));
     const prepDocs = DPR_STAGE_9_PREP_DOCUMENT_TYPES.map((type) => {
       const def = DPR_DOCUMENT_TYPES.find((d) => d.type === type);
@@ -3478,21 +3651,35 @@ export class DprPlanningService {
     });
     const missingPrepDocuments = prepDocs.filter((d) => d.required && !d.attached).map((d) => d.label);
 
-    const init = ((proposal.hqVerification ?? {}) as { tenderInitiation?: Record<string, unknown> }).tenderInitiation ?? null;
+    const init = hq.tenderInitiation ?? null;
+    const auth = hq.tenderPrepAuthorization ?? null;
     const hasSanction = !!(sanction?.administrativeApprovalNo || sanction?.expenditureSanctionNo);
+    const isAuthorized = !!(auth?.authorizedAt as string | undefined);
+    const officialPackage = hq.sanctionedOfficialPackage?.items ?? [];
 
     return {
       status: proposal.status,
-      canInitiate: proposal.status === 'sanctioned' && hasSanction && this.canInitiateTenderPrep(roles),
-      initiated: proposal.status === 'tender_prep_initiated',
+      canAuthorize: proposal.status === 'sanctioned' && hasSanction && !isAuthorized && this.canAuthorizeTenderPrep(roles),
+      authorized: isAuthorized,
+      canDownloadOfficialPackage: roles.includes('ee')
+        && ((proposal.status === 'sanctioned' && isAuthorized) || proposal.status === 'tender_prep_initiated'),
+      canBeginEePrep: proposal.status === 'sanctioned' && isAuthorized && this.canBeginEeTenderPrep(roles),
+      initiated: proposal.status !== 'sanctioned' || !!(init?.initiatedAt as string | undefined),
       canUploadPrepDocuments: proposal.status === 'tender_prep_initiated' && this.canUploadTenderPrep(roles),
       canTrack: ['tender_prep_initiated', 'tender_processing', 'tender_published'].includes(proposal.status),
+      officialPackageDocuments: officialPackage,
+      sanctionedPackageFrozenAt: hq.sanctionedOfficialPackage?.frozenAt ?? null,
+      authorization: isAuthorized ? {
+        authorizedAt: auth?.authorizedAt as string | null,
+        divisionName: auth?.divisionName as string | null,
+        divisionInstructions: auth?.divisionInstructions as string | null,
+        comments: auth?.comments as string | null,
+      } : null,
       taskOrderNo: (init?.taskOrderNo as string | null) ?? tender?.taskOrderRef ?? null,
       packageNo: (init?.packageNo as string | null) ?? tender?.packageNo ?? null,
       initiatedAt: (init?.initiatedAt as string | null) ?? null,
-      divisionName: (init?.divisionName as string | null) ?? null,
-      divisionInstructions: (init?.divisionInstructions as string | null) ?? null,
-      addressalItems: (init?.addressalItems as Array<{ key: string; label: string; addressed: boolean }>) ?? [],
+      divisionName: (init?.divisionName as string | null) ?? (auth?.divisionName as string | null) ?? null,
+      divisionInstructions: (init?.divisionInstructions as string | null) ?? (auth?.divisionInstructions as string | null) ?? null,
       prepDocuments: prepDocs,
       missingPrepDocuments,
       prepComplete: proposal.status === 'tender_prep_initiated' && missingPrepDocuments.length === 0,
@@ -3503,6 +3690,8 @@ export class DprPlanningService {
         budgetHead: sanction.budgetHead,
         sanctionDate: sanction.sanctionDate,
       } : null,
+      // Legacy field — Super Admin authorize action
+      canInitiate: proposal.status === 'sanctioned' && hasSanction && !isAuthorized && this.canAuthorizeTenderPrep(roles),
     };
   }
 
@@ -3533,11 +3722,11 @@ export class DprPlanningService {
       at?: string;
     }>) ?? [];
 
-    const isEe = roles.includes('ee');
-    const canActJe = proposal.status === 'tender_processing' && approvalLevel === 'je' && (roles.includes('je') || isEe);
-    const canActAe = proposal.status === 'tender_processing' && approvalLevel === 'ae' && (roles.includes('ae') || isEe);
-    const canActEe = proposal.status === 'tender_processing' && approvalLevel === 'ee' && isEe;
+    const canActJe = proposal.status === 'tender_processing' && approvalLevel === 'je' && roles.includes('je');
+    const canActAe = proposal.status === 'tender_processing' && approvalLevel === 'ae' && roles.includes('ae');
+    const canActEe = proposal.status === 'tender_processing' && approvalLevel === 'ee' && roles.includes('ee');
     const canPublish = proposal.status === 'tender_processing' && approvalLevel === 'cleared' && this.canPublishTender(roles);
+    const canHighlightUkTender = proposal.status === 'tender_processing' && approvalLevel === 'cleared';
 
     return {
       status: proposal.status,
@@ -3557,6 +3746,10 @@ export class DprPlanningService {
       canActAe,
       canActEe,
       canPublish,
+      canHighlightUkTender,
+      canDownloadForVerification: proposal.status === 'tender_processing'
+        && approvalLevel !== 'cleared'
+        && (roles.includes('je') || roles.includes('ae') || roles.includes('ee')),
       canReview: canActJe || canActAe || canActEe,
       approvals,
       packageNo: tender?.packageNo ?? null,
@@ -3579,9 +3772,7 @@ export class DprPlanningService {
     assertNotSuperAdminRolesForOperations(roles, 'tender approval review');
     const roleMap: Record<string, string> = { je: 'je', ae: 'ae', ee: 'ee' };
     const required = roleMap[level];
-    const isEe = roles.includes('ee');
-    const hasRole = !!required && (roles.includes(required) || ((level === 'je' || level === 'ae') && isEe));
-    if (!hasRole) {
+    if (!required || !roles.includes(required)) {
       throw new ForbiddenException(`Only ${DPR_TENDER_APPROVAL_LABELS[level] ?? level} officials can act at this stage`);
     }
   }
@@ -3596,14 +3787,32 @@ export class DprPlanningService {
     }
   }
 
+  private canAuthorizeTenderPrep(roles: string[]) {
+    return isSuperAdmin(roles);
+  }
+
+  private assertCanAuthorizeTenderPrep(roles: string[]) {
+    if (!this.canAuthorizeTenderPrep(roles)) {
+      throw new ForbiddenException('Only Super Admin can authorize Division EE for tender preparation');
+    }
+  }
+
+  private canBeginEeTenderPrep(roles: string[]) {
+    return roles.includes('ee');
+  }
+
+  private assertCanBeginEeTenderPrep(roles: string[]) {
+    if (!this.canBeginEeTenderPrep(roles)) {
+      throw new ForbiddenException('Only Division EE can begin tender preparation after authorization');
+    }
+  }
+
   private canInitiateTenderPrep(roles: string[]) {
-    return isStateReviewer(roles);
+    return this.canAuthorizeTenderPrep(roles);
   }
 
   private assertCanInitiateTenderPrep(roles: string[]) {
-    if (!this.canInitiateTenderPrep(roles)) {
-      throw new ForbiddenException('Only Super Admin / HQ officials can issue tender preparation task to Division EE');
-    }
+    this.assertCanAuthorizeTenderPrep(roles);
   }
 
   private canUploadTenderPrep(roles: string[]) {
@@ -3755,7 +3964,7 @@ export class DprPlanningService {
       this.assertCanRecordSanction(roles);
     } else if (def.stage === 9) {
       if (!DPR_TENDER_PREP_STATUSES.includes(proposal.status as typeof DPR_TENDER_PREP_STATUSES[number])) {
-        throw new BadRequestException('Tender preparation documents can only be uploaded after HQ initiates tender preparation');
+        throw new BadRequestException('Tender preparation documents can only be uploaded after Division EE begins tender preparation');
       }
       this.assertCanUploadTenderPrep(roles);
     } else if (def.stage === 10) {
