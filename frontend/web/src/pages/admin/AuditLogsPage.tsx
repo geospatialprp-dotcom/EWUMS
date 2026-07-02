@@ -36,21 +36,71 @@ interface AuditEntry {
   createdAt: string;
 }
 
-const AUDIT_TABLE_MIN_WIDTH = 960;
+const STICKY_TIMESTAMP_WIDTH = 168;
+const STICKY_USER_WIDTH = 220;
+const AUDIT_TABLE_MIN_WIDTH = 1180;
 
-const stickyFirstColSx = {
-  position: 'sticky' as const,
-  left: 0,
-  zIndex: 1,
-  bgcolor: 'inherit',
-  backgroundClip: 'padding-box' as const,
-  boxShadow: '2px 0 6px rgba(15, 23, 42, 0.06)',
+const auditTableSx = {
+  ...dataTableSx(),
+  minWidth: AUDIT_TABLE_MIN_WIDTH,
+  width: 'max-content',
+  border: 'none',
+  isolation: 'isolate',
+  '& .MuiTableHead-root .MuiTableCell-root.audit-sticky': {
+    position: 'sticky',
+    top: 0,
+    zIndex: 4,
+    bgcolor: '#e2e8f0',
+    backgroundClip: 'padding-box',
+    boxShadow: '4px 0 10px -4px rgba(15, 23, 42, 0.18)',
+  },
+  '& .MuiTableHead-root .MuiTableCell-root.audit-sticky--time': {
+    left: 0,
+    zIndex: 5,
+    minWidth: STICKY_TIMESTAMP_WIDTH,
+    maxWidth: STICKY_TIMESTAMP_WIDTH,
+  },
+  '& .MuiTableHead-root .MuiTableCell-root.audit-sticky--user': {
+    left: STICKY_TIMESTAMP_WIDTH,
+    minWidth: STICKY_USER_WIDTH,
+    maxWidth: STICKY_USER_WIDTH,
+  },
+  '& .MuiTableBody-root .MuiTableCell-root.audit-sticky': {
+    position: 'sticky',
+    zIndex: 2,
+    backgroundClip: 'padding-box',
+    boxShadow: '4px 0 10px -4px rgba(15, 23, 42, 0.12)',
+  },
+  '& .MuiTableBody-root .MuiTableCell-root.audit-sticky--time': {
+    left: 0,
+    zIndex: 3,
+    minWidth: STICKY_TIMESTAMP_WIDTH,
+    maxWidth: STICKY_TIMESTAMP_WIDTH,
+  },
+  '& .MuiTableBody-root .MuiTableCell-root.audit-sticky--user': {
+    left: STICKY_TIMESTAMP_WIDTH,
+    minWidth: STICKY_USER_WIDTH,
+    maxWidth: STICKY_USER_WIDTH,
+  },
+  '& .MuiTableBody-root .MuiTableRow-root:nth-of-type(odd) .audit-sticky': {
+    bgcolor: '#ffffff',
+  },
+  '& .MuiTableBody-root .MuiTableRow-root:nth-of-type(even) .audit-sticky': {
+    bgcolor: '#f8fafc',
+  },
+  '& .MuiTableBody-root .MuiTableRow-root:hover .audit-sticky': {
+    bgcolor: '#eff6ff',
+  },
 };
 
-const stickyHeadColSx = {
-  ...stickyFirstColSx,
-  zIndex: 3,
-  bgcolor: '#e2e8f0',
+const tableContainerSx = {
+  display: { xs: 'none', md: 'block' },
+  width: '100%',
+  maxWidth: '100%',
+  overflowX: 'auto',
+  overflowY: 'visible',
+  WebkitOverflowScrolling: 'touch',
+  overscrollBehaviorX: 'contain',
 };
 
 function formatUser(entry: AuditEntry): string {
@@ -162,6 +212,19 @@ export default function AuditLogsPage() {
         cardSx={{ overflow: 'visible' }}
         contentSx={{ overflow: 'visible', minWidth: 0, p: 0, '&:last-child': { pb: 0 } }}
       >
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{
+            display: { xs: 'none', md: 'block' },
+            px: 2,
+            py: 1,
+            borderBottom: '1px solid #e2e8f0',
+            bgcolor: '#f8fafc',
+          }}
+        >
+          Timestamp and User stay fixed while you scroll right for Location and Details.
+        </Typography>
         <Stack
           spacing={1.25}
           sx={{ display: { xs: 'flex', md: 'none' }, px: 1.5, py: 1.5 }}
@@ -171,39 +234,23 @@ export default function AuditLogsPage() {
           ))}
         </Stack>
 
-        <TableContainer
-            sx={{
-              display: { xs: 'none', md: 'block' },
-              width: '100%',
-              maxWidth: '100%',
-              overflowX: 'auto',
-              overflowY: 'visible',
-              WebkitOverflowScrolling: 'touch',
-              overscrollBehaviorX: 'contain',
-            }}
-          >
+        <TableContainer sx={tableContainerSx}>
             <Table
               size="small"
               stickyHeader
-              sx={{
-                ...dataTableSx(),
-                minWidth: AUDIT_TABLE_MIN_WIDTH,
-                width: 'max-content',
-                border: 'none',
-                overflow: 'visible',
-              }}
+              sx={auditTableSx}
             >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ ...stickyHeadColSx, minWidth: 148, whiteSpace: 'nowrap' }}>
+                  <TableCell className="audit-sticky audit-sticky--time" sx={{ whiteSpace: 'nowrap' }}>
                     Timestamp
                   </TableCell>
-                  <TableCell sx={{ minWidth: 180 }}>User</TableCell>
-                  <TableCell sx={{ minWidth: 120 }}>Action</TableCell>
-                  <TableCell sx={{ minWidth: 120 }}>Resource</TableCell>
-                  <TableCell sx={{ minWidth: 120 }}>IP Address</TableCell>
-                  <TableCell sx={{ minWidth: 280 }}>Location</TableCell>
-                  <TableCell sx={{ minWidth: 200 }}>Details</TableCell>
+                  <TableCell className="audit-sticky audit-sticky--user">User</TableCell>
+                  <TableCell sx={{ minWidth: 128 }}>Action</TableCell>
+                  <TableCell sx={{ minWidth: 96 }}>Resource</TableCell>
+                  <TableCell sx={{ minWidth: 132 }}>IP Address</TableCell>
+                  <TableCell sx={{ minWidth: 260 }}>Location</TableCell>
+                  <TableCell sx={{ minWidth: 220 }}>Details</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -213,25 +260,27 @@ export default function AuditLogsPage() {
 
                   return (
                     <TableRow key={log.id} hover>
-                      <TableCell sx={{ ...stickyFirstColSx, whiteSpace: 'nowrap', minWidth: 148 }}>
+                      <TableCell className="audit-sticky audit-sticky--time" sx={{ whiteSpace: 'nowrap' }}>
                         {new Date(log.createdAt).toLocaleString()}
                       </TableCell>
-                      <TableCell sx={{ minWidth: 180 }}>
-                        <Typography variant="body2">{formatUser(log)}</Typography>
+                      <TableCell className="audit-sticky audit-sticky--user">
+                        <Typography variant="body2" sx={{ lineHeight: 1.35 }}>
+                          {formatUser(log)}
+                        </Typography>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 120 }}>
+                      <TableCell sx={{ minWidth: 128 }}>
                         <Chip label={log.action} size="small" color={actionColor(log.action) as 'success'} />
                       </TableCell>
-                      <TableCell sx={{ minWidth: 120 }}>{log.resourceType ?? '—'}</TableCell>
-                      <TableCell sx={{ minWidth: 120 }}>
-                        <Typography variant="body2" fontFamily="monospace">
+                      <TableCell sx={{ minWidth: 96 }}>{log.resourceType ?? '—'}</TableCell>
+                      <TableCell sx={{ minWidth: 132 }}>
+                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
                           {log.ipAddress ?? '—'}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 240, maxWidth: 300 }}>
+                      <TableCell sx={{ minWidth: 260 }}>
                         <AuditLocationDisplay entry={log} />
                       </TableCell>
-                      <TableCell sx={{ minWidth: 200, maxWidth: 280 }}>
+                      <TableCell sx={{ minWidth: 220, maxWidth: 320 }}>
                         <Tooltip
                           title={
                             <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
