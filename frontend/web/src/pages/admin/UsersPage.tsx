@@ -1,9 +1,32 @@
 import { useEffect, useState } from 'react';
 import {
-  Table, TableBody, TableCell, TableHead, TableRow,
-  Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField,
-  MenuItem, Chip, IconButton, Tooltip, Alert, FormControl,
-  InputLabel, Select, OutlinedInput, Checkbox, ListItemText,
+  Avatar,
+  Box,
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  OutlinedInput,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Alert,
+  Checkbox,
+  ListItemText,
+  Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -14,7 +37,7 @@ import { usersApi, rolesApi, UserRecord, RoleRecord } from '../../services/api';
 import { useDivisionScope, useDivisionScopeKey } from '../../context/DivisionContext';
 import PageShell from '../../components/layout/PageShell';
 import PageHeader from '../../components/layout/PageHeader';
-import SurfaceCard from '../../components/layout/SurfaceCard';
+import { AdminTableShell, adminTableContainerSx } from '../../components/admin/AdminTableShell';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 
 function getErrorMessage(err: unknown): string {
@@ -28,6 +51,38 @@ function getErrorMessage(err: unknown): string {
     if (err.response?.status === 403) return 'You do not have permission for this action.';
   }
   return 'Failed to save user. Check email uniqueness and required fields.';
+}
+
+function userInitials(user: UserRecord): string {
+  const first = user.firstName?.trim().charAt(0) ?? '';
+  const last = user.lastName?.trim().charAt(0) ?? '';
+  return `${first}${last}`.toUpperCase() || '?';
+}
+
+function UserIdentityCell({ user }: { user: UserRecord }) {
+  return (
+    <Stack direction="row" spacing={1.25} alignItems="center">
+      <Avatar
+        sx={{
+          width: 34,
+          height: 34,
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          bgcolor: user.status === 'active' ? '#2563eb' : '#94a3b8',
+        }}
+      >
+        {userInitials(user)}
+      </Avatar>
+      <Box minWidth={0}>
+        <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.3 }}>
+          {user.firstName} {user.lastName}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3, display: 'block' }}>
+          {user.email}
+        </Typography>
+      </Box>
+    </Stack>
+  );
 }
 
 export default function UsersPage() {
@@ -159,72 +214,105 @@ export default function UsersPage() {
       />
 
       {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
-      {divisionScope && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Showing users for division scope: <strong>{divisionScope}</strong>
-        </Alert>
-      )}
 
-      <SurfaceCard title="Organization Users" flush>
-        <Table sx={dataTableSx()}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>Division</TableCell>
-              <TableCell>Department</TableCell>
-              <TableCell>Roles</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {users.map((u) => (
-              <TableRow key={u.id} hover>
-                <TableCell>{u.firstName} {u.lastName}</TableCell>
-                <TableCell>{u.email}</TableCell>
-                <TableCell>{u.divisionName ?? '—'}</TableCell>
-                <TableCell>{u.department ?? '—'}</TableCell>
-                <TableCell>
-                  {u.roles.map((r) => (
-                    <Chip key={r.id} label={r.name} size="small" sx={{ mr: 0.5 }} />
-                  ))}
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    label={u.status}
-                    size="small"
-                    color={u.status === 'active' ? 'success' : 'default'}
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Edit user & roles">
-                    <IconButton size="small" onClick={() => openEdit(u)}><EditIcon /></IconButton>
-                  </Tooltip>
-                  {u.status === 'inactive' ? (
-                    <Tooltip title="Activate user">
-                      <IconButton size="small" color="success" onClick={() => handleActivate(u.id)}>
-                        <PersonIcon />
-                      </IconButton>
-                    </Tooltip>
-                  ) : (
-                    <Tooltip title="Deactivate user">
-                      <IconButton size="small" color="error" onClick={() => handleDeactivate(u.id)}>
-                        <PersonOffIcon />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </TableCell>
+      <AdminTableShell
+        title="Division Users"
+        count={users.length}
+        divisionScope={divisionScope}
+        emptyLabel="No users found for this division scope."
+      >
+        <TableContainer sx={adminTableContainerSx}>
+          <Table size="small" stickyHeader sx={{ ...dataTableSx(), minWidth: 920 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ minWidth: 240 }}>User</TableCell>
+                <TableCell sx={{ minWidth: 160 }}>Division</TableCell>
+                <TableCell sx={{ minWidth: 120 }}>Department</TableCell>
+                <TableCell sx={{ minWidth: 200 }}>Roles</TableCell>
+                <TableCell sx={{ minWidth: 96 }}>Status</TableCell>
+                <TableCell align="right" sx={{ minWidth: 96 }}>Actions</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </SurfaceCard>
+            </TableHead>
+            <TableBody>
+              {users.map((u) => (
+                <TableRow key={u.id} hover>
+                  <TableCell sx={{ verticalAlign: 'middle' }}>
+                    <UserIdentityCell user={u} />
+                  </TableCell>
+                  <TableCell sx={{ verticalAlign: 'middle' }}>
+                    {u.divisionName ? (
+                      <Chip
+                        label={u.divisionName}
+                        size="small"
+                        sx={{
+                          fontWeight: 600,
+                          bgcolor: '#eff6ff',
+                          color: '#1e40af',
+                          border: '1px solid #bfdbfe',
+                        }}
+                      />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">—</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ verticalAlign: 'middle' }}>
+                    <Typography variant="body2">{u.department?.trim() || '—'}</Typography>
+                  </TableCell>
+                  <TableCell sx={{ verticalAlign: 'middle' }}>
+                    <Stack direction="row" flexWrap="wrap" gap={0.5} useFlexGap>
+                      {u.roles.map((r) => (
+                        <Chip
+                          key={r.id}
+                          label={r.name}
+                          size="small"
+                          variant="outlined"
+                          sx={{ fontWeight: 600, bgcolor: '#fff' }}
+                        />
+                      ))}
+                    </Stack>
+                  </TableCell>
+                  <TableCell sx={{ verticalAlign: 'middle' }}>
+                    <Chip
+                      label={u.status === 'active' ? 'Active' : 'Inactive'}
+                      size="small"
+                      color={u.status === 'active' ? 'success' : 'default'}
+                      sx={{ fontWeight: 700, textTransform: 'capitalize' }}
+                    />
+                  </TableCell>
+                  <TableCell align="right" sx={{ verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                    <Tooltip title="Edit user & roles">
+                      <IconButton size="small" onClick={() => openEdit(u)}><EditIcon fontSize="small" /></IconButton>
+                    </Tooltip>
+                    {u.status === 'inactive' ? (
+                      <Tooltip title="Activate user">
+                        <IconButton size="small" color="success" onClick={() => handleActivate(u.id)}>
+                          <PersonIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Deactivate user">
+                        <IconButton size="small" color="error" onClick={() => handleDeactivate(u.id)}>
+                          <PersonOffIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </AdminTableShell>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editing ? 'Edit User' : 'Create User'}</DialogTitle>
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {divisionScope && !editing && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              New user will be assigned to <strong>{divisionScope}</strong>.
+            </Alert>
+          )}
           <TextField fullWidth label="Email" margin="dense" value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <TextField fullWidth label="First Name" margin="dense" value={form.firstName}

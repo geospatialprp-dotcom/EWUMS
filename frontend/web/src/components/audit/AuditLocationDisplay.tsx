@@ -5,7 +5,13 @@ import {
   getAuditLocationPresentation,
 } from '../../utils/auditLocationDisplay';
 
-export function AuditLocationDisplay({ entry }: { entry: AuditLocationFields }) {
+export function AuditLocationDisplay({
+  entry,
+  variant = 'default',
+}: {
+  entry: AuditLocationFields;
+  variant?: 'default' | 'compact';
+}) {
   const pres = getAuditLocationPresentation(entry);
 
   if (pres.kind === 'unknown') {
@@ -17,21 +23,17 @@ export function AuditLocationDisplay({ entry }: { entry: AuditLocationFields }) 
   }
 
   if (pres.kind === 'approximate') {
+    if (variant === 'compact') {
+      return (
+        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Chip label="Approx" size="small" sx={approxChipSx} />
+          <Typography variant="body2" sx={{ lineHeight: 1.35 }}>{pres.label}</Typography>
+        </Stack>
+      );
+    }
     return (
       <Stack spacing={0.5}>
-        <Chip
-          label="Approximate"
-          size="small"
-          sx={{
-            height: 20,
-            width: 'fit-content',
-            fontSize: '0.625rem',
-            fontWeight: 700,
-            bgcolor: '#fef3c7',
-            color: '#92400e',
-            border: '1px solid #fcd34d',
-          }}
-        />
+        <Chip label="Approximate" size="small" sx={approxChipSx} />
         <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
           {pres.label}
         </Typography>
@@ -45,21 +47,46 @@ export function AuditLocationDisplay({ entry }: { entry: AuditLocationFields }) 
   const coords = `${pres.latitude.toFixed(6)}, ${pres.longitude.toFixed(6)}`;
   const accuracy = pres.accuracyMeters != null ? ` ±${Math.round(pres.accuracyMeters)} m` : '';
 
+  if (variant === 'compact') {
+    return (
+      <Stack spacing={0.35}>
+        <Stack direction="row" spacing={0.75} alignItems="flex-start" useFlexGap>
+          <Chip label="GPS" size="small" sx={gpsChipSx} />
+          {pres.address ? (
+            <Typography
+              variant="body2"
+              sx={{
+                lineHeight: 1.35,
+                flex: 1,
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {pres.address}
+            </Typography>
+          ) : null}
+        </Stack>
+        <Typography
+          variant="caption"
+          component="a"
+          href={pres.mapUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          sx={coordsLinkSx}
+        >
+          {coords}
+          {accuracy}
+          <OpenInNewIcon sx={{ fontSize: 12 }} />
+        </Typography>
+      </Stack>
+    );
+  }
+
   return (
     <Stack spacing={0.5}>
-      <Chip
-        label="GPS"
-        size="small"
-        sx={{
-          height: 20,
-          width: 'fit-content',
-          fontSize: '0.625rem',
-          fontWeight: 700,
-          bgcolor: '#ecfdf5',
-          color: '#047857',
-          border: '1px solid #6ee7b7',
-        }}
-      />
+      <Chip label="GPS" size="small" sx={gpsChipSx} />
       {pres.address ? (
         <Typography
           variant="body2"
@@ -80,18 +107,7 @@ export function AuditLocationDisplay({ entry }: { entry: AuditLocationFields }) 
         href={pres.mapUrl}
         target="_blank"
         rel="noopener noreferrer"
-        sx={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 0.35,
-          fontFamily: 'monospace',
-          fontSize: '0.72rem',
-          color: '#2563eb',
-          fontWeight: 600,
-          textDecoration: 'none',
-          width: 'fit-content',
-          '&:hover': { textDecoration: 'underline' },
-        }}
+        sx={coordsLinkSx}
       >
         {coords}
         {accuracy}
@@ -100,3 +116,36 @@ export function AuditLocationDisplay({ entry }: { entry: AuditLocationFields }) 
     </Stack>
   );
 }
+
+const gpsChipSx = {
+  height: 20,
+  width: 'fit-content',
+  fontSize: '0.625rem',
+  fontWeight: 700,
+  bgcolor: '#ecfdf5',
+  color: '#047857',
+  border: '1px solid #6ee7b7',
+};
+
+const approxChipSx = {
+  height: 20,
+  width: 'fit-content',
+  fontSize: '0.625rem',
+  fontWeight: 700,
+  bgcolor: '#fef3c7',
+  color: '#92400e',
+  border: '1px solid #fcd34d',
+};
+
+const coordsLinkSx = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 0.35,
+  fontFamily: 'monospace',
+  fontSize: '0.72rem',
+  color: '#2563eb',
+  fontWeight: 600,
+  textDecoration: 'none',
+  width: 'fit-content',
+  '&:hover': { textDecoration: 'underline' },
+};
