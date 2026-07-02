@@ -18,6 +18,8 @@ export class AuditController {
   @RequirePermissions('audit:read')
   @ApiOperation({ summary: 'List audit log entries' })
   logs(@CurrentUser() user: JwtPayload, @Query('limit') limit?: string) {
-    return this.auditService.findAll(user, limit ? parseInt(limit, 10) : 100);
+    const parsed = limit ? parseInt(limit, 10) : 100;
+    const safeLimit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 500) : 100;
+    return this.auditService.findAll(user, safeLimit);
   }
 }
