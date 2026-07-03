@@ -18,6 +18,7 @@ import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { constructionApi, projectsApi, type SchemeType } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import ConstructionTableHead from '../components/construction/ConstructionTableHead';
@@ -679,6 +680,7 @@ export default function ProjectConstructionPage() {
   const [contractorDrafts, setContractorDrafts] = useState<Record<string, string>>({});
   const [contractorLogins, setContractorLogins] = useState<ContractorLoginInfo[]>([]);
   const [assigningContractorWpId, setAssigningContractorWpId] = useState<string | null>(null);
+  const [deletingWpId, setDeletingWpId] = useState<string | null>(null);
   const [docForm, setDocForm] = useState({ docType: 'site_photo', fileName: '', fileUrl: '' });
 
   const displayGovBoq = useMemo(
@@ -746,7 +748,9 @@ export default function ProjectConstructionPage() {
   const canCreateDpr = isContractorUser;
   const canSubmitDpr = isContractorUser;
   const canCreateMb = canMeasure || (!isSuperAdmin(roles) && roles.includes('je'));
-  const canAdminPlanning = hasOperationalRole(roles, ['se', 'ce', 'cgm', 'md', 'ee']);
+  const canAdminPlanning = hasOperationalRole(roles, ['se', 'ce', 'cgm', 'md', 'ee'])
+    || canUpdate
+    || canCreate;
   const canGenerateRa = isContractorUser;
 
   const contractorOwnsDpr = (dpr: Record<string, unknown>) => {
@@ -1585,6 +1589,35 @@ export default function ProjectConstructionPage() {
     setWpDialog(true);
   };
 
+  const handleDeleteWorkPackage = async (wp: Record<string, unknown>) => {
+    if (!projectId) return;
+    const wpId = String(wp.id);
+    const packageCode = String(wp.packageCode ?? 'package');
+    const packageName = String(wp.name ?? packageCode);
+    if (!window.confirm(`Delete work package "${packageName}" (${packageCode})? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingWpId(wpId);
+    setError('');
+    try {
+      await constructionApi.deleteWorkPackage(projectId, wpId);
+      setWorkPackages((prev) => prev.filter((row) => String(row.id) !== wpId));
+      setContractorDrafts((prev) => {
+        const next = { ...prev };
+        delete next[wpId];
+        return next;
+      });
+      setSuccess(`Work package "${packageName}" deleted.`);
+      scrollToTopForFeedback();
+    } catch (err: unknown) {
+      setError(formatApiError(err, 'Failed to delete work package.'));
+      scrollToTopForFeedback();
+    } finally {
+      setDeletingWpId(null);
+    }
+  };
+
   const handleSaveWorkPackage = async () => {
     if (!projectId) {
       setWpDialogError('Project not found — reload the page and try again.');
@@ -1986,7 +2019,7 @@ export default function ProjectConstructionPage() {
                       { label: 'Contractor' },
                       { label: 'GIS' },
                       { label: 'Status' },
-                      { label: 'Actions', minWidth: 72 },
+                      { label: 'Actions', minWidth: 140 },
                     ]}
                   />
                   <TableBody>
@@ -2038,13 +2071,26 @@ export default function ProjectConstructionPage() {
                           <TableCell><StatusChip status={String(wp.status)} /></TableCell>
                           <TableCell>
                             {canAdminPlanning && (
-                              <IconButton
-                                size="small"
-                                aria-label="Edit work package"
-                                onClick={() => openEditWorkPackageDialog(wp)}
-                              >
-                                <EditOutlinedIcon fontSize="small" />
-                              </IconButton>
+                              <Stack direction="row" spacing={0.5} alignItems="center">
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<EditOutlinedIcon fontSize="small" />}
+                                  onClick={() => openEditWorkPackageDialog(wp)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="small"
+                                  color="error"
+                                  variant="outlined"
+                                  startIcon={<DeleteOutlineIcon fontSize="small" />}
+                                  disabled={deletingWpId === wpId}
+                                  onClick={() => { void handleDeleteWorkPackage(wp); }}
+                                >
+                                  {deletingWpId === wpId ? 'Deleting…' : 'Delete'}
+                                </Button>
+                              </Stack>
                             )}
                           </TableCell>
                         </TableRow>

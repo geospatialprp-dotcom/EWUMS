@@ -638,6 +638,26 @@ export class ConstructionService {
     return this.attachContractorLoginToWorkPackage(tenantId, saved, contractorLogin);
   }
 
+  async deleteWorkPackage(tenantId: string, projectId: string, id: string) {
+    const wp = await this.wpRepo.findOne({ where: { id, tenantId, projectId } });
+    if (!wp) throw new NotFoundException('Work package not found');
+
+    const [dprCount, mbCount] = await Promise.all([
+      this.dprRepo.count({ where: { tenantId, projectId, workPackageId: id } }),
+      this.mbRepo.count({ where: { tenantId, projectId, workPackageId: id } }),
+    ]);
+    if (dprCount > 0 || mbCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete work package ${wp.packageCode}: `
+        + `${dprCount} daily progress report(s) and ${mbCount} measurement book(s) are linked. `
+        + 'Remove or reassign them first.',
+      );
+    }
+
+    await this.wpRepo.delete({ id, tenantId, projectId });
+    return { success: true, id, packageCode: wp.packageCode };
+  }
+
   private async attachContractorLoginToWorkPackage(
     tenantId: string,
     wp: WorkPackage,

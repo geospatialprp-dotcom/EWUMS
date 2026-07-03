@@ -551,6 +551,8 @@ export const constructionApi = {
     api.post(`/projects/${projectId}/construction/work-packages`, data),
   updateWorkPackage: (projectId: string, id: string, data: object) =>
     api.put(`/projects/${projectId}/construction/work-packages/${id}`, data),
+  deleteWorkPackage: (projectId: string, id: string) =>
+    api.delete(`/projects/${projectId}/construction/work-packages/${id}`),
   workPlanning: (projectId: string) => api.get(`/projects/${projectId}/construction/work-planning`),
   updateWorkPlanning: (projectId: string, data: object) =>
     api.put(`/projects/${projectId}/construction/work-planning`, data),

@@ -101,6 +101,18 @@ export class ConstructionController {
     return this.constructionService.updateWorkPackage(user.tenantId, projectId, id, dto);
   }
 
+  @Delete('work-packages/:id')
+  @RequirePermissions(...PLANNING_WRITE)
+  @ApiOperation({ summary: 'Delete a work package (blocked when DPRs or MBs are linked)' })
+  deleteWorkPackage(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+  ) {
+    this.assertAdminPlanning(user);
+    return this.constructionService.deleteWorkPackage(user.tenantId, projectId, id);
+  }
+
   @Get('work-planning')
   @RequirePermissions('construction:read')
   getWorkPlanning(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string) {
