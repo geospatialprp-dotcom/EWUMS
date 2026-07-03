@@ -33,6 +33,7 @@ import {
   emptyDprActivityRow, type DprActivityRow, type DprHeaderForm,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
+import DprDetailDialog from '../components/construction/DprDetailDialog';
 import BoqReconciliationPanel from '../components/construction/BoqReconciliationPanel';
 import RaBillPanel from '../components/construction/RaBillPanel';
 import FinalBillPanel from '../components/construction/FinalBillPanel';
@@ -60,7 +61,7 @@ import { formatBoqAmount, formatBoqRoundedRupee, roundBoqTotalToNearestRupee, su
 import { formatApiError } from '../utils/apiError';
 import {
   BOQ_EXCEL_SECTION_LABELS, BOQ_EXCEL_SECTION_ORDER, BOQ_TABLE_COLUMNS, COMPONENT_LABELS,
-  CONSTRUCTION_PIPELINE, DPR_WORKFLOW_SEQUENCE, dprWorkflowStepLabel, MB_WORKFLOW_SEQUENCE,
+  CONSTRUCTION_PIPELINE, DPR_WEATHER_OPTIONS, DPR_WORKFLOW_SEQUENCE, dprWorkflowStepLabel, MB_WORKFLOW_SEQUENCE,
   mbPendingVerifier, mbWorkflowStepLabel,
   PROJECT_COMPONENT_ORDER, STATUS_APPROVER, STATUS_COLORS, WORKFLOW_DONE_STATUSES, WORKFLOW_STAGES,
   type ProjectComponent,
@@ -631,6 +632,7 @@ export default function ProjectConstructionPage() {
   const [dprDialog, setDprDialog] = useState(false);
   const [dprDetailOpen, setDprDetailOpen] = useState(false);
   const [dprDetail, setDprDetail] = useState<Record<string, unknown> | null>(null);
+  const [dprWeatherFilter, setDprWeatherFilter] = useState('');
   const [editingDprId, setEditingDprId] = useState<string | null>(null);
   const [dprHeaderForm, setDprHeaderForm] = useState<DprHeaderForm>(defaultDprHeader());
   const [dprActivityRows, setDprActivityRows] = useState<DprActivityRow[]>([emptyDprActivityRow()]);
@@ -758,6 +760,22 @@ export default function ProjectConstructionPage() {
     () => (isContractorUser ? dprs.filter((d) => contractorOwnsDpr(d)) : dprs),
     [dprs, isContractorUser, user?.id, workPackages],
   );
+
+  const filteredDprs = useMemo(() => {
+    if (!dprWeatherFilter) return visibleDprs;
+    return visibleDprs.filter((d) => String(d.weather ?? '') === dprWeatherFilter);
+  }, [visibleDprs, dprWeatherFilter]);
+
+  const dprWeatherFilterOptions = useMemo(() => {
+    const legacy = new Set<string>();
+    for (const d of visibleDprs) {
+      const w = String(d.weather ?? '');
+      if (w && !DPR_WEATHER_OPTIONS.includes(w as typeof DPR_WEATHER_OPTIONS[number])) {
+        legacy.add(w);
+      }
+    }
+    return [...DPR_WEATHER_OPTIONS, ...Array.from(legacy).sort()];
+  }, [visibleDprs]);
 
   const fetchOptional = async <T,>(request: Promise<{ data: T }>, fallback: T): Promise<T> => {
     try {
@@ -2028,7 +2046,7 @@ export default function ProjectConstructionPage() {
               </Button>
             )}
           </Box>
-          <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
+          <Box display="flex" gap={1} flexWrap="wrap" mb={2} alignItems="center">
             {DPR_WORKFLOW_SEQUENCE.map((step) => (
               <Chip
                 key={step.status}
@@ -2038,6 +2056,21 @@ export default function ProjectConstructionPage() {
                 sx={constructionWorkflowChipSx('dpr')}
               />
             ))}
+            <Box sx={{ ml: 'auto', minWidth: 160 }}>
+              <TextField
+                select
+                size="small"
+                label="Filter by weather"
+                value={dprWeatherFilter}
+                onChange={(e) => setDprWeatherFilter(e.target.value)}
+                sx={{ minWidth: 180 }}
+              >
+                <MenuItem value="">All weather</MenuItem>
+                {dprWeatherFilterOptions.map((option) => (
+                  <MenuItem key={option} value={option}>{option}</MenuItem>
+                ))}
+              </TextField>
+            </Box>
           </Box>
           <Table size="small" sx={constructionTableShellSx('dpr')}>
             <ConstructionTableHead
@@ -2056,18 +2089,20 @@ export default function ProjectConstructionPage() {
               ]}
             />
             <TableBody>
-              {visibleDprs.length === 0 && (
+              {filteredDprs.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10}>
                     <Typography variant="body2" color="text.secondary">
-                      {isContractorUser
-                        ? 'No daily progress reports yet — click New DPR to submit today\'s work.'
-                        : 'No daily progress reports yet.'}
+                      {dprWeatherFilter
+                        ? 'No daily progress reports match the selected weather filter.'
+                        : isContractorUser
+                          ? 'No daily progress reports yet — click New DPR to submit today\'s work.'
+                          : 'No daily progress reports yet.'}
                     </Typography>
                   </TableCell>
                 </TableRow>
               )}
-              {visibleDprs.map((dpr) => {
+              {filteredDprs.map((dpr) => {
                 const summary = dprActivitySummary(dpr);
                 const status = String(dpr.status);
                 const isEditable = canEditDpr(dpr);
@@ -2343,10 +2378,20 @@ export default function ProjectConstructionPage() {
           />
           <Box display="flex" gap={1} flexWrap="wrap">
             <TextField
-              label="Weather" sx={{ flex: 1, minWidth: 140 }}
+              select
+              label="Weather"
+              sx={{ flex: 1, minWidth: 140 }}
               value={dprHeaderForm.weather}
               onChange={(e) => setDprHeaderForm({ ...dprHeaderForm, weather: e.target.value })}
-            />
+            >
+              {DPR_WEATHER_OPTIONS.map((option) => (
+                <MenuItem key={option} value={option}>{option}</MenuItem>
+              ))}
+              {dprHeaderForm.weather
+                && !DPR_WEATHER_OPTIONS.includes(dprHeaderForm.weather as typeof DPR_WEATHER_OPTIONS[number])
+                ? <MenuItem value={dprHeaderForm.weather}>{dprHeaderForm.weather}</MenuItem>
+                : null}
+            </TextField>
             <TextField
               type="number" label="Total Manpower (Labour)" sx={{ flex: 1, minWidth: 140 }}
               value={dprHeaderForm.manpowerCount}
@@ -2521,72 +2566,19 @@ export default function ProjectConstructionPage() {
         </DialogActions>
       </Dialog>
 
-      {/* DPR Detail Dialog */}
-      <Dialog open={dprDetailOpen} onClose={() => setDprDetailOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          DPR {String(dprDetail?.dprNumber ?? '')} — {String(dprDetail?.reportDate ?? '')}
-        </DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
-          {dprDetail && (
-            <>
-              <Box display="flex" gap={1} flexWrap="wrap">
-                <Chip size="small" label={String(dprDetail.schemeType)} />
-                <StatusChip status={String(dprDetail.status)} />
-              </Box>
-              <Grid container spacing={1}>
-                {[
-                  ['Location', String(dprDetail.workSite ?? '—')],
-                  ['Contractor', String(dprDetail.contractorName ?? '—')],
-                  ['Supervisor', String(dprDetail.supervisorName ?? '—')],
-                  ['Weather', String(dprDetail.weather ?? '—')],
-                  ['Total Manpower', String(dprDetail.manpowerCount ?? 0)],
-                ].map(([label, value]) => (
-                  <Grid item xs={12} sm={6} key={label}>
-                    <Typography variant="caption" color="text.secondary">{label}</Typography>
-                    <Typography variant="body2">{value}</Typography>
-                  </Grid>
-                ))}
-              </Grid>
-              <Divider />
-              <Typography variant="subtitle2" fontWeight={700}>Work Items</Typography>
-              {((dprDetail.activities as Array<Record<string, unknown>>) ?? []).map((act, idx) => (
-                <Card key={String(act.id ?? idx)} variant="outlined" sx={{ p: 1.5 }}>
-                  <Typography variant="body2" fontWeight={600} gutterBottom>
-                    {idx + 1}. {String(act.description)}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Qty: {String(act.quantityDone)} {String(act.unit)}
-                    {' · '}Chainage: {[act.chainageFrom, act.chainageTo].filter(Boolean).join(' → ') || '—'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    GPS: {act.latitude != null && act.longitude != null ? `${act.latitude}, ${act.longitude}` : '—'}
-                    {' · '}Labour: {String(act.labourCount ?? 0)}
-                  </Typography>
-                  {Boolean(act.materialConsumption) && (
-                    <Typography variant="caption" display="block">Material: {String(act.materialConsumption)}</Typography>
-                  )}
-                  {Boolean(act.equipmentDetails) && (
-                    <Typography variant="caption" display="block">Equipment: {String(act.equipmentDetails)}</Typography>
-                  )}
-                </Card>
-              ))}
-              {((dprDetail.documents as Array<Record<string, unknown>>) ?? []).length > 0 && (
-                <>
-                  <Divider />
-                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>Geo-tagged Photographs</Typography>
-                  <DprPhotoGallery
-                    projectId={projectId}
-                    documents={(dprDetail.documents as Array<Record<string, unknown>>) ?? []}
-                  />
-                </>
-              )}
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDprDetailOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <DprDetailDialog
+        open={dprDetailOpen}
+        onClose={() => setDprDetailOpen(false)}
+        projectId={projectId}
+        dpr={dprDetail}
+        canEdit={dprDetail ? canEditDpr(dprDetail) : false}
+        onEdit={() => {
+          const id = String(dprDetail?.id ?? '');
+          if (!id) return;
+          setDprDetailOpen(false);
+          void loadDprForEdit(id);
+        }}
+      />
 
       {/* MB Dialog */}
       <Dialog open={mbDialog} onClose={() => { setMbDialog(false); resetMbForm(); }} maxWidth="md" fullWidth scroll="paper">

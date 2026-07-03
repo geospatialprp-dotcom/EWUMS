@@ -140,6 +140,11 @@ export const WORKFLOW_DONE_STATUSES = [
   'draft', 'ee_approved', 'boq_finalized', 'ee_sanctioned', 'finance_released', 'rejected',
 ];
 
+/** Standard weather options for daily progress (DPR) */
+export const DPR_WEATHER_OPTIONS = ['Clear', 'Cloudy', 'Rain'] as const;
+
+export type DprWeather = typeof DPR_WEATHER_OPTIONS[number];
+
 /** DPR approval sequence: Contractor → JE → AE → EE */
 export const DPR_WORKFLOW_SEQUENCE = [
   { status: 'draft', step: 1, label: 'Contractor (Draft)' },
