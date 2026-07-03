@@ -2084,6 +2084,7 @@ export default function ProjectConstructionPage() {
                 { label: 'Qty Executed' },
                 { label: 'Contractor' },
                 { label: 'Supervisor' },
+                { label: 'Weather', minWidth: 90 },
                 { label: 'Workflow Step', minWidth: 130 },
                 { label: 'Actions', minWidth: 280 },
               ]}
@@ -2091,7 +2092,7 @@ export default function ProjectConstructionPage() {
             <TableBody>
               {filteredDprs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10}>
+                  <TableCell colSpan={11}>
                     <Typography variant="body2" color="text.secondary">
                       {dprWeatherFilter
                         ? 'No daily progress reports match the selected weather filter.'
@@ -2117,6 +2118,11 @@ export default function ProjectConstructionPage() {
                     <TableCell>{summary.qty}</TableCell>
                     <TableCell>{String(dpr.contractorName ?? '—')}</TableCell>
                     <TableCell>{String(dpr.supervisorName ?? '—')}</TableCell>
+                    <TableCell>
+                      {dpr.weather
+                        ? <Chip size="small" label={String(dpr.weather)} variant="outlined" />
+                        : '—'}
+                    </TableCell>
                     <TableCell>
                       <StatusChip status={status} label={dprWorkflowStepLabel(status)} />
                     </TableCell>
