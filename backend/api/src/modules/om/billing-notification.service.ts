@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as net from 'net';
-import * as tls from 'tls';
+import * as nodemailer from 'nodemailer';
 
 export type BillNotifyMode = 'live' | 'handoff';
 export type NotificationChannel = 'sms' | 'whatsapp' | 'email';
@@ -231,166 +230,32 @@ export class BillingNotificationService {
     }
 
     try {
-      await this.deliverSmtpMessage({ host, port, user, pass, from, secure, to: email, subject, body });
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: secure || port === 465,
+        auth: user && pass ? { user, pass } : undefined,
+        requireTLS: !secure && port === 587,
+      });
+      const info = await transporter.sendMail({
+        from,
+        to: email,
+        subject,
+        text: body,
+      });
       return {
         channel: 'email',
         status: 'sent',
         destination: email,
         provider: 'smtp',
         message: body,
+        externalId: info.messageId,
       };
     } catch (err) {
-      this.logger.error(`SMTP error: ${String(err)}`);
-      return this.failed('email', email, 'smtp', (err as Error).message || 'SMTP delivery failed');
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(`SMTP error: ${reason}`);
+      return this.failed('email', email, 'smtp', reason || 'SMTP delivery failed');
     }
-  }
-
-  private deliverSmtpMessage(opts: {
-    host: string;
-    port: number;
-    user: string;
-    pass: string;
-    from: string;
-    secure: boolean;
-    to: string;
-    subject: string;
-    body: string;
-  }): Promise<void> {
-    return new Promise((resolve, reject) => {
-      let stage: 'greeting' | 'ehlo' | 'starttls' | 'auth' | 'mail' | 'rcpt' | 'data' | 'quit' = 'greeting';
-      let buffer = '';
-      let dataSent = false;
-      let tlsReady = false;
-
-      const send = (cmd: string) => {
-        socket.write(`${cmd}\r\n`);
-      };
-
-      const handleLine = (line: string) => {
-        const code = Number(line.slice(0, 3));
-        if (Number.isNaN(code)) return;
-
-        if (stage === 'greeting') {
-          if (code !== 220) return reject(new Error(`SMTP greeting failed: ${line}`));
-          send(`EHLO egip.local`);
-          stage = 'ehlo';
-          return;
-        }
-
-        if (stage === 'ehlo') {
-          if (code >= 400) return reject(new Error(`SMTP EHLO failed: ${line}`));
-          if (!line.startsWith('250')) return;
-          // Wait for final 250 line (not 250- continuation)
-          if (!line.startsWith('250 ')) return;
-          if (!tlsReady && !opts.secure && opts.port === 587) {
-            send('STARTTLS');
-            stage = 'starttls';
-            return;
-          }
-          if (opts.user && opts.pass) {
-            send('AUTH LOGIN');
-            stage = 'auth';
-          } else {
-            send(`MAIL FROM:<${opts.from}>`);
-            stage = 'mail';
-          }
-          return;
-        }
-
-        if (stage === 'starttls') {
-          if (code !== 220) return reject(new Error(`SMTP STARTTLS failed: ${line}`));
-          const plain = socket as net.Socket;
-          const secureSocket = tls.connect({ socket: plain, servername: opts.host }, () => {
-            socket = secureSocket as net.Socket;
-            socket.on('data', onData);
-            socket.on('error', reject);
-            tlsReady = true;
-            send('EHLO egip.local');
-            stage = 'ehlo';
-          });
-          secureSocket.on('error', reject);
-          return;
-        }
-
-        if (stage === 'auth') {
-          if (line.startsWith('334')) {
-            if (line.includes('Username') || line.includes('VXNlcm5hbWU')) {
-              send(Buffer.from(opts.user).toString('base64'));
-            } else {
-              send(Buffer.from(opts.pass).toString('base64'));
-            }
-            return;
-          }
-          if (code === 235) {
-            send(`MAIL FROM:<${opts.from}>`);
-            stage = 'mail';
-            return;
-          }
-          if (code >= 400) return reject(new Error(`SMTP auth failed: ${line}`));
-          return;
-        }
-
-        if (stage === 'mail') {
-          if (code >= 400) return reject(new Error(`SMTP MAIL FROM failed: ${line}`));
-          send(`RCPT TO:<${opts.to}>`);
-          stage = 'rcpt';
-          return;
-        }
-
-        if (stage === 'rcpt') {
-          if (code >= 400) return reject(new Error(`SMTP RCPT TO failed: ${line}`));
-          send('DATA');
-          stage = 'data';
-          return;
-        }
-
-        if (stage === 'data') {
-          if (code >= 400) return reject(new Error(`SMTP DATA failed: ${line}`));
-          if (!dataSent) {
-            const payload = [
-              `From: ${opts.from}`,
-              `To: ${opts.to}`,
-              `Subject: ${opts.subject}`,
-              'MIME-Version: 1.0',
-              'Content-Type: text/plain; charset=utf-8',
-              '',
-              opts.body,
-              '.',
-            ].join('\r\n');
-            send(payload);
-            dataSent = true;
-            return;
-          }
-          send('QUIT');
-          stage = 'quit';
-          return;
-        }
-
-        if (stage === 'quit') {
-          resolve();
-        }
-      };
-
-      const onData = (chunk: Buffer) => {
-        buffer += chunk.toString('utf8');
-        const lines = buffer.split('\r\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (line.trim()) handleLine(line);
-        }
-      };
-
-      let socket: net.Socket = opts.secure
-        ? tls.connect({ host: opts.host, port: opts.port, servername: opts.host })
-        : net.connect({ host: opts.host, port: opts.port });
-
-      socket.setEncoding('utf8');
-      socket.on('data', onData);
-      socket.on('error', reject);
-      socket.on('close', () => {
-        if (stage !== 'quit') reject(new Error('SMTP connection closed unexpectedly'));
-      });
-    });
   }
 
   private async sendSmsMsg91(mobile: string, message: string): Promise<NotificationSendResult> {
