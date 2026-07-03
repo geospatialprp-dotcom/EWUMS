@@ -18,6 +18,8 @@ import { RaBill } from './entities/ra-bill.entity';
 import { RaBillLine } from './entities/ra-bill-line.entity';
 import { WorkPackage } from './entities/work-package.entity';
 import { WorkPlanning } from './entities/work-planning.entity';
+import { DprProposal } from '../dpr-planning/entities/dpr-proposal.entity';
+import { DprSanction } from '../dpr-planning/entities/dpr-planning-support.entity';
 import { Project } from '../projects/entities/project.entity';
 import { ProjectMilestone } from '../projects/entities/project-milestone.entity';
 import { ProjectProgressSyncService } from './project-progress-sync.service';
@@ -37,6 +39,8 @@ import { ProjectProgressSyncService } from './project-progress-sync.service';
       WorkflowTask,
       WorkPackage,
       WorkPlanning,
+      DprProposal,
+      DprSanction,
       RaBill,
       RaBillLine,
       ConstructionAsset,

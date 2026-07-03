@@ -63,6 +63,36 @@ import {
   type ProjectComponent,
 } from '../constants/construction';
 
+type SecretariatSanctionRefs = {
+  dprProposalId?: string;
+  proposalNo?: string;
+  administrativeApprovalNo?: string | null;
+  expenditureSanctionNo?: string | null;
+};
+
+function applySecretariatSanctionRefs(
+  form: PlanningFormState,
+  secretariat: SecretariatSanctionRefs | null | undefined,
+): { form: PlanningFormState; autoFilled: string[] } {
+  if (!secretariat) return { form, autoFilled: [] };
+
+  const autoFilled: string[] = [];
+  const next = { ...form };
+  const aa = String(secretariat.administrativeApprovalNo ?? '').trim();
+  const es = String(secretariat.expenditureSanctionNo ?? '').trim();
+
+  if (!next.adminApprovalRef.trim() && aa) {
+    next.adminApprovalRef = aa;
+    autoFilled.push('Administrative Approval (AA)');
+  }
+  if (!next.technicalSanctionRef.trim() && es) {
+    next.technicalSanctionRef = es;
+    autoFilled.push('Expenditure Sanction (ES)');
+  }
+
+  return { form: next, autoFilled };
+}
+
 type PendingBoqUpload = {
   file: File;
   fileName: string;
@@ -460,6 +490,7 @@ export default function ProjectConstructionPage() {
   const [boqFileName, setBoqFileName] = useState('');
   const [l1BoqImporting, setL1BoqImporting] = useState(false);
   const [l1BoqFileName, setL1BoqFileName] = useState('');
+  const [planningSecretariatMsg, setPlanningSecretariatMsg] = useState('');
   const [planningLocalFiles, setPlanningLocalFiles] = useState<{
     dpr?: File;
     drawing?: File;
@@ -633,7 +664,8 @@ export default function ProjectConstructionPage() {
         const pd = planningData as Record<string, unknown>;
         const uploadUrl = String(pd.boqUploadUrl ?? '');
         const l1UploadUrl = String(pd.l1ContractorBoqUploadUrl ?? '');
-        const loadedForm: PlanningFormState = {
+        const secretariat = pd.secretariatSanction as SecretariatSanctionRefs | null | undefined;
+        const baseForm: PlanningFormState = {
           approvedDprUrl: String(pd.approvedDprUrl ?? ''),
           adminApprovalRef: String(pd.adminApprovalRef ?? ''),
           technicalSanctionRef: String(pd.technicalSanctionRef ?? ''),
@@ -643,8 +675,17 @@ export default function ProjectConstructionPage() {
           drawingUploadUrl: String(pd.drawingUploadUrl ?? ''),
           gisAlignmentApproved: Boolean(pd.gisAlignmentApproved),
         };
+        const { form: loadedForm, autoFilled } = applySecretariatSanctionRefs(baseForm, secretariat);
         setPlanningForm(loadedForm);
         setSavedPlanningSnapshot(serializePlanningForm(loadedForm));
+        if (autoFilled.length) {
+          const proposalNo = secretariat?.proposalNo ? ` (${secretariat.proposalNo})` : '';
+          setPlanningSecretariatMsg(
+            `Auto-filled ${autoFilled.join(' and ')} from Secretariat Stage 8 sanction${proposalNo}.`,
+          );
+        } else {
+          setPlanningSecretariatMsg('');
+        }
         setBoqFileName(uploadUrl ? uploadUrl.split('/').pop() ?? '' : '');
         setL1BoqFileName(l1UploadUrl ? l1UploadUrl.split('/').pop() ?? '' : '');
       } else {
@@ -710,8 +751,8 @@ export default function ProjectConstructionPage() {
       && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim());
     return [
       { key: 'dpr', label: 'Approved DPR Upload', done: Boolean(planningForm.approvedDprUrl) },
-      { key: 'admin', label: 'Administrative Approval', done: Boolean(planningForm.adminApprovalRef.trim()) },
-      { key: 'ts', label: 'Technical Sanction', done: Boolean(planningForm.technicalSanctionRef.trim()) },
+      { key: 'admin', label: 'Administrative Approval (AA)', done: Boolean(planningForm.adminApprovalRef.trim()) },
+      { key: 'ts', label: 'Expenditure Sanction (ES)', done: Boolean(planningForm.technicalSanctionRef.trim()) },
       { key: 'boq', label: 'BOQ Upload', done: hasBoqData },
       { key: 'l1Boq', label: 'L1 Contractor BOQ', done: hasL1BoqData },
       { key: 'contractorPo', label: 'Contractor PO/WO Upload', done: Boolean(planningForm.contractorPoUploadUrl) },
@@ -1354,19 +1395,30 @@ export default function ProjectConstructionPage() {
                       });
                     }}
                   />
+                  {planningSecretariatMsg && (
+                    <Alert severity="info" sx={{ py: 0.25 }}>{planningSecretariatMsg}</Alert>
+                  )}
                   <TextField
-                    label="2. Administrative Approval Ref"
+                    label="2. Administrative Approval (AA) Ref"
                     placeholder="e.g. ADM/2024/WS-001"
                     value={planningForm.adminApprovalRef}
-                    onChange={(e) => setPlanningForm({ ...planningForm, adminApprovalRef: e.target.value })}
+                    onChange={(e) => {
+                      setPlanningSecretariatMsg('');
+                      setPlanningForm({ ...planningForm, adminApprovalRef: e.target.value });
+                    }}
                     disabled={!canAdminPlanning}
+                    helperText="Auto-filled from Secretariat Stage 8 sanction when recorded"
                   />
                   <TextField
-                    label="3. Technical Sanction Ref"
-                    placeholder="e.g. TS/EE/2024/045"
+                    label="3. Expenditure Sanction (ES) Ref"
+                    placeholder="e.g. ES/2024/WS-045"
                     value={planningForm.technicalSanctionRef}
-                    onChange={(e) => setPlanningForm({ ...planningForm, technicalSanctionRef: e.target.value })}
+                    onChange={(e) => {
+                      setPlanningSecretariatMsg('');
+                      setPlanningForm({ ...planningForm, technicalSanctionRef: e.target.value });
+                    }}
                     disabled={!canAdminPlanning}
+                    helperText="Auto-filled from Secretariat Stage 8 sanction when recorded"
                   />
                   <BoqUploadField
                     label="4. BOQ Upload (Excel) — Original / Tender BOQ"

@@ -59,6 +59,8 @@ import { RaBill } from './entities/ra-bill.entity';
 import { RaBillLine } from './entities/ra-bill-line.entity';
 import { WorkPackage } from './entities/work-package.entity';
 import { WorkPlanning } from './entities/work-planning.entity';
+import { DprProposal } from '../dpr-planning/entities/dpr-proposal.entity';
+import { DprSanction } from '../dpr-planning/entities/dpr-planning-support.entity';
 import { ProjectProgressSyncService } from './project-progress-sync.service';
 
 const DPR_STATUS_BY_STEP: Record<number, string> = {
@@ -86,6 +88,8 @@ export class ConstructionService {
     @InjectRepository(WorkflowTask) private taskRepo: Repository<WorkflowTask>,
     @InjectRepository(WorkPackage) private wpRepo: Repository<WorkPackage>,
     @InjectRepository(WorkPlanning) private planningRepo: Repository<WorkPlanning>,
+    @InjectRepository(DprProposal) private dprProposalRepo: Repository<DprProposal>,
+    @InjectRepository(DprSanction) private dprSanctionRepo: Repository<DprSanction>,
     @InjectRepository(RaBill) private raBillRepo: Repository<RaBill>,
     @InjectRepository(RaBillLine) private raBillLineRepo: Repository<RaBillLine>,
     @InjectRepository(ConstructionAsset) private assetRepo: Repository<ConstructionAsset>,
@@ -523,7 +527,30 @@ export class ConstructionService {
     if (!planning) {
       planning = await this.planningRepo.save(this.planningRepo.create({ tenantId, projectId, status: 'draft' }));
     }
-    return planning;
+    const secretariatSanction = await this.getSecretariatSanctionRefs(tenantId, projectId);
+    return { ...planning, secretariatSanction };
+  }
+
+  private async getSecretariatSanctionRefs(tenantId: string, projectId: string) {
+    const proposal = await this.dprProposalRepo.findOne({ where: { tenantId, projectId } });
+    if (!proposal) return null;
+
+    const sanction = await this.dprSanctionRepo.findOne({
+      where: { tenantId, proposalId: proposal.id },
+      order: { createdAt: 'DESC' },
+    });
+    if (!sanction) return null;
+
+    const administrativeApprovalNo = sanction.administrativeApprovalNo?.trim() || null;
+    const expenditureSanctionNo = sanction.expenditureSanctionNo?.trim() || null;
+    if (!administrativeApprovalNo && !expenditureSanctionNo) return null;
+
+    return {
+      dprProposalId: proposal.id,
+      proposalNo: proposal.proposalNo,
+      administrativeApprovalNo,
+      expenditureSanctionNo,
+    };
   }
 
   async upsertWorkPlanning(tenantId: string, projectId: string, userId: string, dto: UpdateWorkPlanningDto) {
