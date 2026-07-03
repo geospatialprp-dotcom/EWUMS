@@ -157,6 +157,22 @@ function mergeContractorLogins(logins: ContractorLoginInfo[]): ContractorLoginIn
   return [...byEmail.values()];
 }
 
+function contractorDraftName(wp: Record<string, unknown>, drafts: Record<string, string>): string {
+  return String(drafts[String(wp.id)] ?? wp.contractorName ?? '').trim();
+}
+
+/** Provision when name is set and login is missing or firm name changed. */
+function needsContractorProvision(wp: Record<string, unknown>, contractorName: string): boolean {
+  const trimmed = contractorName.trim();
+  if (!trimmed) return false;
+  if (!wp.contractorId) return true;
+  return trimmed !== String(wp.contractorName ?? '').trim();
+}
+
+function isContractorFullyAssigned(wp: Record<string, unknown>, drafts: Record<string, string>): boolean {
+  return Boolean(contractorDraftName(wp, drafts)) && Boolean(wp.contractorId);
+}
+
 function serializePlanningForm(form: PlanningFormState): string {
   return JSON.stringify(form);
 }
@@ -635,6 +651,7 @@ export default function ProjectConstructionPage() {
   });
   const [contractorDrafts, setContractorDrafts] = useState<Record<string, string>>({});
   const [contractorLogins, setContractorLogins] = useState<ContractorLoginInfo[]>([]);
+  const [assigningContractorWpId, setAssigningContractorWpId] = useState<string | null>(null);
   const [docForm, setDocForm] = useState({ docType: 'site_photo', fileName: '', fileUrl: '' });
 
   const displayGovBoq = useMemo(
@@ -858,7 +875,7 @@ export default function ProjectConstructionPage() {
     const hasDrawing = Boolean(planningForm.drawingUploadUrl) || Boolean(planningLocalFiles.drawing);
     const hasContractorPo = Boolean(planningForm.contractorPoUploadUrl) || Boolean(planningLocalFiles.contractorPo);
     const packagesAssigned = workPackages.length > 0
-      && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim());
+      && workPackages.every((wp) => isContractorFullyAssigned(wp, contractorDrafts));
     return [
       { key: 'dpr', label: 'Approved DPR Upload', done: hasDpr },
       { key: 'admin', label: 'Administrative Approval (AA)', done: Boolean(planningForm.adminApprovalRef.trim()) },
@@ -1390,15 +1407,32 @@ export default function ProjectConstructionPage() {
       });
 
       const newLogins: ContractorLoginInfo[] = [];
-      await Promise.all(workPackages.map(async (wp) => {
+      const provisionErrors: string[] = [];
+      for (const wp of workPackages) {
         const wpId = String(wp.id);
         const contractorName = contractorDrafts[wpId]?.trim();
-        if (!contractorName || contractorName === String(wp.contractorName ?? '').trim()) return;
-        const { data } = await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
-        const login = parseContractorLogin(data);
-        if (login) newLogins.push(login);
-      }));
-      if (newLogins.length) setContractorLogins(mergeContractorLogins(newLogins));
+        if (!needsContractorProvision(wp, contractorName)) continue;
+        try {
+          const { data } = await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
+          const login = parseContractorLogin(data);
+          const saved = data as Record<string, unknown>;
+          if (login) {
+            newLogins.push(login);
+          } else if (!saved.contractorId) {
+            provisionErrors.push(
+              `${String(wp.packageCode ?? wpId)}: login was not created — check contractor role and EE permissions (migration 102).`,
+            );
+          }
+        } catch (err) {
+          provisionErrors.push(`${String(wp.packageCode ?? wpId)}: ${formatApiError(err)}`);
+        }
+      }
+      if (newLogins.length) {
+        setContractorLogins((prev) => mergeContractorLogins([...prev, ...newLogins]));
+      }
+      if (provisionErrors.length) {
+        throw new Error(provisionErrors.join(' '));
+      }
 
       setPlanningForm(nextForm);
       setSavedPlanningSnapshot(serializePlanningForm(nextForm));
@@ -1416,7 +1450,7 @@ export default function ProjectConstructionPage() {
         Boolean(nextForm.contractorPoUploadUrl),
         Boolean(nextForm.drawingUploadUrl),
         workPackages.length > 0,
-        workPackages.length > 0 && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim()),
+        workPackages.length > 0 && workPackages.every((wp) => isContractorFullyAssigned(wp, contractorDrafts)),
         nextForm.gisAlignmentApproved,
       ].filter(Boolean).length;
       const loginNote = newLogins.length
@@ -1485,14 +1519,24 @@ export default function ProjectConstructionPage() {
       if (wpEditingId) {
         const { data } = await constructionApi.updateWorkPackage(projectId, wpEditingId, payload);
         const login = parseContractorLogin(data);
-        if (login) setContractorLogins(mergeContractorLogins([login]));
+        const saved = data as Record<string, unknown>;
+        if (login) {
+          setContractorLogins((prev) => mergeContractorLogins([...prev, login]));
+        } else if (contractorName && !saved.contractorId) {
+          throw new Error('Contractor login was not created — check contractor role and migration 102.');
+        }
         setSuccess(login
           ? `Work package "${name}" updated. Contractor login highlighted below.`
           : `Work package "${name}" updated.`);
       } else {
         const { data } = await constructionApi.createWorkPackage(projectId, payload);
         const login = parseContractorLogin(data);
-        if (login) setContractorLogins(mergeContractorLogins([login]));
+        const saved = data as Record<string, unknown>;
+        if (login) {
+          setContractorLogins((prev) => mergeContractorLogins([...prev, login]));
+        } else if (contractorName && !saved.contractorId) {
+          throw new Error('Contractor login was not created — check contractor role and migration 102.');
+        }
         setSuccess(login
           ? `Work package "${name}" created. Contractor login highlighted below.`
           : `Work package "${name}" created.`);
@@ -1514,18 +1558,40 @@ export default function ProjectConstructionPage() {
   };
 
   const handleAssignContractor = async (wpId: string) => {
+    const wp = workPackages.find((row) => String(row.id) === wpId);
     const contractorName = contractorDrafts[wpId]?.trim();
-    if (!contractorName) return;
+    if (!contractorName) {
+      setError('Enter the contractor firm name before saving.');
+      return;
+    }
+    if (wp && !needsContractorProvision(wp, contractorName)) {
+      const email = String(wp.contractorLoginEmail ?? '').trim();
+      setSuccess(email
+        ? `Contractor "${contractorName}" is already assigned (login: ${email}).`
+        : `Contractor "${contractorName}" is already assigned.`);
+      return;
+    }
+    setAssigningContractorWpId(wpId);
+    setError('');
     try {
       const { data } = await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
       const login = parseContractorLogin(data);
-      if (login) setContractorLogins(mergeContractorLogins([login]));
+      const saved = data as Record<string, unknown>;
+      if (login) {
+        setContractorLogins((prev) => mergeContractorLogins([...prev, login]));
+      } else if (!saved.contractorId) {
+        throw new Error(
+          'Contractor login was not created. Ensure migration 102 is applied (EE needs construction:update) and the contractor role exists.',
+        );
+      }
       await refresh();
       setSuccess(login
         ? `Contractor "${contractorName}" saved. Login highlighted below — contractor can submit daily DPR.`
-        : 'Contractor assigned.');
+        : `Contractor "${contractorName}" linked to existing firm login — see email under the firm name.`);
     } catch (err) {
       setError(formatApiError(err, 'Failed to assign contractor.'));
+    } finally {
+      setAssigningContractorWpId(null);
     }
   };
 
@@ -1837,8 +1903,13 @@ export default function ProjectConstructionPage() {
                                   sx={{ minWidth: 140 }}
                                 />
                                 {canAdminPlanning && (
-                                  <Button size="small" variant="outlined" onClick={() => { void handleAssignContractor(wpId); }}>
-                                    Save
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    disabled={assigningContractorWpId === wpId}
+                                    onClick={() => { void handleAssignContractor(wpId); }}
+                                  >
+                                    {assigningContractorWpId === wpId ? 'Saving…' : 'Save'}
                                   </Button>
                                 )}
                               </Box>

@@ -624,6 +624,13 @@ export class ConstructionService {
       }
     } else if (dto.contractorId !== undefined) {
       wp.contractorId = dto.contractorId || null;
+    } else if (!wp.contractorId && wp.contractorName?.trim()) {
+      contractorLogin = await this.provisionWorkPackageContractor(
+        tenantId,
+        projectId,
+        wp,
+        wp.contractorName.trim(),
+      );
     }
 
     wp.updatedAt = new Date();
