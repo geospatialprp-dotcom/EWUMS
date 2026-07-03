@@ -518,6 +518,20 @@ export class ConstructionService {
   async updateWorkPackage(tenantId: string, projectId: string, id: string, dto: UpdateWorkPackageDto) {
     const wp = await this.wpRepo.findOne({ where: { id, tenantId, projectId } });
     if (!wp) throw new NotFoundException('Work package not found');
+    if (dto.packageCode !== undefined) {
+      const packageCode = dto.packageCode.trim();
+      if (!packageCode) throw new BadRequestException('Package code cannot be empty');
+      wp.packageCode = packageCode;
+    }
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (!name) throw new BadRequestException('Package name cannot be empty');
+      wp.name = name;
+    }
+    if (dto.component !== undefined) wp.component = dto.component.trim();
+    if (dto.schemeType !== undefined) wp.schemeType = dto.schemeType ?? null;
+    if (dto.chainageFrom !== undefined) wp.chainageFrom = dto.chainageFrom?.trim() || null;
+    if (dto.chainageTo !== undefined) wp.chainageTo = dto.chainageTo?.trim() || null;
     if (dto.contractorName !== undefined) wp.contractorName = dto.contractorName || null;
     if (dto.contractorId !== undefined) wp.contractorId = dto.contractorId || null;
     if (dto.gisAlignmentStatus !== undefined) wp.gisAlignmentStatus = dto.gisAlignmentStatus;

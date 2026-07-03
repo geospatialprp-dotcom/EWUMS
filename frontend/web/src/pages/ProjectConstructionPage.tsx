@@ -17,7 +17,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { constructionApi, projectsApi, type SchemeType } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import ConstructionTableHead from '../components/construction/ConstructionTableHead';
@@ -54,7 +54,7 @@ import {
   aeChecksComplete, buildAeVerificationComments, buildEeVerificationComments,
   eeChecksComplete, type AeVerificationChecks, type EeVerificationChecks,
 } from '../utils/mbVerification';
-import { parseBoqExcel, type ParsedBoqRow } from '../utils/boqExcelImport';
+import { parseBoqExcel, toImportPayload, type ParsedBoqRow } from '../utils/boqExcelImport';
 import { formatBoqAmount, formatBoqRoundedRupee, roundBoqTotalToNearestRupee, sumBoqAmounts } from '../utils/boqAmount';
 import { formatApiError } from '../utils/apiError';
 import {
@@ -556,8 +556,10 @@ export default function ProjectConstructionPage() {
   const [aeRemarks, setAeRemarks] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [eeRemarks, setEeRemarks] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [wpDialog, setWpDialog] = useState(false);
+  const [wpEditingId, setWpEditingId] = useState<string | null>(null);
   const [wpSaving, setWpSaving] = useState(false);
   const [wpDialogError, setWpDialogError] = useState('');
+  const [planningSaving, setPlanningSaving] = useState(false);
   const [docDialog, setDocDialog] = useState<{ resourceType: string; resourceId: string } | null>(null);
 
   const [planningForm, setPlanningForm] = useState<PlanningFormState>({
@@ -759,8 +761,8 @@ export default function ProjectConstructionPage() {
   }, [location.state]);
 
   const planningChecklist = useMemo(() => {
-    const hasBoqData = boq.length > 0 && !pendingGovBoq;
-    const hasL1BoqData = l1Boq.length > 0 && !pendingL1BoqUpload;
+    const hasBoqData = boq.length > 0 || Boolean(pendingGovBoq) || Boolean(planningForm.boqUploadUrl.trim());
+    const hasL1BoqData = l1Boq.length > 0 || Boolean(pendingL1BoqUpload) || Boolean(planningForm.l1ContractorBoqUploadUrl.trim());
     const packagesAssigned = workPackages.length > 0
       && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim());
     return [
@@ -1227,59 +1229,95 @@ export default function ProjectConstructionPage() {
   };
 
   const handleSavePlanning = async () => {
+    if (!projectId) return;
+    setPlanningSaving(true);
+    setError('');
     try {
       let nextForm: PlanningFormState = { ...planningForm };
 
       if (pendingGovBoq) {
-        const { data } = await constructionApi.uploadBoqExcel(projectId, pendingGovBoq.file);
+        const { data } = await constructionApi.importBoq(projectId, {
+          fileName: pendingGovBoq.fileName,
+          replaceExisting: true,
+          boqSource: 'government',
+          items: toImportPayload(pendingGovBoq.rows),
+        });
         const savedName = String(data.fileName ?? pendingGovBoq.fileName);
-        nextForm = {
-          ...nextForm,
-          boqUploadUrl: planningUploadPath('boq', savedName),
-        };
+        nextForm = { ...nextForm, boqUploadUrl: planningUploadPath('boq', savedName) };
         setBoqFileName(savedName);
+        if (Array.isArray(data.items)) setBoq(data.items as Array<Record<string, unknown>>);
       }
       if (pendingL1BoqUpload) {
-        const { data } = await constructionApi.uploadBoqExcel(projectId, pendingL1BoqUpload.file, 'l1_contractor');
+        const { data } = await constructionApi.importBoq(projectId, {
+          fileName: pendingL1BoqUpload.fileName,
+          replaceExisting: true,
+          boqSource: 'l1_contractor',
+          items: toImportPayload(pendingL1BoqUpload.rows),
+        });
         const savedName = String(data.fileName ?? pendingL1BoqUpload.fileName);
-        nextForm = {
-          ...nextForm,
-          l1ContractorBoqUploadUrl: planningUploadPath('boq-l1', savedName),
-        };
+        nextForm = { ...nextForm, l1ContractorBoqUploadUrl: planningUploadPath('boq-l1', savedName) };
         setL1BoqFileName(savedName);
+        if (Array.isArray(data.items)) setL1Boq(data.items as Array<Record<string, unknown>>);
       }
-
-      const willHaveBoq = Boolean(pendingGovBoq) || boq.length > 0;
-      const willHaveL1Boq = Boolean(pendingL1BoqUpload) || l1Boq.length > 0;
-      const packagesAssigned = workPackages.length > 0
-        && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim());
-      const willBeComplete = Boolean(nextForm.approvedDprUrl)
-        && Boolean(nextForm.adminApprovalRef.trim())
-        && Boolean(nextForm.technicalSanctionRef.trim())
-        && willHaveBoq
-        && willHaveL1Boq
-        && Boolean(nextForm.contractorPoUploadUrl)
-        && Boolean(nextForm.drawingUploadUrl)
-        && workPackages.length > 0
-        && packagesAssigned
-        && nextForm.gisAlignmentApproved;
 
       await constructionApi.updateWorkPlanning(projectId, {
         ...nextForm,
-        status: willBeComplete ? 'approved' : 'draft',
+        status: 'draft',
       });
+
       setPlanningForm(nextForm);
+      setSavedPlanningSnapshot(serializePlanningForm(nextForm));
       setPendingGovBoq(null);
       setPendingL1BoqUpload(null);
       if (planningDraftStorageKey) sessionStorage.removeItem(planningDraftStorageKey);
-      setSuccess('Work planning saved.');
+
+      const doneCount = [
+        Boolean(nextForm.approvedDprUrl),
+        Boolean(nextForm.adminApprovalRef.trim()),
+        Boolean(nextForm.technicalSanctionRef.trim()),
+        Boolean(pendingGovBoq || boq.length > 0 || nextForm.boqUploadUrl.trim()),
+        Boolean(pendingL1BoqUpload || l1Boq.length > 0 || nextForm.l1ContractorBoqUploadUrl.trim()),
+        Boolean(nextForm.contractorPoUploadUrl),
+        Boolean(nextForm.drawingUploadUrl),
+        workPackages.length > 0,
+        workPackages.length > 0 && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim()),
+        nextForm.gisAlignmentApproved,
+      ].filter(Boolean).length;
+      setSuccess(`Work planning saved (${doneCount}/10 checklist items complete). You can continue editing.`);
       await refresh();
     } catch (err) {
       setError(formatApiError(err, 'Failed to save work planning.'));
+    } finally {
+      setPlanningSaving(false);
     }
   };
 
-  const handleCreateWorkPackage = async () => {
+  const openNewWorkPackageDialog = () => {
+    setWpEditingId(null);
+    setWpDialogError('');
+    setWpForm({
+      packageCode: '', name: '', component: 'gravity_main',
+      schemeType: 'gravity', contractorName: '', chainageFrom: '', chainageTo: '',
+    });
+    setWpDialog(true);
+  };
+
+  const openEditWorkPackageDialog = (wp: Record<string, unknown>) => {
+    setWpEditingId(String(wp.id));
+    setWpDialogError('');
+    setWpForm({
+      packageCode: String(wp.packageCode ?? ''),
+      name: String(wp.name ?? ''),
+      component: (String(wp.component ?? 'gravity_main') as ProjectComponent),
+      schemeType: (String(wp.schemeType ?? 'gravity') as SchemeType),
+      contractorName: String(wp.contractorName ?? ''),
+      chainageFrom: String(wp.chainageFrom ?? ''),
+      chainageTo: String(wp.chainageTo ?? ''),
+    });
+    setWpDialog(true);
+  };
+
+  const handleSaveWorkPackage = async () => {
     if (!projectId) {
       setWpDialogError('Project not found — reload the page and try again.');
       return;
@@ -1295,22 +1333,35 @@ export default function ProjectConstructionPage() {
     setWpDialogError('');
     setError('');
     try {
-      await constructionApi.createWorkPackage(projectId, {
-        ...wpForm,
-        packageCode,
-        name,
-        chainageFrom: wpForm.chainageFrom.trim() || undefined,
-        chainageTo: wpForm.chainageTo.trim() || undefined,
-      });
+      if (wpEditingId) {
+        await constructionApi.updateWorkPackage(projectId, wpEditingId, {
+          packageCode,
+          name,
+          component: wpForm.component,
+          schemeType: wpForm.schemeType,
+          chainageFrom: wpForm.chainageFrom.trim() || undefined,
+          chainageTo: wpForm.chainageTo.trim() || undefined,
+        });
+        setSuccess(`Work package "${name}" updated.`);
+      } else {
+        await constructionApi.createWorkPackage(projectId, {
+          ...wpForm,
+          packageCode,
+          name,
+          chainageFrom: wpForm.chainageFrom.trim() || undefined,
+          chainageTo: wpForm.chainageTo.trim() || undefined,
+        });
+        setSuccess(`Work package "${name}" created.`);
+      }
       setWpDialog(false);
+      setWpEditingId(null);
       setWpForm({
         packageCode: '', name: '', component: 'gravity_main',
         schemeType: 'gravity', contractorName: '', chainageFrom: '', chainageTo: '',
       });
-      setSuccess(`Work package "${name}" created.`);
       await refresh();
     } catch (err) {
-      const message = formatApiError(err, 'Failed to create work package.');
+      const message = formatApiError(err, wpEditingId ? 'Failed to update work package.' : 'Failed to create work package.');
       setWpDialogError(message);
       setError(message);
     } finally {
@@ -1514,8 +1565,12 @@ export default function ProjectConstructionPage() {
                     <MenuItem value="no">Pending</MenuItem>
                   </TextField>
                   {canAdminPlanning && (
-                    <Button variant="contained" onClick={() => { void handleSavePlanning(); }}>
-                      Save Planning
+                    <Button
+                      variant="contained"
+                      disabled={planningSaving}
+                      onClick={() => { void handleSavePlanning(); }}
+                    >
+                      {planningSaving ? 'Saving…' : 'Save Planning'}
                     </Button>
                   )}
                 </Box>
@@ -1531,7 +1586,7 @@ export default function ProjectConstructionPage() {
                   {canAdminPlanning && (
                     <Button
                       startIcon={<AddIcon />} size="small" variant="outlined"
-                      onClick={() => { setWpDialogError(''); setWpDialog(true); }}
+                      onClick={openNewWorkPackageDialog}
                     >
                       New Package
                     </Button>
@@ -1548,6 +1603,7 @@ export default function ProjectConstructionPage() {
                       { label: 'Contractor' },
                       { label: 'GIS' },
                       { label: 'Status' },
+                      { label: 'Actions', minWidth: 72 },
                     ]}
                   />
                   <TableBody>
@@ -1583,12 +1639,23 @@ export default function ProjectConstructionPage() {
                             />
                           </TableCell>
                           <TableCell><StatusChip status={String(wp.status)} /></TableCell>
+                          <TableCell>
+                            {canAdminPlanning && (
+                              <IconButton
+                                size="small"
+                                aria-label="Edit work package"
+                                onClick={() => openEditWorkPackageDialog(wp)}
+                              >
+                                <EditOutlinedIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
                     {!workPackages.length && (
                       <TableRow>
-                        <TableCell colSpan={7} align="center">
+                        <TableCell colSpan={8} align="center">
                           <Typography variant="body2" color="text.secondary">
                             No work packages yet.
                           </Typography>
@@ -2434,7 +2501,7 @@ export default function ProjectConstructionPage() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Create Work Package (Admin)</DialogTitle>
+        <DialogTitle>{wpEditingId ? 'Edit Work Package' : 'Create Work Package (Admin)'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
           {wpDialogError && <Alert severity="error">{wpDialogError}</Alert>}
           <TextField label="Package Code" value={wpForm.packageCode} onChange={(e) => setWpForm({ ...wpForm, packageCode: e.target.value })} placeholder="WP-GM-02" required disabled={wpSaving} />
@@ -2451,8 +2518,8 @@ export default function ProjectConstructionPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setWpDialog(false)} disabled={wpSaving}>Cancel</Button>
-          <Button variant="contained" disabled={wpSaving} onClick={() => { void handleCreateWorkPackage(); }}>
-            {wpSaving ? 'Saving…' : 'Save Package'}
+          <Button variant="contained" disabled={wpSaving} onClick={() => { void handleSaveWorkPackage(); }}>
+            {wpSaving ? 'Saving…' : wpEditingId ? 'Update Package' : 'Save Package'}
           </Button>
         </DialogActions>
       </Dialog>

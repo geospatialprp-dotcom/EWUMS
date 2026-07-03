@@ -103,8 +103,14 @@ export class CreateWorkPackageDto {
 }
 
 export class UpdateWorkPackageDto {
+  @IsOptional() @IsString() packageCode?: string;
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() component?: string;
+  @IsOptional() @IsEnum(['gravity', 'pumping', 'both']) schemeType?: 'gravity' | 'pumping' | 'both';
   @IsOptional() @IsString() contractorName?: string;
   @IsOptional() @IsUUID() contractorId?: string;
+  @IsOptional() @IsString() chainageFrom?: string;
+  @IsOptional() @IsString() chainageTo?: string;
   @IsOptional() @IsEnum(['pending', 'approved', 'rejected']) gisAlignmentStatus?: 'pending' | 'approved' | 'rejected';
   @IsOptional() @IsEnum(['planned', 'in_progress', 'completed']) status?: 'planned' | 'in_progress' | 'completed';
   @IsOptional() @IsString() remarks?: string;

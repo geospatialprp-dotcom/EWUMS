@@ -15,6 +15,14 @@ export function uniqueUploadFileName(originalName: string): string {
   return `${stem}-${Date.now()}${ext}`;
 }
 
+export function planningUploadDir(kind: string): string {
+  return path.join(process.cwd(), 'uploads', 'planning', kind);
+}
+
+export function planningUploadRelativeUrl(kind: string, fileName: string): string {
+  return `/uploads/planning/${kind}/${fileName}`;
+}
+
 export function constructionUploadDir(
   resourceType: string,
   resourceId: string,
