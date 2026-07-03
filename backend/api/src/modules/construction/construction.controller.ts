@@ -192,6 +192,29 @@ export class ConstructionController {
     return this.constructionService.listDprs(user.tenantId, projectId, user);
   }
 
+  @Get('dpr-progress-summary')
+  @RequirePermissions('construction:read')
+  @ApiOperation({ summary: 'Cumulative DPR progress for a BOQ item scope (multi-day Job items)' })
+  getDprProgressSummary(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+    @Query('boqItemId') boqItemId: string,
+    @Query('workPackageId') workPackageId?: string,
+    @Query('chainageFrom') chainageFrom?: string,
+    @Query('chainageTo') chainageTo?: string,
+    @Query('reportDate') reportDate?: string,
+  ) {
+    return this.constructionService.getDprBoqProgressSummary(
+      user.tenantId,
+      projectId,
+      boqItemId,
+      workPackageId,
+      chainageFrom,
+      chainageTo,
+      reportDate,
+    );
+  }
+
   @Get('dprs/:id')
   @RequirePermissions('construction:read')
   getDpr(

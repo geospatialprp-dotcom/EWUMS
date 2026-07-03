@@ -6,6 +6,9 @@ export type DprActivityRow = {
   description: string;
   unit: string;
   quantityDone: number;
+  progressMode: 'discrete_qty' | 'whole_job' | '';
+  progressPctToday: number;
+  workDoneToday: string;
   boqItemId: string;
   component: ProjectComponent | '';
   chainageFrom: string;
@@ -31,6 +34,27 @@ export type DprHeaderForm = {
   remarks: string;
 };
 
+export type DprProgressSummary = {
+  cumulativePct: number;
+  balancePct: number;
+  cumulativeQty: number;
+  balanceQty: number;
+  yesterdaysProgress: number;
+  yesterdaysProgressLabel: 'pct' | 'qty';
+  executionStatus: string;
+  expectedCompletionDate: string | null;
+  measurementMode: 'discrete_qty' | 'whole_job';
+};
+
+const WHOLE_JOB_UNIT = /^(job|jobs|ls|l\.s\.|item|lump\s*sum)$/i;
+
+export function isWholeJobMeasurement(mode?: string | null, unit?: string | null): boolean {
+  if (mode === 'whole_job') return true;
+  if (mode === 'discrete_qty') return false;
+  const normalized = String(unit ?? '').trim();
+  return WHOLE_JOB_UNIT.test(normalized) || /\bjob\b/i.test(normalized);
+}
+
 let dprRowCounter = 0;
 
 export function emptyDprActivityRow(): DprActivityRow {
@@ -39,7 +63,10 @@ export function emptyDprActivityRow(): DprActivityRow {
     key: `dpr-row-${Date.now()}-${dprRowCounter}`,
     description: '',
     unit: '',
-    quantityDone: 1,
+    quantityDone: 0,
+    progressMode: '',
+    progressPctToday: 0,
+    workDoneToday: '',
     boqItemId: '',
     component: '',
     chainageFrom: '',
@@ -82,21 +109,27 @@ export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRo
     remarks: header.remarks || undefined,
     activities: activities
       .filter((row) => row.description.trim())
-      .map((row) => ({
-        description: row.description.trim(),
-        unit: row.unit,
-        quantityDone: Number(row.quantityDone) || 0,
-        boqItemId: row.boqItemId || undefined,
-        component: row.component || undefined,
-        chainageFrom: row.chainageFrom || undefined,
-        chainageTo: row.chainageTo || undefined,
-        latitude: row.latitude ? Number(row.latitude) : undefined,
-        longitude: row.longitude ? Number(row.longitude) : undefined,
-        locationDetail: row.locationDetail || undefined,
-        materialConsumption: row.materialConsumption || undefined,
-        labourCount: Number(row.labourCount) || 0,
-        equipmentDetails: row.equipmentDetails || undefined,
-      })),
+      .map((row) => {
+        const wholeJob = isWholeJobMeasurement(row.progressMode, row.unit);
+        return {
+          description: row.description.trim(),
+          unit: row.unit,
+          progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
+          progressPctToday: wholeJob ? Number(row.progressPctToday) || 0 : undefined,
+          workDoneToday: row.workDoneToday.trim() || row.description.trim(),
+          quantityDone: wholeJob ? 0 : Number(row.quantityDone) || 0,
+          boqItemId: row.boqItemId || undefined,
+          component: row.component || undefined,
+          chainageFrom: row.chainageFrom || undefined,
+          chainageTo: row.chainageTo || undefined,
+          latitude: row.latitude ? Number(row.latitude) : undefined,
+          longitude: row.longitude ? Number(row.longitude) : undefined,
+          locationDetail: row.locationDetail || undefined,
+          materialConsumption: row.materialConsumption || undefined,
+          labourCount: Number(row.labourCount) || 0,
+          equipmentDetails: row.equipmentDetails || undefined,
+        };
+      }),
   };
 }
 
@@ -105,18 +138,27 @@ export function dprActivitySummary(dpr: Record<string, unknown>): {
   qty: string;
   chainage: string;
   location: string;
+  progress: string;
 } {
   const activities = (dpr.activities as Array<Record<string, unknown>>) ?? [];
   const first = activities[0];
   const workItem = first
     ? String(first.description ?? '—')
     : '—';
+  const wholeJob = first
+    ? isWholeJobMeasurement(String(first.progressMode ?? ''), String(first.unit ?? ''))
+    : false;
   const qty = first
-    ? `${first.quantityDone ?? 0} ${first.unit ?? ''}`.trim()
+    ? wholeJob
+      ? `Today ${first.progressPctToday ?? 0}% · Cum ${first.cumulativeProgressPct ?? 0}%`
+      : `${first.quantityDone ?? 0} ${first.unit ?? ''}`.trim()
     : '—';
   const chainage = first
     ? [first.chainageFrom, first.chainageTo].filter(Boolean).join(' → ') || '—'
     : '—';
   const location = String(dpr.workSite ?? first?.siteDetail ?? '—');
-  return { workItem, qty, chainage, location };
+  const progress = first?.cumulativeProgressPct != null
+    ? `${first.cumulativeProgressPct}%`
+    : '—';
+  return { workItem, qty, chainage, location, progress };
 }

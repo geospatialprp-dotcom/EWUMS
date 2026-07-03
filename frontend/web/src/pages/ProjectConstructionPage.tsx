@@ -31,7 +31,8 @@ import {
 } from '../utils/constructionTableStyles';
 import {
   buildDprPayload, defaultDprHeader, dprActivitySummary,
-  emptyDprActivityRow, type DprActivityRow, type DprHeaderForm,
+  emptyDprActivityRow, isWholeJobMeasurement,
+  type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
 import DprDetailDialog from '../components/construction/DprDetailDialog';
@@ -637,6 +638,7 @@ export default function ProjectConstructionPage() {
   const [editingDprId, setEditingDprId] = useState<string | null>(null);
   const [dprHeaderForm, setDprHeaderForm] = useState<DprHeaderForm>(defaultDprHeader());
   const [dprActivityRows, setDprActivityRows] = useState<DprActivityRow[]>([emptyDprActivityRow()]);
+  const [dprProgressHints, setDprProgressHints] = useState<Record<string, DprProgressSummary>>({});
   const [dprPhotos, setDprPhotos] = useState<File[]>([]);
   const [gpsCapturingKey, setGpsCapturingKey] = useState<string | null>(null);
   const [mbDialog, setMbDialog] = useState(false);
@@ -1115,6 +1117,7 @@ export default function ProjectConstructionPage() {
     setEditingDprId(null);
     setDprHeaderForm(defaultDprHeader());
     setDprActivityRows([emptyDprActivityRow()]);
+    setDprProgressHints({});
     setDprPhotos([]);
     setGpsCapturingKey(null);
   };
@@ -1164,6 +1167,10 @@ export default function ProjectConstructionPage() {
         description: String(act.description ?? ''),
         unit: String(act.unit ?? 'cum'),
         quantityDone: Number(act.quantityDone ?? 0),
+        progressMode: (String(act.progressMode ?? '') as DprActivityRow['progressMode'])
+          || (isWholeJobMeasurement(String(act.progressMode ?? ''), String(act.unit ?? '')) ? 'whole_job' : 'discrete_qty'),
+        progressPctToday: Number(act.progressPctToday ?? 0),
+        workDoneToday: String(act.workDoneToday ?? act.description ?? ''),
         boqItemId: String(act.boqItemId ?? ''),
         component: (act.component as ProjectComponent) ?? '',
         chainageFrom: String(act.chainageFrom ?? ''),
@@ -1233,6 +1240,26 @@ export default function ProjectConstructionPage() {
 
   const updateDprActivityRow = (rowKey: string, patch: Partial<DprActivityRow>) => {
     setDprActivityRows((rows) => rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row)));
+  };
+
+  const refreshDprProgressHint = async (row: DprActivityRow) => {
+    if (!projectId || !row.boqItemId) return;
+    try {
+      const { data } = await constructionApi.dprProgressSummary(projectId, {
+        boqItemId: row.boqItemId,
+        workPackageId: dprHeaderForm.workPackageId || undefined,
+        chainageFrom: row.chainageFrom || undefined,
+        chainageTo: row.chainageTo || undefined,
+        reportDate: dprHeaderForm.reportDate,
+      });
+      setDprProgressHints((prev) => ({ ...prev, [row.key]: data as DprProgressSummary }));
+    } catch {
+      setDprProgressHints((prev) => {
+        const next = { ...prev };
+        delete next[row.key];
+        return next;
+      });
+    }
   };
 
   const handleSaveDpr = async () => {
@@ -2180,7 +2207,7 @@ export default function ProjectConstructionPage() {
                 { label: 'Location' },
                 { label: 'Chainage' },
                 { label: 'Work Item' },
-                { label: 'Qty Executed' },
+                { label: 'Progress' },
                 { label: 'Contractor' },
                 { label: 'Supervisor' },
                 { label: 'Weather', minWidth: 90 },
@@ -2560,16 +2587,36 @@ export default function ProjectConstructionPage() {
                     value={row.boqItemId}
                     onChange={(e) => {
                       const item = billingBoq.find((b) => String(b.id) === e.target.value);
-                      updateDprActivityRow(row.key, {
+                      const wholeJob = isWholeJobMeasurement(
+                        String(item?.measurementMode ?? ''),
+                        String(item?.unit ?? ''),
+                      );
+                      const nextRow = {
+                        ...row,
                         boqItemId: e.target.value,
                         description: row.description || (item ? String(item.description) : ''),
                         unit: item ? String(item.unit) : row.unit,
+                        progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
+                        quantityDone: 0,
+                        progressPctToday: 0,
+                      };
+                      updateDprActivityRow(row.key, {
+                        boqItemId: nextRow.boqItemId,
+                        description: nextRow.description,
+                        unit: nextRow.unit,
+                        progressMode: nextRow.progressMode,
+                        quantityDone: 0,
+                        progressPctToday: 0,
                       });
+                      void refreshDprProgressHint(nextRow);
                     }}
                   >
                     <MenuItem value="">— None —</MenuItem>
                     {billingBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType).map((b) => (
-                      <MenuItem key={String(b.id)} value={String(b.id)}>{String(b.itemCode)} — {String(b.description).slice(0, 40)}</MenuItem>
+                      <MenuItem key={String(b.id)} value={String(b.id)}>
+                        {String(b.itemCode)} — {String(b.description).slice(0, 40)}
+                        {isWholeJobMeasurement(String(b.measurementMode ?? ''), String(b.unit ?? '')) ? ' (Job)' : ''}
+                      </MenuItem>
                     ))}
                   </TextField>
                 </Box>
@@ -2577,18 +2624,39 @@ export default function ProjectConstructionPage() {
                   <TextField
                     label="Chainage From" placeholder="0+000" sx={{ flex: 1, minWidth: 120 }}
                     value={row.chainageFrom}
-                    onChange={(e) => updateDprActivityRow(row.key, { chainageFrom: e.target.value })}
+                    onChange={(e) => {
+                      updateDprActivityRow(row.key, { chainageFrom: e.target.value });
+                      void refreshDprProgressHint({ ...row, chainageFrom: e.target.value });
+                    }}
                   />
                   <TextField
                     label="Chainage To" placeholder="0+500" sx={{ flex: 1, minWidth: 120 }}
                     value={row.chainageTo}
-                    onChange={(e) => updateDprActivityRow(row.key, { chainageTo: e.target.value })}
+                    onChange={(e) => {
+                      updateDprActivityRow(row.key, { chainageTo: e.target.value });
+                      void refreshDprProgressHint({ ...row, chainageTo: e.target.value });
+                    }}
                   />
-                  <TextField
-                    type="number" required label="Quantity Executed" sx={{ flex: 1, minWidth: 120 }}
-                    value={row.quantityDone}
-                    onChange={(e) => updateDprActivityRow(row.key, { quantityDone: Number(e.target.value) })}
-                  />
+                  {isWholeJobMeasurement(row.progressMode, row.unit) ? (
+                    <TextField
+                      type="number"
+                      required
+                      label="Today's progress %"
+                      sx={{ flex: 1, minWidth: 140 }}
+                      inputProps={{ min: 0, max: 100, step: 0.1 }}
+                      value={row.progressPctToday}
+                      onChange={(e) => updateDprActivityRow(row.key, { progressPctToday: Number(e.target.value) })}
+                    />
+                  ) : (
+                    <TextField
+                      type="number"
+                      required
+                      label="Quantity executed today"
+                      sx={{ flex: 1, minWidth: 140 }}
+                      value={row.quantityDone}
+                      onChange={(e) => updateDprActivityRow(row.key, { quantityDone: Number(e.target.value) })}
+                    />
+                  )}
                   <TextField
                     select label="Unit" sx={{ flex: 1, minWidth: 100 }}
                     value={row.unit}
@@ -2601,6 +2669,29 @@ export default function ProjectConstructionPage() {
                     ))}
                   </TextField>
                 </Box>
+                {dprProgressHints[row.key] && (
+                  <Alert severity="info" sx={{ py: 0.5 }}>
+                    Yesterday: {dprProgressHints[row.key].yesterdaysProgress}
+                    {dprProgressHints[row.key].yesterdaysProgressLabel === 'pct' ? '%' : ` ${row.unit}`}
+                    {' · '}
+                    Cumulative: {dprProgressHints[row.key].cumulativePct}%
+                    {' · '}
+                    Balance: {dprProgressHints[row.key].balancePct}%
+                    {dprProgressHints[row.key].expectedCompletionDate
+                      ? ` · ETC: ${dprProgressHints[row.key].expectedCompletionDate}`
+                      : ''}
+                    {isWholeJobMeasurement(row.progressMode, row.unit) && row.progressPctToday > 0
+                      ? ` · After today: ${Math.min(100, dprProgressHints[row.key].cumulativePct + row.progressPctToday).toFixed(1)}%`
+                      : ''}
+                  </Alert>
+                )}
+                <TextField
+                  fullWidth
+                  label="Work done today"
+                  placeholder="Describe physical progress completed today"
+                  value={row.workDoneToday}
+                  onChange={(e) => updateDprActivityRow(row.key, { workDoneToday: e.target.value })}
+                />
 
                 <Typography variant="caption" color="text.secondary" fontWeight={600}>
                   Site Engineer — GPS, Resources &amp; Progress Verification

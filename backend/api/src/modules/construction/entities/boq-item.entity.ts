@@ -36,6 +36,12 @@ export class BoqItem {
   @Column({ name: 'dpr_qty', type: 'decimal', precision: 14, scale: 3, default: 0 })
   dprQty: number;
 
+  @Column({ name: 'measurement_mode', type: 'varchar', length: 20, default: 'discrete_qty' })
+  measurementMode: string;
+
+  @Column({ name: 'dpr_execution_status', type: 'varchar', length: 20, default: 'not_started' })
+  dprExecutionStatus: string;
+
   @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
   rate: number;
 

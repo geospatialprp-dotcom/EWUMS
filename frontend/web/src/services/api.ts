@@ -576,6 +576,16 @@ export const constructionApi = {
     });
   },
   listDprs: (projectId: string) => api.get(`/projects/${projectId}/construction/dprs`),
+  dprProgressSummary: (
+    projectId: string,
+    params: {
+      boqItemId: string;
+      workPackageId?: string;
+      chainageFrom?: string;
+      chainageTo?: string;
+      reportDate?: string;
+    },
+  ) => api.get(`/projects/${projectId}/construction/dpr-progress-summary`, { params }),
   getDpr: (projectId: string, id: string) => api.get(`/projects/${projectId}/construction/dprs/${id}`),
   createDpr: (projectId: string, data: object) => api.post(`/projects/${projectId}/construction/dprs`, data),
   updateDpr: (projectId: string, id: string, data: object) => api.put(`/projects/${projectId}/construction/dprs/${id}`, data),

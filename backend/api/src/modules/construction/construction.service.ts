@@ -2,7 +2,7 @@ import {
   BadRequestException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, QueryFailedError, Repository } from 'typeorm';
+import { In, IsNull, QueryFailedError, Repository } from 'typeorm';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { WorkflowTask } from '../workflows/entities/workflow-task.entity';
@@ -52,6 +52,8 @@ import { ConstructionAsset } from './entities/construction-asset.entity';
 import { ConstructionDocument } from './entities/construction-document.entity';
 import { ContractorInvoice } from './entities/contractor-invoice.entity';
 import { DprActivity } from './entities/dpr-activity.entity';
+import { DprBoqExecution } from './entities/dpr-boq-execution.entity';
+import { DprBoqProgressLedger } from './entities/dpr-boq-progress-ledger.entity';
 import { DprReport } from './entities/dpr-report.entity';
 import { InvoiceLineItem } from './entities/invoice-line-item.entity';
 import { MbEntry } from './entities/mb-entry.entity';
@@ -68,6 +70,17 @@ import { User } from '../auth/entities/user.entity';
 import { DivisionAccessService } from '../divisions/division-access.service';
 import { DivisionStaffProvisionerService } from '../divisions/division-staff-provisioner.service';
 import { ProjectProgressSyncService } from './project-progress-sync.service';
+import {
+  assertProgressWithinSanction,
+  buildExecutionScopeKey,
+  cumulativePctFromQty,
+  detectMeasurementMode,
+  estimateExpectedCompletion,
+  executionStatusFromCumulative,
+  progressIncrementQty,
+  sanctionedBoqQty,
+  type BoqMeasurementMode,
+} from './utils/dpr-progress.util';
 
 const DPR_STATUS_BY_STEP: Record<number, string> = {
   1: 'je_review', 2: 'ae_review', 3: 'ee_review',
@@ -86,6 +99,8 @@ export class ConstructionService {
     @InjectRepository(BoqItem) private boqRepo: Repository<BoqItem>,
     @InjectRepository(DprReport) private dprRepo: Repository<DprReport>,
     @InjectRepository(DprActivity) private dprActivityRepo: Repository<DprActivity>,
+    @InjectRepository(DprBoqExecution) private dprExecutionRepo: Repository<DprBoqExecution>,
+    @InjectRepository(DprBoqProgressLedger) private dprLedgerRepo: Repository<DprBoqProgressLedger>,
     @InjectRepository(MeasurementBook) private mbRepo: Repository<MeasurementBook>,
     @InjectRepository(MbEntry) private mbEntryRepo: Repository<MbEntry>,
     @InjectRepository(ContractorInvoice) private invoiceRepo: Repository<ContractorInvoice>,
@@ -833,19 +848,23 @@ export class ConstructionService {
         item.contractAmount = contractAmount;
         item.sortOrder = i + 1;
         item.isActive = true;
+        item.measurementMode = detectMeasurementMode(item.unit);
       } else {
+        const unit = normalizeBoqUnit(row.unit.trim());
         item = this.boqRepo.create({
           tenantId,
           projectId,
           itemCode,
           boqSource,
           description: row.description.trim(),
-          unit: normalizeBoqUnit(row.unit.trim()),
+          unit,
           schemeType: row.schemeType,
           component: row.component?.trim() || null,
           contractQty: qty,
           revisedQty: qty,
           dprQty: 0,
+          measurementMode: detectMeasurementMode(unit),
+          dprExecutionStatus: 'not_started',
           rate,
           contractAmount,
           sortOrder: i + 1,
@@ -982,8 +1001,10 @@ export class ConstructionService {
       submittedBy: user.sub,
     });
     const saved = await this.dprRepo.save(dpr);
-    await this.saveDprActivities(saved.id, dto.activities);
-    await this.updateBoqDprQtys(tenantId, projectId, dto.activities);
+    const prepared = await this.validateAndPrepareDprActivities(
+      tenantId, projectId, dto.reportDate, dto.workPackageId ?? null, dto.activities,
+    );
+    await this.saveDprActivities(saved.id, prepared);
     await this.refreshProjectProgress(tenantId, projectId, 'milestones');
     return this.getDpr(tenantId, projectId, saved.id, user);
   }
@@ -1005,8 +1026,6 @@ export class ConstructionService {
       throw new BadRequestException('Only draft or rejected DPRs can be edited');
     }
 
-    await this.reverseBoqDprQtys(tenantId, projectId, dpr.activities ?? []);
-
     Object.assign(dpr, {
       dprNumber: dto.dprNumber,
       reportDate: dto.reportDate,
@@ -1021,8 +1040,10 @@ export class ConstructionService {
       submittedBy: user.sub,
     });
     await this.dprRepo.save(dpr);
-    await this.saveDprActivities(dpr.id, dto.activities);
-    await this.updateBoqDprQtys(tenantId, projectId, dto.activities);
+    const prepared = await this.validateAndPrepareDprActivities(
+      tenantId, projectId, dto.reportDate, dto.workPackageId ?? null, dto.activities,
+    );
+    await this.saveDprActivities(dpr.id, prepared);
     await this.refreshProjectProgress(tenantId, projectId, 'milestones');
     return this.getDpr(tenantId, projectId, dpr.id, user);
   }
@@ -1055,34 +1076,289 @@ export class ConstructionService {
     }
   }
 
-  private async reverseBoqDprQtys(
+  async getDprBoqProgressSummary(
     tenantId: string,
     projectId: string,
-    activities: Array<{ boqItemId?: string | null; quantityDone?: number | string }>,
+    boqItemId: string,
+    workPackageId?: string | null,
+    chainageFrom?: string | null,
+    chainageTo?: string | null,
+    reportDate?: string,
   ) {
-    for (const act of activities) {
-      if (!act.boqItemId) continue;
-      const item = await this.boqRepo.findOne({ where: { id: act.boqItemId, tenantId, projectId } });
-      if (item) {
-        const delta = -Number(act.quantityDone ?? 0);
-        item.dprQty = Math.max(0, Number(item.dprQty) + delta);
-        await this.boqRepo.save(item);
-        await this.mirrorDprQtyToFinancialBoq(tenantId, projectId, item, delta);
-      }
-    }
+    const item = await this.boqRepo.findOne({ where: { id: boqItemId, tenantId, projectId, isActive: true } });
+    if (!item) throw new NotFoundException('BOQ item not found');
+
+    const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
+    const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+    const scopeKey = buildExecutionScopeKey({
+      projectId, boqItemId, workPackageId, chainageFrom, chainageTo,
+    });
+
+    const execution = await this.dprExecutionRepo.findOne({ where: { projectId, scopeKey } });
+    const cumulativeQty = Number(execution?.cumulativeQty ?? item.dprQty ?? 0);
+    const cumulativePct = Number(execution?.cumulativePct ?? cumulativePctFromQty(cumulativeQty, sanctioned));
+    const balanceQty = Math.max(0, sanctioned - cumulativeQty);
+    const balancePct = Math.max(0, 100 - cumulativePct);
+
+    const yesterdayRows = await this.dprActivityRepo.query(
+      `SELECT a.progress_pct_today AS "progressPctToday", a.quantity_done AS "quantityDone",
+              a.progress_mode AS "progressMode", d.report_date AS "reportDate"
+       FROM dpr_activities a
+       JOIN dpr_reports d ON d.id = a.dpr_id
+       WHERE d.tenant_id = $1 AND d.project_id = $2 AND a.boq_item_id = $3
+         AND a.execution_scope_key = $4
+         AND d.status NOT IN ('draft', 'rejected')
+         AND ($5::date IS NULL OR d.report_date < $5::date)
+       ORDER BY d.report_date DESC
+       LIMIT 1`,
+      [tenantId, projectId, boqItemId, scopeKey, reportDate ?? null],
+    ) as Array<{
+      progressPctToday: string | null;
+      quantityDone: string;
+      progressMode: string;
+      reportDate: string;
+    }>;
+
+    const yesterday = yesterdayRows[0];
+    const recentPctRows = await this.dprActivityRepo.query(
+      `SELECT a.progress_pct_today AS "progressPctToday"
+       FROM dpr_activities a
+       JOIN dpr_reports d ON d.id = a.dpr_id
+       WHERE d.tenant_id = $1 AND d.project_id = $2 AND a.boq_item_id = $3
+         AND a.execution_scope_key = $4
+         AND d.status NOT IN ('draft', 'rejected')
+       ORDER BY d.report_date DESC
+       LIMIT 7`,
+      [tenantId, projectId, boqItemId, scopeKey],
+    ) as Array<{ progressPctToday: string | null }>;
+
+    const dailyPcts = recentPctRows
+      .map((r) => Number(r.progressPctToday ?? 0))
+      .filter((p) => p > 0);
+
+    return {
+      boqItemId,
+      scopeKey,
+      measurementMode: mode,
+      sanctionedQty: sanctioned,
+      cumulativeQty,
+      cumulativePct,
+      balanceQty,
+      balancePct,
+      executionStatus: execution?.status ?? item.dprExecutionStatus ?? 'not_started',
+      yesterdaysProgress: yesterday
+        ? (yesterday.progressMode === 'whole_job'
+          ? Number(yesterday.progressPctToday ?? 0)
+          : Number(yesterday.quantityDone ?? 0))
+        : 0,
+      yesterdaysProgressLabel: yesterday?.progressMode === 'whole_job' ? 'pct' : 'qty',
+      expectedCompletionDate: execution?.expectedCompletionDate
+        ?? estimateExpectedCompletion(reportDate ?? new Date().toISOString().slice(0, 10), cumulativePct, dailyPcts),
+    };
   }
 
-  private async updateBoqDprQtys(tenantId: string, projectId: string, activities: CreateDprDto['activities']) {
+  private async validateAndPrepareDprActivities(
+    tenantId: string,
+    projectId: string,
+    reportDate: string,
+    workPackageId: string | null,
+    activities: CreateDprDto['activities'],
+  ) {
+    const prepared: Array<CreateDprDto['activities'][number] & {
+      progressMode: string;
+      progressPctToday?: number;
+      cumulativeProgressPct: number;
+      cumulativeQty: number;
+      executionScopeKey: string | null;
+      workDoneToday?: string;
+      quantityDone: number;
+    }> = [];
+
     for (const act of activities) {
-      if (!act.boqItemId) continue;
-      const item = await this.boqRepo.findOne({ where: { id: act.boqItemId, tenantId, projectId } });
-      if (item) {
-        const delta = act.quantityDone;
-        item.dprQty = Number(item.dprQty) + delta;
-        await this.boqRepo.save(item);
-        await this.mirrorDprQtyToFinancialBoq(tenantId, projectId, item, delta);
+      if (!act.boqItemId) {
+        prepared.push({
+          ...act,
+          progressMode: act.progressMode ?? 'discrete_qty',
+          progressPctToday: act.progressPctToday ?? undefined,
+          cumulativeProgressPct: 0,
+          cumulativeQty: Number(act.quantityDone ?? 0),
+          executionScopeKey: null,
+          workDoneToday: act.workDoneToday ?? undefined,
+          quantityDone: Number(act.quantityDone ?? 0),
+        });
+        continue;
+      }
+
+      const item = await this.boqRepo.findOne({ where: { id: act.boqItemId, tenantId, projectId, isActive: true } });
+      if (!item) throw new BadRequestException(`BOQ item not found for activity "${act.description}"`);
+
+      const mode = (act.progressMode ?? item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
+      const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+      const scopeKey = buildExecutionScopeKey({
+        projectId,
+        boqItemId: act.boqItemId,
+        workPackageId,
+        chainageFrom: act.chainageFrom,
+        chainageTo: act.chainageTo,
+      });
+
+      let execution = await this.dprExecutionRepo.findOne({ where: { projectId, scopeKey } });
+      const cumulativeBefore = Number(execution?.cumulativeQty ?? item.dprQty ?? 0);
+
+      const { deltaQty, deltaPct } = progressIncrementQty(
+        mode,
+        sanctioned,
+        act.progressPctToday,
+        act.quantityDone,
+      );
+
+      try {
+        assertProgressWithinSanction(mode, sanctioned, cumulativeBefore, deltaQty);
+      } catch (err) {
+        throw new BadRequestException((err as Error).message);
+      }
+
+      const cumulativeAfter = cumulativeBefore + deltaQty;
+      const cumulativePct = cumulativePctFromQty(cumulativeAfter, sanctioned);
+
+      if (!execution && deltaQty > 0) {
+        execution = this.dprExecutionRepo.create({
+          tenantId,
+          projectId,
+          boqItemId: act.boqItemId,
+          workPackageId,
+          scopeKey,
+          chainageFrom: act.chainageFrom ?? null,
+          chainageTo: act.chainageTo ?? null,
+          measurementMode: mode,
+          sanctionedQty: sanctioned,
+          cumulativeQty: cumulativeBefore,
+          cumulativePct: cumulativePctFromQty(cumulativeBefore, sanctioned),
+          status: executionStatusFromCumulative(cumulativeBefore, sanctioned),
+          startedOn: cumulativeBefore > 0 ? null : reportDate,
+        });
+        await this.dprExecutionRepo.save(execution);
+      }
+
+      prepared.push({
+        ...act,
+        progressMode: mode,
+        progressPctToday: mode === 'whole_job' ? Number(act.progressPctToday ?? 0) : undefined,
+        cumulativeProgressPct: cumulativePct,
+        cumulativeQty: cumulativeAfter,
+        executionScopeKey: scopeKey,
+        workDoneToday: act.workDoneToday ?? act.description,
+        quantityDone: deltaQty,
+        unit: act.unit || item.unit,
+      });
+    }
+
+    return prepared;
+  }
+
+  private async applyDprBoqProgress(tenantId: string, dprId: string) {
+    const dpr = await this.dprRepo.findOne({
+      where: { id: dprId, tenantId },
+      relations: ['activities'],
+    });
+    if (!dpr?.activities?.length) return;
+
+    const existing = await this.dprLedgerRepo.count({
+      where: { dprId, tenantId, reversedAt: IsNull() },
+    });
+    if (existing > 0) return;
+
+    for (const act of dpr.activities) {
+      if (!act.boqItemId || !act.executionScopeKey) continue;
+
+      const item = await this.boqRepo.findOne({ where: { id: act.boqItemId, tenantId, projectId: dpr.projectId } });
+      if (!item) continue;
+
+      const deltaQty = Number(act.quantityDone ?? 0);
+      if (deltaQty <= 0) continue;
+
+      const execution = await this.dprExecutionRepo.findOne({
+        where: { projectId: dpr.projectId, scopeKey: act.executionScopeKey },
+      });
+      const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+      const cumulativeBefore = Number(execution?.cumulativeQty ?? item.dprQty ?? 0);
+      const cumulativeAfter = cumulativeBefore + deltaQty;
+      const cumulativePct = cumulativePctFromQty(cumulativeAfter, sanctioned);
+
+      await this.dprLedgerRepo.save(this.dprLedgerRepo.create({
+        tenantId,
+        projectId: dpr.projectId,
+        dprId: dpr.id,
+        dprActivityId: act.id,
+        boqItemId: act.boqItemId,
+        scopeKey: act.executionScopeKey,
+        deltaQty,
+        deltaPct: act.progressPctToday != null ? Number(act.progressPctToday) : null,
+      }));
+
+      item.dprQty = cumulativeAfter;
+      item.dprExecutionStatus = executionStatusFromCumulative(cumulativeAfter, sanctioned);
+      await this.boqRepo.save(item);
+      await this.mirrorDprQtyToFinancialBoq(tenantId, dpr.projectId, item, deltaQty);
+
+      if (execution) {
+        execution.cumulativeQty = cumulativeAfter;
+        execution.cumulativePct = cumulativePct;
+        execution.status = executionStatusFromCumulative(cumulativeAfter, sanctioned);
+        execution.updatedAt = new Date();
+        if (!execution.startedOn) execution.startedOn = dpr.reportDate;
+        if (execution.status === 'completed') execution.completedOn = dpr.reportDate;
+        execution.expectedCompletionDate = execution.status === 'completed'
+          ? dpr.reportDate
+          : estimateExpectedCompletion(dpr.reportDate, cumulativePct, [Number(act.progressPctToday ?? 0)]);
+        await this.dprExecutionRepo.save(execution);
       }
     }
+
+    await this.refreshProjectProgress(tenantId, dpr.projectId, 'milestones');
+  }
+
+  private async reverseDprBoqProgress(tenantId: string, dprId: string) {
+    const entries = await this.dprLedgerRepo.find({
+      where: { dprId, tenantId },
+    });
+    const active = entries.filter((e) => !e.reversedAt);
+    if (!active.length) return;
+
+    const dpr = await this.dprRepo.findOne({ where: { id: dprId, tenantId } });
+    if (!dpr) return;
+
+    for (const entry of active) {
+      const item = await this.boqRepo.findOne({
+        where: { id: entry.boqItemId, tenantId, projectId: dpr.projectId },
+      });
+      if (item) {
+        const delta = -Number(entry.deltaQty);
+        item.dprQty = Math.max(0, Number(item.dprQty) + delta);
+        const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+        item.dprExecutionStatus = executionStatusFromCumulative(Number(item.dprQty), sanctioned);
+        await this.boqRepo.save(item);
+        await this.mirrorDprQtyToFinancialBoq(tenantId, dpr.projectId, item, delta);
+      }
+
+      const execution = await this.dprExecutionRepo.findOne({
+        where: { projectId: dpr.projectId, scopeKey: entry.scopeKey },
+      });
+      if (execution) {
+        const sanctioned = Number(execution.sanctionedQty);
+        execution.cumulativeQty = Math.max(0, Number(execution.cumulativeQty) - Number(entry.deltaQty));
+        execution.cumulativePct = cumulativePctFromQty(Number(execution.cumulativeQty), sanctioned);
+        execution.status = executionStatusFromCumulative(Number(execution.cumulativeQty), sanctioned);
+        if (execution.status !== 'completed') execution.completedOn = null;
+        execution.updatedAt = new Date();
+        await this.dprExecutionRepo.save(execution);
+      }
+
+      entry.reversedAt = new Date();
+      await this.dprLedgerRepo.save(entry);
+    }
+
+    await this.refreshProjectProgress(tenantId, dpr.projectId, 'milestones');
   }
 
   async submitDpr(tenantId: string, projectId: string, user: JwtPayload, id: string) {
@@ -2243,6 +2519,13 @@ export class ConstructionService {
     if (!task) throw new BadRequestException('No pending approval task');
 
     const result = await this.workflowsService.actOnTask(tenantId, user, task.id, dto);
+    if (resourceType === 'dpr') {
+      if (dto.action === 'approve' && task.stepOrder === 1) {
+        await this.applyDprBoqProgress(tenantId, resourceId);
+      } else if (dto.action === 'reject') {
+        await this.reverseDprBoqProgress(tenantId, resourceId);
+      }
+    }
     await this.syncResourceStatus(
       tenantId,
       resourceType,
@@ -2344,7 +2627,17 @@ export class ConstructionService {
     return row?.projectId ?? null;
   }
 
-  private async saveDprActivities(dprId: string, activities: CreateDprDto['activities']) {
+  private async saveDprActivities(
+    dprId: string,
+    activities: Array<CreateDprDto['activities'][number] & {
+      progressMode?: string;
+      progressPctToday?: number | null;
+      cumulativeProgressPct?: number;
+      cumulativeQty?: number;
+      executionScopeKey?: string | null;
+      workDoneToday?: string | null;
+    }>,
+  ) {
     await this.dprActivityRepo.delete({ dprId });
     if (!activities.length) return;
     await this.dprActivityRepo.save(
@@ -2354,6 +2647,12 @@ export class ConstructionService {
         description: item.description,
         unit: item.unit,
         quantityDone: item.quantityDone,
+        progressMode: item.progressMode ?? 'discrete_qty',
+        progressPctToday: item.progressPctToday ?? null,
+        cumulativeProgressPct: item.cumulativeProgressPct ?? null,
+        cumulativeQty: item.cumulativeQty ?? null,
+        workDoneToday: item.workDoneToday ?? null,
+        executionScopeKey: item.executionScopeKey ?? null,
         boqItemId: item.boqItemId ?? null,
         component: item.component ?? null,
         chainageFrom: item.chainageFrom ?? null,

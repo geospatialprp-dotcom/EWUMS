@@ -8,6 +8,9 @@ export class DprActivityDto {
   @IsString() description: string;
   @IsString() unit: string;
   @IsNumber() @Min(0) quantityDone: number;
+  @IsOptional() @IsIn(['discrete_qty', 'whole_job']) progressMode?: 'discrete_qty' | 'whole_job';
+  @IsOptional() @IsNumber() @Min(0) progressPctToday?: number;
+  @IsOptional() @IsString() workDoneToday?: string;
   @IsOptional() @IsUUID() boqItemId?: string;
   @IsOptional() @IsString() locationDetail?: string;
   @IsOptional() @IsString() component?: string;

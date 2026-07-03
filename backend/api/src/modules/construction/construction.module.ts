@@ -8,6 +8,8 @@ import { BoqItem } from './entities/boq-item.entity';
 import { ConstructionAsset } from './entities/construction-asset.entity';
 import { ConstructionDocument } from './entities/construction-document.entity';
 import { ContractorInvoice } from './entities/contractor-invoice.entity';
+import { DprBoqExecution } from './entities/dpr-boq-execution.entity';
+import { DprBoqProgressLedger } from './entities/dpr-boq-progress-ledger.entity';
 import { DprActivity } from './entities/dpr-activity.entity';
 import { DprReport } from './entities/dpr-report.entity';
 import { InvoiceLineItem } from './entities/invoice-line-item.entity';
@@ -32,6 +34,8 @@ import { ProjectProgressSyncService } from './project-progress-sync.service';
       BoqItem,
       DprReport,
       DprActivity,
+      DprBoqExecution,
+      DprBoqProgressLedger,
       MeasurementBook,
       MbEntry,
       ContractorInvoice,

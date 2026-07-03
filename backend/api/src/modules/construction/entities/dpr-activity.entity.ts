@@ -48,6 +48,24 @@ export class DprActivity {
   @Column({ name: 'equipment_details', type: 'text', nullable: true })
   equipmentDetails: string | null;
 
+  @Column({ name: 'progress_mode', type: 'varchar', length: 20, default: 'discrete_qty' })
+  progressMode: string;
+
+  @Column({ name: 'progress_pct_today', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  progressPctToday: number | null;
+
+  @Column({ name: 'cumulative_progress_pct', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  cumulativeProgressPct: number | null;
+
+  @Column({ name: 'cumulative_qty', type: 'decimal', precision: 14, scale: 3, nullable: true })
+  cumulativeQty: number | null;
+
+  @Column({ name: 'work_done_today', type: 'text', nullable: true })
+  workDoneToday: string | null;
+
+  @Column({ name: 'execution_scope_key', type: 'varchar', length: 120, nullable: true })
+  executionScopeKey: string | null;
+
   @Column({ name: 'location_detail', type: 'varchar', length: 500, nullable: true })
   siteDetail: string | null;
 
