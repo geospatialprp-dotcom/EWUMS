@@ -66,7 +66,7 @@ export class ConstructionController {
   }
 
   @Post('work-packages')
-  @RequirePermissions('construction:create')
+  @RequirePermissions('construction:update', 'construction:create')
   createWorkPackage(
     @CurrentUser() user: JwtPayload,
     @Param('projectId') projectId: string,
