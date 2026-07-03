@@ -214,11 +214,20 @@ export class BillingNotificationService {
     const port = Number(this.config.get('SMTP_PORT', 587));
     const user = this.config.get<string>('SMTP_USER', '').trim();
     const pass = this.config.get<string>('SMTP_PASS', '').trim();
-    const from = this.config.get<string>('SMTP_FROM', '').trim();
+    let from = this.config.get<string>('SMTP_FROM', '').trim();
     const secure = this.config.get<string>('SMTP_SECURE', 'false') === 'true';
 
     if (!host || !from) {
       return this.failed('email', email, 'smtp', 'SMTP_HOST and SMTP_FROM are required');
+    }
+
+    if (host.includes('gmail.com') && user && from.toLowerCase() !== user.toLowerCase()) {
+      this.logger.warn(`SMTP_FROM (${from}) mismatches SMTP_USER — using ${user} for Gmail`);
+      from = user;
+    }
+
+    if (!pass && user) {
+      return this.failed('email', email, 'smtp', 'SMTP_PASS is required when SMTP_USER is set');
     }
 
     try {
@@ -251,6 +260,7 @@ export class BillingNotificationService {
       let stage: 'greeting' | 'ehlo' | 'starttls' | 'auth' | 'mail' | 'rcpt' | 'data' | 'quit' = 'greeting';
       let buffer = '';
       let dataSent = false;
+      let tlsReady = false;
 
       const send = (cmd: string) => {
         socket.write(`${cmd}\r\n`);
@@ -262,28 +272,27 @@ export class BillingNotificationService {
 
         if (stage === 'greeting') {
           if (code !== 220) return reject(new Error(`SMTP greeting failed: ${line}`));
-          send(`EHLO ${opts.host}`);
+          send(`EHLO egip.local`);
           stage = 'ehlo';
           return;
         }
 
         if (stage === 'ehlo') {
           if (code >= 400) return reject(new Error(`SMTP EHLO failed: ${line}`));
-          if (line.startsWith('250 ') || line.startsWith('250-')) {
-            if (line.startsWith('250 ') && !opts.secure && opts.port === 587) {
-              send('STARTTLS');
-              stage = 'starttls';
-              return;
-            }
-            if (line.startsWith('250 ')) {
-              if (opts.user && opts.pass) {
-                send('AUTH LOGIN');
-                stage = 'auth';
-              } else {
-                send(`MAIL FROM:<${opts.from}>`);
-                stage = 'mail';
-              }
-            }
+          if (!line.startsWith('250')) return;
+          // Wait for final 250 line (not 250- continuation)
+          if (!line.startsWith('250 ')) return;
+          if (!tlsReady && !opts.secure && opts.port === 587) {
+            send('STARTTLS');
+            stage = 'starttls';
+            return;
+          }
+          if (opts.user && opts.pass) {
+            send('AUTH LOGIN');
+            stage = 'auth';
+          } else {
+            send(`MAIL FROM:<${opts.from}>`);
+            stage = 'mail';
           }
           return;
         }
@@ -295,7 +304,8 @@ export class BillingNotificationService {
             socket = secureSocket as net.Socket;
             socket.on('data', onData);
             socket.on('error', reject);
-            send(`EHLO ${opts.host}`);
+            tlsReady = true;
+            send('EHLO egip.local');
             stage = 'ehlo';
           });
           secureSocket.on('error', reject);
