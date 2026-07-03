@@ -1042,7 +1042,43 @@ export default function ProjectConstructionPage() {
     if (WORKFLOW_DONE_STATUSES.includes(status)) return null;
     const requiredRole = STATUS_APPROVER[status];
     const canAct = !roles.includes('super_admin') && (!requiredRole || roles.includes(requiredRole));
-    if (!canApprove || !canAct) return null;
+    if (!canApprove || !canAct) {
+      if (type === 'dpr' && requiredRole) {
+        return (
+          <Chip
+            size="small"
+            variant="outlined"
+            color="warning"
+            label={`Pending ${requiredRole.toUpperCase()}`}
+          />
+        );
+      }
+      return null;
+    }
+    if (type === 'dpr') {
+      return (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Button
+            size="small"
+            variant="contained"
+            color="success"
+            startIcon={<CheckCircleIcon fontSize="small" />}
+            onClick={() => { void workflowAction(type, id, 'approve'); }}
+          >
+            Approve
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            startIcon={<CancelIcon fontSize="small" />}
+            onClick={() => { void workflowAction(type, id, 'reject'); }}
+          >
+            Reject
+          </Button>
+        </Stack>
+      );
+    }
     return (
       <Box display="inline-flex" gap={0.5} alignItems="center">
         {requiredRole && (
@@ -2047,15 +2083,19 @@ export default function ProjectConstructionPage() {
             )}
           </Box>
           <Box display="flex" gap={1} flexWrap="wrap" mb={2} alignItems="center">
-            {DPR_WORKFLOW_SEQUENCE.map((step) => (
-              <Chip
-                key={step.status}
-                size="small"
-                variant="outlined"
-                label={`${step.step}. ${step.label}`}
-                sx={constructionWorkflowChipSx('dpr')}
-              />
-            ))}
+            {DPR_WORKFLOW_SEQUENCE.map((step) => {
+              const stepActive = filteredDprs.some((d) => String(d.status) === step.status);
+              return (
+                <Chip
+                  key={step.status}
+                  size="small"
+                  variant={stepActive ? 'filled' : 'outlined'}
+                  color={stepActive ? 'warning' : 'default'}
+                  label={`${step.step}. ${step.label}`}
+                  sx={constructionWorkflowChipSx('dpr')}
+                />
+              );
+            })}
             <Box sx={{ ml: 'auto', minWidth: 160 }}>
               <TextField
                 select
@@ -2086,7 +2126,7 @@ export default function ProjectConstructionPage() {
                 { label: 'Supervisor' },
                 { label: 'Weather', minWidth: 90 },
                 { label: 'Workflow Step', minWidth: 130 },
-                { label: 'Actions', minWidth: 280 },
+                { label: 'Actions', minWidth: 320 },
               ]}
             />
             <TableBody>
