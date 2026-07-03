@@ -70,7 +70,7 @@ import { DivisionStaffProvisionerService } from '../divisions/division-staff-pro
 import { ProjectProgressSyncService } from './project-progress-sync.service';
 
 const DPR_STATUS_BY_STEP: Record<number, string> = {
-  1: 'je_review', 2: 'ae_review', 3: 'ee_approved',
+  1: 'je_review', 2: 'ae_review', 3: 'ee_review',
 };
 const MB_STATUS_BY_STEP: Record<number, string> = {
   1: 'ae_checked',

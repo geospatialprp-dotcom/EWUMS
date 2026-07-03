@@ -30,7 +30,7 @@ echo "    Commit: $(sudo -u "${APP_USER}" git -C "${ROOT}" rev-parse --short HEA
 echo "==> 2. DB migrations (096–101)"
 for mig in 096_project_deletion_ee_approval.sql 097_secretariat_dpr_role.sql 098_secretariat_stage8_dpr_update.sql \
   099_ee_project_create_after_tender.sql 100_super_admin_no_dpr_proposal_create.sql 101_audit_log_gps_coordinates.sql \
-  102_ee_construction_planning_permissions.sql; do
+  102_ee_construction_planning_permissions.sql 103_dpr_ee_review_status.sql; do
   if [[ -f "${ROOT}/database/migrations/${mig}" ]]; then
     "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
       < "${ROOT}/database/migrations/${mig}" || echo "WARN: ${mig} skipped"

@@ -110,6 +110,7 @@ export const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | '
   submitted: 'info',
   je_review: 'warning',
   ae_review: 'warning',
+  ee_review: 'warning',
   ee_approved: 'success',
   je_measured: 'info',
   ae_checked: 'info',
@@ -128,12 +129,12 @@ export const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | '
 export const STATUS_APPROVER: Record<string, string> = {
   je_review: 'je',
   ae_review: 'ae',
+  ee_review: 'ee',
   ae_checked: 'ae',
   ee_checked: 'ee',
   accounts_verification: 'accounts',
   accounts_verified: 'ee',
   je_verified: 'je',
-  ee_approved: 'ee',
 };
 
 export const WORKFLOW_DONE_STATUSES = [
@@ -150,7 +151,8 @@ export const DPR_WORKFLOW_SEQUENCE = [
   { status: 'draft', step: 1, label: 'Contractor (Draft)' },
   { status: 'je_review', step: 2, label: 'JE Review' },
   { status: 'ae_review', step: 3, label: 'AE Review' },
-  { status: 'ee_approved', step: 4, label: 'EE Approved' },
+  { status: 'ee_review', step: 4, label: 'EE Review' },
+  { status: 'ee_approved', step: 5, label: 'EE Approved' },
 ] as const;
 
 export function dprWorkflowStepLabel(status: string): string {

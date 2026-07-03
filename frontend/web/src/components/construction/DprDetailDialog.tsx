@@ -1,6 +1,8 @@
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, Divider, Grid, Paper, Typography,
 } from '@mui/material';
+import CancelIcon from '@mui/icons-material/Cancel';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
@@ -59,10 +61,13 @@ type DprDetailDialogProps = {
   dpr: Record<string, unknown> | null;
   onEdit?: () => void;
   canEdit?: boolean;
+  canApprove?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
 };
 
 export default function DprDetailDialog({
-  open, onClose, projectId, dpr, onEdit, canEdit,
+  open, onClose, projectId, dpr, onEdit, canEdit, canApprove, onApprove, onReject,
 }: DprDetailDialogProps) {
   const theme = constructionTableTheme('dpr');
   const status = String(dpr?.status ?? 'draft');
@@ -253,13 +258,35 @@ export default function DprDetailDialog({
         )}
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider' }}>
+      <DialogActions sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider', gap: 1 }}>
         {canEdit && onEdit && (
           <Button variant="outlined" onClick={onEdit} sx={{ mr: 'auto' }}>
             Edit DPR
           </Button>
         )}
-        <Button variant="contained" onClick={onClose}>Close</Button>
+        {canApprove && onApprove && onReject && (
+          <>
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<CheckCircleIcon />}
+              onClick={onApprove}
+            >
+              Approve
+            </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<CancelIcon />}
+              onClick={onReject}
+            >
+              Reject
+            </Button>
+          </>
+        )}
+        <Button variant="contained" onClick={onClose} sx={{ ml: canApprove ? 0 : 'auto' }}>
+          Close
+        </Button>
       </DialogActions>
     </Dialog>
   );

@@ -961,9 +961,22 @@ export default function ProjectConstructionPage() {
       if (type === 'invoice') await constructionApi.invoiceWorkflow(projectId, id, payload);
       if (type === 'ra') await constructionApi.raBillWorkflow(projectId, id, payload);
       await refresh();
+      if (type === 'dpr' && dprDetailOpen && String(dprDetail?.id ?? '') === id) {
+        const { data } = await constructionApi.getDpr(projectId, id);
+        setDprDetail(data as Record<string, unknown>);
+      }
+      setSuccess(action === 'approve' ? 'Approved successfully.' : 'Rejected.');
     } catch (err) {
       setError(formatApiError(err, 'Workflow action failed.'));
     }
+  };
+
+  const canApproveDpr = (dpr: Record<string, unknown>) => {
+    const status = String(dpr.status);
+    if (WORKFLOW_DONE_STATUSES.includes(status)) return false;
+    const requiredRole = STATUS_APPROVER[status];
+    if (!canApprove || !requiredRole) return false;
+    return !roles.includes('super_admin') && roles.includes(requiredRole);
   };
 
   const openMbVerify = async (mbId: string, role: 'ae' | 'ee') => {
@@ -2623,6 +2636,15 @@ export default function ProjectConstructionPage() {
           if (!id) return;
           setDprDetailOpen(false);
           void loadDprForEdit(id);
+        }}
+        canApprove={dprDetail ? canApproveDpr(dprDetail) : false}
+        onApprove={() => {
+          const id = String(dprDetail?.id ?? '');
+          if (id) void workflowAction('dpr', id, 'approve');
+        }}
+        onReject={() => {
+          const id = String(dprDetail?.id ?? '');
+          if (id) void workflowAction('dpr', id, 'reject');
         }}
       />
 
