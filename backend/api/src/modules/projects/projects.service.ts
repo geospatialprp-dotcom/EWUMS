@@ -64,7 +64,7 @@ const DEFAULT_CONSTRUCTION_MILESTONES = [
   { name: 'Testing & Commissioning', sortOrder: 4 },
 ] as const;
 
-const HQ_PROJECT_REGISTRAR_ROLES = ['se', 'ce', 'cgm', 'md'] as const;
+const DIVISION_EE_PROJECT_REGISTRAR_ROLE = 'ee' as const;
 
 @Injectable()
 export class ProjectsService {
@@ -122,7 +122,7 @@ export class ProjectsService {
     else phase = 'no_dpr';
 
     const constructionUnlocked = published.length > 0 || projectCount > 0;
-    const canCreateProject = readySchemes.length > 0 && this.isHqProjectRegistrar(user);
+    const canCreateProject = readySchemes.length > 0 && this.isDivisionEeProjectRegistrar(user);
 
     return {
       phase,
@@ -135,16 +135,16 @@ export class ProjectsService {
     };
   }
 
-  private isHqProjectRegistrar(user: JwtPayload): boolean {
-    const roles = user.roles ?? [];
-    return roles.some((r) => (HQ_PROJECT_REGISTRAR_ROLES as readonly string[]).includes(r));
+  private isDivisionEeProjectRegistrar(user: JwtPayload): boolean {
+    if (isSuperAdmin(user.roles)) return false;
+    return (user.roles ?? []).includes(DIVISION_EE_PROJECT_REGISTRAR_ROLE);
   }
 
-  private assertHqProjectRegistrar(user: JwtPayload): void {
+  private assertDivisionEeProjectRegistrar(user: JwtPayload): void {
     assertNotSuperAdminForOperations(user, 'construction project registration');
-    if (!this.isHqProjectRegistrar(user)) {
+    if (!this.isDivisionEeProjectRegistrar(user)) {
       throw new ForbiddenException(
-        'Only HQ officials (SE, CE, CGM, MD) can register construction projects after DPR tender is published.',
+        'Only Division EE can register construction projects after DPR tender is published.',
       );
     }
   }
@@ -204,11 +204,12 @@ export class ProjectsService {
 
   async findAll(tenantId: string, user: JwtPayload) {
     const qb = this.projectsRepo.createQueryBuilder('p')
-      .leftJoinAndSelect('p.milestones', 'milestones')
       .where('p.tenant_id = :tenantId', { tenantId })
       .orderBy('p.created_at', 'DESC');
     await this.divisionAccess.applyProjectScope(qb, user, 'p');
     const projects = await qb.getMany();
+    if (!projects.length) return [];
+
     await Promise.all(
       projects.map((p) => this.progressSync.syncFromConstruction(tenantId, p.id).catch(() => undefined)),
     );
@@ -373,7 +374,7 @@ export class ProjectsService {
   }
 
   async create(tenantId: string, dto: CreateProjectDto, user: JwtPayload) {
-    this.assertHqProjectRegistrar(user);
+    this.assertDivisionEeProjectRegistrar(user);
     if (!dto.dprProposalId?.trim()) {
       throw new BadRequestException('dprProposalId is required to register a construction project');
     }
@@ -513,20 +514,67 @@ export class ProjectsService {
       throw new BadRequestException('A deletion request is already pending EE approval for this scheme.');
     }
 
-    const divisionId = project.divisionId ?? await this.divisionAccess.getProjectDivisionId(projectId);
-    const request = this.deletionRequestRepo.create({
-      tenantId,
-      projectId,
-      divisionId,
-      requestedBy: user.sub,
-      status: 'pending',
-      reason: dto.reason?.trim() || null,
-    });
-    const saved = await this.deletionRequestRepo.save(request);
+    const divisionId = await this.resolveProjectDivisionId(tenantId, project, projectId);
+    if (!divisionId) {
+      throw new BadRequestException(
+        'Cannot request deletion: scheme has no division assigned. Set division on the project first.',
+      );
+    }
+
+    let saved: ProjectDeletionRequest;
+    try {
+      const request = this.deletionRequestRepo.create({
+        tenantId,
+        projectId,
+        divisionId,
+        requestedBy: user.sub,
+        status: 'pending',
+        reason: dto.reason?.trim() || null,
+      });
+      saved = await this.deletionRequestRepo.save(request);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/project_deletion_requests|relation .* does not exist/i.test(msg)) {
+        throw new BadRequestException(
+          'Deletion workflow is not set up on this server. Run database migration 096_project_deletion_ee_approval.sql.',
+        );
+      }
+      throw err;
+    }
     return this.toDeletionRequestRecord(saved, project);
   }
 
+  private async resolveProjectDivisionId(
+    tenantId: string,
+    project: Project,
+    projectId: string,
+  ): Promise<string | null> {
+    let divisionId = project.divisionId ?? await this.divisionAccess.getProjectDivisionId(projectId);
+    if (divisionId) return divisionId;
+
+    const proposal = await this.dprProposalRepo.findOne({ where: { tenantId, projectId } });
+    divisionId = proposal?.divisionId ?? null;
+    if (divisionId) {
+      await this.divisionAccess.assignProjectDivision(projectId, divisionId);
+      project.divisionId = divisionId;
+      await this.projectsRepo.save(project);
+    }
+    return divisionId;
+  }
+
   async listDeletionRequests(tenantId: string, user: JwtPayload) {
+    try {
+      return await this.listDeletionRequestsInner(tenantId, user);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/project_deletion_requests|relation .* does not exist/i.test(msg)) {
+        return [];
+      }
+      throw err;
+    }
+  }
+
+  private async listDeletionRequestsInner(tenantId: string, user: JwtPayload) {
     const qb = this.deletionRequestRepo.createQueryBuilder('r')
       .where('r.tenant_id = :tenantId', { tenantId })
       .orderBy('r.created_at', 'DESC')
@@ -539,15 +587,24 @@ export class ProjectsService {
       const accessible = await this.divisionAccess.getAccessibleDivisionIds(user, tenantId);
       if (accessible !== null) {
         if (!accessible.length) return [];
-        qb.andWhere('r.division_id IN (:...divisionIds)', { divisionIds: accessible });
+        qb.andWhere(
+          `(r.division_id IN (:...divisionIds)
+            OR (r.division_id IS NULL AND r.project_id IN (
+              SELECT p.id FROM projects p WHERE p.tenant_id = :tenantId AND p.division_id IN (:...divisionIds)
+            )))`,
+          { divisionIds: accessible, tenantId },
+        );
       }
     } else {
       throw new ForbiddenException('Only Super Admin or Division EE can view deletion requests.');
     }
 
     const rows = await qb.getMany();
+    if (!rows.length) return [];
+
+    const projectIds = rows.map((r) => r.projectId);
     const projects = await this.projectsRepo.find({
-      where: { tenantId, id: In(rows.map((r) => r.projectId)) },
+      where: { tenantId, id: In(projectIds) },
     });
     const projectById = new Map(projects.map((p) => [p.id, p]));
     return rows.map((row) => this.toDeletionRequestRecord(row, projectById.get(row.projectId) ?? null));
@@ -632,25 +689,51 @@ export class ProjectsService {
       removeOrthomosaicFile(id, fileName);
     }
 
-    await this.detachProjectReferences(id);
+    await this.detachProjectReferences(tenantId, id);
     await this.projectsRepo.delete({ id, tenantId });
 
     return { success: true, id, projectCode: project.projectCode };
   }
 
-  private async detachProjectReferences(projectId: string): Promise<void> {
+  private async detachProjectReferences(tenantId: string, projectId: string): Promise<void> {
     const queries = [
-      'UPDATE om_consumer_complaints SET project_id = NULL WHERE project_id = $1',
-      'UPDATE om_contracts SET project_id = NULL WHERE project_id = $1',
-      'UPDATE om_asset_lifecycle_assessments SET project_id = NULL WHERE project_id = $1',
-      'UPDATE om_renewal_plans SET project_id = NULL WHERE project_id = $1',
-    ];
-    for (const sql of queries) {
+      ['UPDATE dpr_proposals SET project_id = NULL WHERE tenant_id = $1 AND project_id = $2', [tenantId, projectId]],
+      ['UPDATE la_cases SET project_id = NULL WHERE tenant_id = $1 AND project_id = $2', [tenantId, projectId]],
+      ['UPDATE om_consumer_complaints SET project_id = NULL WHERE project_id = $1', [projectId]],
+      ['UPDATE om_contracts SET project_id = NULL WHERE project_id = $1', [projectId]],
+      ['UPDATE om_asset_lifecycle_assessments SET project_id = NULL WHERE project_id = $1', [projectId]],
+      ['UPDATE om_renewal_plans SET project_id = NULL WHERE project_id = $1', [projectId]],
+      ['UPDATE assets SET project_id = NULL WHERE project_id = $1', [projectId]],
+      ['UPDATE om_consumers SET project_id = NULL WHERE tenant_id = $1 AND project_id = $2', [tenantId, projectId]],
+    ] as const;
+    for (const [sql, params] of queries) {
       try {
-        await this.projectsRepo.query(sql, [projectId]);
+        await this.projectsRepo.query(sql, [...params]);
       } catch {
         // Optional tables may be absent in older databases.
       }
+    }
+
+    try {
+      await this.projectsRepo.query(
+        `UPDATE dpr_reports SET workflow_instance_id = NULL WHERE project_id = $1`,
+        [projectId],
+      );
+      await this.projectsRepo.query(
+        `UPDATE measurement_books SET workflow_instance_id = NULL WHERE project_id = $1`,
+        [projectId],
+      );
+      await this.projectsRepo.query(
+        `UPDATE ra_bills SET workflow_instance_id = NULL WHERE project_id = $1`,
+        [projectId],
+      );
+      await this.projectsRepo.query(
+        `DELETE FROM workflow_instances
+         WHERE resource_type = 'project' AND resource_id = $1`,
+        [projectId],
+      );
+    } catch {
+      // Workflow tables optional on older DBs.
     }
   }
 

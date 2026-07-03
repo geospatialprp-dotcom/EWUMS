@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Injectable, NotFoundException,
+  BadRequestException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
@@ -63,6 +63,10 @@ import { WorkPackage } from './entities/work-package.entity';
 import { WorkPlanning } from './entities/work-planning.entity';
 import { DprProposal } from '../dpr-planning/entities/dpr-proposal.entity';
 import { DprSanction } from '../dpr-planning/entities/dpr-planning-support.entity';
+import { Project } from '../projects/entities/project.entity';
+import { User } from '../auth/entities/user.entity';
+import { DivisionAccessService } from '../divisions/division-access.service';
+import { DivisionStaffProvisionerService } from '../divisions/division-staff-provisioner.service';
 import { ProjectProgressSyncService } from './project-progress-sync.service';
 
 const DPR_STATUS_BY_STEP: Record<number, string> = {
@@ -96,8 +100,12 @@ export class ConstructionService {
     @InjectRepository(RaBillLine) private raBillLineRepo: Repository<RaBillLine>,
     @InjectRepository(ConstructionAsset) private assetRepo: Repository<ConstructionAsset>,
     @InjectRepository(ProjectCompletion) private completionRepo: Repository<ProjectCompletion>,
+    @InjectRepository(Project) private projectRepo: Repository<Project>,
+    @InjectRepository(User) private userRepo: Repository<User>,
     private workflowsService: WorkflowsService,
     private progressSync: ProjectProgressSyncService,
+    private divisionAccess: DivisionAccessService,
+    private staffProvisioner: DivisionStaffProvisionerService,
   ) {}
 
   private async refreshProjectProgress(
@@ -120,8 +128,12 @@ export class ConstructionService {
     }
   }
 
-  async getOverview(tenantId: string, projectId: string) {
-    const dashboard = await this.getDashboard(tenantId, projectId);
+  private isContractor(user?: JwtPayload): boolean {
+    return user?.roles?.includes('contractor') ?? false;
+  }
+
+  async getOverview(tenantId: string, projectId: string, user?: JwtPayload) {
+    const dashboard = await this.getDashboard(tenantId, projectId, user);
     return {
       ...dashboard,
       workflowChain: WORKFLOW_STAGES,
@@ -130,10 +142,18 @@ export class ConstructionService {
     };
   }
 
-  async getDashboard(tenantId: string, projectId: string) {
+  async getDashboard(tenantId: string, projectId: string, user?: JwtPayload) {
     const safeCount = async (fn: () => Promise<number>) => {
       try { return await fn(); } catch { return 0; }
     };
+
+    const contractor = this.isContractor(user);
+    const contractorPackageIds = contractor && user
+      ? (await this.wpRepo.find({
+        where: { tenantId, projectId, contractorId: user.sub },
+        select: ['id'],
+      })).map((wp) => wp.id)
+      : [];
 
     const MB_DONE = ['draft', 'boq_finalized', 'rejected'];
     const RA_DONE = ['draft', 'finance_released', 'rejected'];
@@ -145,28 +165,35 @@ export class ConstructionService {
       assets, allDprs, allMbs, allRaBills,
     ] = await Promise.all([
       safeCount(() => this.boqRepo.count({ where: { tenantId, projectId, isActive: true } })),
-      safeCount(() => this.dprRepo.count({ where: { tenantId, projectId } })),
-      safeCount(() => this.mbRepo.count({ where: { tenantId, projectId } })),
-      safeCount(() => this.invoiceRepo.count({ where: { tenantId, projectId } })),
-      safeCount(() => this.docRepo.count({ where: { tenantId, projectId } })),
-      safeCount(() => this.raBillRepo.count({ where: { tenantId, projectId } })),
-      safeCount(() => this.wpRepo.count({ where: { tenantId, projectId } })),
-      safeCount(() => this.assetRepo.count({ where: { tenantId, projectId } })),
-      safeCount(() => this.dprRepo.count({ where: { tenantId, projectId, status: 'je_review' } })),
-      safeCount(() => this.mbRepo.count({ where: { tenantId, projectId, status: 'je_review' } })),
-      safeCount(() => this.raBillRepo.count({
+      contractor
+        ? safeCount(async () => (await this.listDprs(tenantId, projectId, user)).length)
+        : safeCount(() => this.dprRepo.count({ where: { tenantId, projectId } })),
+      contractor ? Promise.resolve(0) : safeCount(() => this.mbRepo.count({ where: { tenantId, projectId } })),
+      contractor ? Promise.resolve(0) : safeCount(() => this.invoiceRepo.count({ where: { tenantId, projectId } })),
+      contractor ? Promise.resolve(0) : safeCount(() => this.docRepo.count({ where: { tenantId, projectId } })),
+      contractor ? Promise.resolve(0) : safeCount(() => this.raBillRepo.count({ where: { tenantId, projectId } })),
+      contractor
+        ? Promise.resolve(contractorPackageIds.length)
+        : safeCount(() => this.wpRepo.count({ where: { tenantId, projectId } })),
+      contractor ? Promise.resolve(0) : safeCount(() => this.assetRepo.count({ where: { tenantId, projectId } })),
+      contractor
+        ? safeCount(async () => (await this.listDprs(tenantId, projectId, user))
+          .filter((d) => d.status === 'je_review').length)
+        : safeCount(() => this.dprRepo.count({ where: { tenantId, projectId, status: 'je_review' } })),
+      contractor ? Promise.resolve(0) : safeCount(() => this.mbRepo.count({ where: { tenantId, projectId, status: 'je_review' } })),
+      contractor ? Promise.resolve(0) : safeCount(() => this.raBillRepo.count({
         where: { tenantId, projectId, status: In(['je_review', 'ae_checked', 'ee_checked', 'accounts_verification']) },
       })),
-      safeCount(() => this.mbRepo.count({
+      contractor ? Promise.resolve(0) : safeCount(() => this.mbRepo.count({
         where: { tenantId, projectId, status: In(['je_review', 'ae_checked', 'ee_checked']) },
       })),
-      safeCount(() => this.raBillRepo.count({
+      contractor ? Promise.resolve(0) : safeCount(() => this.raBillRepo.count({
         where: { tenantId, projectId, status: In(['je_review', 'ae_checked', 'ee_checked', 'accounts_verification']) },
       })),
-      this.assetRepo.find({ where: { tenantId, projectId } }).catch(() => [] as ConstructionAsset[]),
-      this.listDprs(tenantId, projectId).catch(() => [] as DprReport[]),
-      this.listMbs(tenantId, projectId).catch(() => [] as MeasurementBook[]),
-      this.listRaBills(tenantId, projectId).catch(() => [] as RaBill[]),
+      contractor ? Promise.resolve([] as ConstructionAsset[]) : this.assetRepo.find({ where: { tenantId, projectId } }).catch(() => [] as ConstructionAsset[]),
+      this.listDprs(tenantId, projectId, user).catch(() => [] as DprReport[]),
+      contractor ? Promise.resolve([] as MeasurementBook[]) : this.listMbs(tenantId, projectId).catch(() => [] as MeasurementBook[]),
+      contractor ? Promise.resolve([] as RaBill[]) : this.listRaBills(tenantId, projectId).catch(() => [] as RaBill[]),
     ]);
 
     let reconciliation: Awaited<ReturnType<ConstructionService['getBoqReconciliation']>> | null = null;
@@ -195,8 +222,12 @@ export class ConstructionService {
       completion = null;
     }
     const [recentDprs, recentMbs, componentProgress] = await Promise.all([
-      this.dprRepo.find({ where: { tenantId, projectId }, order: { reportDate: 'DESC' }, take: 5 }),
-      this.mbRepo.find({ where: { tenantId, projectId }, order: { measurementDate: 'DESC' }, take: 5 }),
+      contractor
+        ? Promise.resolve((allDprs as DprReport[]).slice(0, 5))
+        : this.dprRepo.find({ where: { tenantId, projectId }, order: { reportDate: 'DESC' }, take: 5 }),
+      contractor
+        ? Promise.resolve([] as MeasurementBook[])
+        : this.mbRepo.find({ where: { tenantId, projectId }, order: { measurementDate: 'DESC' }, take: 5 }),
       this.getComponentProgress(tenantId, projectId).catch(() => [] as Array<{
         component: string; label: string; contractQty: number; executedQty: number; pct: number;
       }>),
@@ -492,17 +523,50 @@ export class ConstructionService {
     };
   }
 
-  listWorkPackages(tenantId: string, projectId: string) {
-    return this.wpRepo.find({ where: { tenantId, projectId }, order: { packageCode: 'ASC' } });
+  async listWorkPackages(tenantId: string, projectId: string, user?: JwtPayload) {
+    let wps = await this.wpRepo.find({ where: { tenantId, projectId }, order: { packageCode: 'ASC' } });
+    if (this.isContractor(user) && user) {
+      wps = wps.filter((wp) => wp.contractorId === user.sub);
+    }
+    const contractorIds = wps.map((wp) => wp.contractorId).filter((id): id is string => Boolean(id));
+    if (!contractorIds.length) return wps;
+
+    const users = await this.userRepo.find({ where: { id: In(contractorIds), tenantId } });
+    const emailById = new Map(users.map((u) => [u.id, u.email]));
+    return wps.map((wp) => ({
+      ...wp,
+      contractorLoginEmail: wp.contractorId ? emailById.get(wp.contractorId) ?? null : null,
+    }));
   }
 
-  createWorkPackage(tenantId: string, projectId: string, dto: CreateWorkPackageDto) {
+  private async provisionWorkPackageContractor(
+    tenantId: string,
+    projectId: string,
+    wp: WorkPackage,
+    contractorName: string,
+  ) {
+    const project = await this.projectRepo.findOne({ where: { id: projectId, tenantId } });
+    if (!project) throw new NotFoundException('Project not found');
+    const divisionId = await this.divisionAccess.getProjectDivisionId(projectId);
+    const contractorLogin = await this.staffProvisioner.ensureWorkPackageContractor(
+      tenantId,
+      project,
+      wp,
+      contractorName,
+      divisionId,
+    );
+    wp.contractorId = contractorLogin.userId;
+    wp.contractorName = contractorName.trim();
+    return contractorLogin;
+  }
+
+  async createWorkPackage(tenantId: string, projectId: string, dto: CreateWorkPackageDto) {
     const packageCode = dto.packageCode?.trim();
     const name = dto.name?.trim();
     if (!packageCode || !name) {
       throw new BadRequestException('Package code and name are required');
     }
-    return this.wpRepo.save(this.wpRepo.create({
+    const wp = this.wpRepo.create({
       tenantId,
       projectId,
       packageCode,
@@ -514,7 +578,18 @@ export class ConstructionService {
       chainageTo: dto.chainageTo?.trim() || null,
       remarks: dto.remarks?.trim() || null,
       status: 'planned',
-    }));
+    });
+    let contractorLogin: Awaited<ReturnType<DivisionStaffProvisionerService['ensureWorkPackageContractor']>> | null = null;
+    if (dto.contractorName?.trim()) {
+      contractorLogin = await this.provisionWorkPackageContractor(
+        tenantId,
+        projectId,
+        wp,
+        dto.contractorName.trim(),
+      );
+    }
+    const saved = await this.wpRepo.save(wp);
+    return contractorLogin ? { ...saved, contractorLogin } : saved;
   }
 
   async updateWorkPackage(tenantId: string, projectId: string, id: string, dto: UpdateWorkPackageDto) {
@@ -534,13 +609,26 @@ export class ConstructionService {
     if (dto.schemeType !== undefined) wp.schemeType = dto.schemeType ?? null;
     if (dto.chainageFrom !== undefined) wp.chainageFrom = dto.chainageFrom?.trim() || null;
     if (dto.chainageTo !== undefined) wp.chainageTo = dto.chainageTo?.trim() || null;
-    if (dto.contractorName !== undefined) wp.contractorName = dto.contractorName || null;
-    if (dto.contractorId !== undefined) wp.contractorId = dto.contractorId || null;
     if (dto.gisAlignmentStatus !== undefined) wp.gisAlignmentStatus = dto.gisAlignmentStatus;
     if (dto.status !== undefined) wp.status = dto.status;
     if (dto.remarks !== undefined) wp.remarks = dto.remarks ?? null;
+
+    let contractorLogin: Awaited<ReturnType<DivisionStaffProvisionerService['ensureWorkPackageContractor']>> | null = null;
+    if (dto.contractorName !== undefined) {
+      const trimmed = dto.contractorName?.trim() || '';
+      wp.contractorName = trimmed || null;
+      if (trimmed) {
+        contractorLogin = await this.provisionWorkPackageContractor(tenantId, projectId, wp, trimmed);
+      } else {
+        wp.contractorId = null;
+      }
+    } else if (dto.contractorId !== undefined) {
+      wp.contractorId = dto.contractorId || null;
+    }
+
     wp.updatedAt = new Date();
-    return this.wpRepo.save(wp);
+    const saved = await this.wpRepo.save(wp);
+    return contractorLogin ? { ...saved, contractorLogin } : saved;
   }
 
   async getWorkPlanning(tenantId: string, projectId: string) {
@@ -780,20 +868,32 @@ export class ConstructionService {
     });
   }
 
-  async listDprs(tenantId: string, projectId: string) {
-    return this.dprRepo.find({
+  async listDprs(tenantId: string, projectId: string, user?: JwtPayload) {
+    const rows = await this.dprRepo.find({
       where: { tenantId, projectId },
       relations: ['activities'],
       order: { reportDate: 'DESC' },
     });
+    if (!this.isContractor(user) || !user) return rows;
+
+    const myPackageIds = new Set(
+      (await this.wpRepo.find({
+        where: { tenantId, projectId, contractorId: user.sub },
+        select: ['id'],
+      })).map((wp) => wp.id),
+    );
+    return rows.filter((d) =>
+      d.submittedBy === user.sub
+      || (d.workPackageId != null && myPackageIds.has(d.workPackageId)));
   }
 
-  async getDpr(tenantId: string, projectId: string, id: string) {
+  async getDpr(tenantId: string, projectId: string, id: string, user?: JwtPayload) {
     const dpr = await this.dprRepo.findOne({
       where: { id, tenantId, projectId },
       relations: ['activities'],
     });
     if (!dpr) throw new NotFoundException('DPR not found');
+    await this.assertContractorOwnsDpr(dpr, user, tenantId);
     const documents = await this.docRepo.find({
       where: { tenantId, resourceType: 'dpr', resourceId: id },
       order: { uploadedAt: 'DESC' },
@@ -801,7 +901,16 @@ export class ConstructionService {
     return { ...dpr, documents };
   }
 
-  async createDpr(tenantId: string, projectId: string, userId: string, dto: CreateDprDto) {
+  async createDpr(tenantId: string, projectId: string, user: JwtPayload, dto: CreateDprDto) {
+    if (dto.workPackageId && this.isContractor(user)) {
+      const wp = await this.wpRepo.findOne({
+        where: { id: dto.workPackageId, tenantId, projectId },
+      });
+      if (!wp || wp.contractorId !== user.sub) {
+        throw new ForbiddenException('Work package is not assigned to your contractor account');
+      }
+    }
+
     const dpr = this.dprRepo.create({
       tenantId,
       projectId,
@@ -810,25 +919,25 @@ export class ConstructionService {
       schemeType: dto.schemeType,
       workSite: dto.workLocation ?? null,
       workPackageId: dto.workPackageId ?? null,
-      contractorName: dto.contractorName ?? null,
+      contractorName: dto.contractorName?.trim() || null,
       supervisorName: dto.supervisorName ?? null,
       weather: dto.weather ?? null,
       manpowerCount: dto.manpowerCount ?? 0,
       remarks: dto.remarks ?? null,
       status: 'draft',
-      submittedBy: userId,
+      submittedBy: user.sub,
     });
     const saved = await this.dprRepo.save(dpr);
     await this.saveDprActivities(saved.id, dto.activities);
     await this.updateBoqDprQtys(tenantId, projectId, dto.activities);
     await this.refreshProjectProgress(tenantId, projectId, 'milestones');
-    return this.getDpr(tenantId, projectId, saved.id);
+    return this.getDpr(tenantId, projectId, saved.id, user);
   }
 
   async updateDpr(
     tenantId: string,
     projectId: string,
-    userId: string,
+    user: JwtPayload,
     id: string,
     dto: CreateDprDto,
   ) {
@@ -837,6 +946,7 @@ export class ConstructionService {
       relations: ['activities'],
     });
     if (!dpr) throw new NotFoundException('DPR not found');
+    await this.assertContractorOwnsDpr(dpr, user, tenantId);
     if (dpr.status !== 'draft' && dpr.status !== 'rejected') {
       throw new BadRequestException('Only draft or rejected DPRs can be edited');
     }
@@ -849,18 +959,28 @@ export class ConstructionService {
       schemeType: dto.schemeType,
       workSite: dto.workLocation ?? null,
       workPackageId: dto.workPackageId ?? null,
-      contractorName: dto.contractorName ?? null,
+      contractorName: dto.contractorName?.trim() || null,
       supervisorName: dto.supervisorName ?? null,
       weather: dto.weather ?? null,
       manpowerCount: dto.manpowerCount ?? 0,
       remarks: dto.remarks ?? null,
-      submittedBy: userId,
+      submittedBy: user.sub,
     });
     await this.dprRepo.save(dpr);
     await this.saveDprActivities(dpr.id, dto.activities);
     await this.updateBoqDprQtys(tenantId, projectId, dto.activities);
     await this.refreshProjectProgress(tenantId, projectId, 'milestones');
-    return this.getDpr(tenantId, projectId, dpr.id);
+    return this.getDpr(tenantId, projectId, dpr.id, user);
+  }
+
+  private async assertContractorOwnsDpr(dpr: DprReport, user?: JwtPayload, tenantId?: string): Promise<void> {
+    if (!this.isContractor(user) || !user) return;
+    if (dpr.submittedBy === user.sub) return;
+    if (dpr.workPackageId && tenantId) {
+      const wp = await this.wpRepo.findOne({ where: { id: dpr.workPackageId, tenantId } });
+      if (wp?.contractorId === user.sub) return;
+    }
+    throw new ForbiddenException('You can only access daily progress reports for your assigned work packages');
   }
 
   private async mirrorDprQtyToFinancialBoq(
@@ -914,6 +1034,7 @@ export class ConstructionService {
   async submitDpr(tenantId: string, projectId: string, user: JwtPayload, id: string) {
     const dpr = await this.dprRepo.findOne({ where: { id, tenantId, projectId } });
     if (!dpr) throw new NotFoundException('DPR not found');
+    await this.assertContractorOwnsDpr(dpr, user, tenantId);
     if (dpr.status !== 'draft' && dpr.status !== 'rejected') {
       throw new BadRequestException('DPR already submitted');
     }
@@ -928,7 +1049,7 @@ export class ConstructionService {
     dpr.submittedBy = user.sub;
     dpr.submittedAt = new Date();
     await this.dprRepo.save(dpr);
-    return this.getDpr(tenantId, projectId, id);
+    return this.getDpr(tenantId, projectId, id, user);
   }
 
   async listMbs(tenantId: string, projectId: string) {

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
@@ -12,6 +12,14 @@ export type DivisionStaffLogin = {
   email: string;
   password: string;
   created: boolean;
+};
+
+export type ContractorLogin = DivisionStaffLogin & {
+  userId: string;
+  contractorName: string;
+  workPackageCode: string;
+  /** False when reusing an existing firm account — password not rotated. */
+  passwordIssued: boolean;
 };
 
 const STAFF_TEMPLATES: Array<{
@@ -218,5 +226,121 @@ export class DivisionStaffProvisionerService {
        ON CONFLICT (user_id) DO UPDATE SET division_id = EXCLUDED.division_id`,
       [userId, divisionId],
     );
+  }
+
+  contractorFirmSlug(firmName: string): string {
+    const raw = firmName
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, 'and')
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/\.+/g, '.')
+      .replace(/^\.|\.$/g, '');
+    return raw.slice(0, 48) || 'firm';
+  }
+
+  normalizeFirmName(firmName: string): string {
+    return firmName.trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  private async findContractorUserByFirm(tenantId: string, firmName: string) {
+    const slug = this.contractorFirmSlug(firmName);
+    const email = `contractor.${slug}@egip.local`;
+    const normalized = this.normalizeFirmName(firmName);
+
+    let user = await this.userRepo.findOne({
+      where: { tenantId, email },
+      relations: ['roles'],
+    });
+    if (user) return user;
+
+    const rows = await this.userRepo.query(
+      `SELECT u.id
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.id
+       JOIN roles r ON r.id = ur.role_id AND r.code = 'contractor'
+       WHERE u.tenant_id = $1
+         AND lower(trim(coalesce(u.department, ''))) = $2
+       LIMIT 1`,
+      [tenantId, normalized],
+    ) as Array<{ id: string }>;
+    if (!rows[0]?.id) return null;
+
+    return this.userRepo.findOne({
+      where: { id: rows[0].id, tenantId },
+      relations: ['roles'],
+    });
+  }
+
+  /** One login per contractor firm; reused across work packages and projects. */
+  async ensureWorkPackageContractor(
+    tenantId: string,
+    project: { id: string; projectCode?: string | null },
+    workPackage: { id: string; packageCode: string; contractorId?: string | null },
+    contractorName: string,
+    divisionId?: string | null,
+  ): Promise<ContractorLogin> {
+    const firmName = contractorName.trim();
+    if (!firmName) {
+      throw new BadRequestException('Contractor firm name is required to create a login');
+    }
+
+    const contractorRole = await this.roleRepo.findOne({
+      where: { tenantId, code: 'contractor' },
+    });
+    if (!contractorRole) {
+      throw new BadRequestException('Contractor role is not configured for this tenant');
+    }
+
+    const slug = this.contractorFirmSlug(firmName);
+    const email = `contractor.${slug}@egip.local`;
+    const password = this.demoPasswordForEmail(email);
+
+    const nameParts = firmName.split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0] ?? 'Contractor';
+    const lastName = nameParts.slice(1).join(' ') || 'Firm';
+
+    let user = await this.findContractorUserByFirm(tenantId, firmName);
+
+    let created = false;
+    if (!user) {
+      const passwordHash = await bcrypt.hash(password, 10);
+      user = await this.userRepo.save(this.userRepo.create({
+        tenantId,
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        department: firmName,
+        status: 'active',
+        roles: [contractorRole],
+      }));
+      created = true;
+    } else {
+      user.firstName = firstName;
+      user.lastName = lastName;
+      user.department = firmName;
+      if (!user.roles?.some((r) => r.id === contractorRole.id)) {
+        user.roles = [...(user.roles ?? []), contractorRole];
+      }
+      if (user.status !== 'active') user.status = 'active';
+      await this.userRepo.save(user);
+    }
+
+    if (divisionId) {
+      await this.assignUserDivision(user.id, divisionId);
+    }
+
+    return {
+      role: 'contractor',
+      roleLabel: 'Contractor',
+      email: user.email,
+      password: created ? password : '',
+      created,
+      passwordIssued: created,
+      userId: user.id,
+      contractorName: firmName,
+      workPackageCode: workPackage.packageCode,
+    };
   }
 }

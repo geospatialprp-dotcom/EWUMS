@@ -12,19 +12,25 @@ COMPOSE=(docker compose -f "${DEPLOY}/docker-compose.prod.yml" --env-file "${DEP
 
 if [[ "$(id -u)" -eq 0 ]] && id "${APP_USER}" &>/dev/null; then
   echo "==> 0. Fix repo ownership (root-owned .git blocks egip git fetch)"
-  chown -R "${APP_USER}:${APP_USER}" "${ROOT}"
+  if [[ -f "${ROOT}/database/scripts/vps-fix-git-permissions.sh" ]]; then
+    bash "${ROOT}/database/scripts/vps-fix-git-permissions.sh"
+  else
+    chown -R "${APP_USER}:${APP_USER}" "${ROOT}"
+  fi
 fi
 
 echo "==> 1. Pull branch ${BRANCH} (NOT main — fixes are only on this branch)"
 cd "${ROOT}"
-sudo -u "${APP_USER}" git fetch origin "${BRANCH}"
+export GIT_TERMINAL_PROMPT=0
+sudo -u "${APP_USER}" env GIT_TERMINAL_PROMPT=0 git fetch origin "${BRANCH}"
 sudo -u "${APP_USER}" git checkout "${BRANCH}" 2>/dev/null || true
 sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
 echo "    Commit: $(sudo -u "${APP_USER}" git -C "${ROOT}" rev-parse --short HEAD) $(sudo -u "${APP_USER}" git -C "${ROOT}" log -1 --format='%s')"
 
 echo "==> 2. DB migrations (096–101)"
 for mig in 096_project_deletion_ee_approval.sql 097_secretariat_dpr_role.sql 098_secretariat_stage8_dpr_update.sql \
-  099_ee_project_create_after_tender.sql 100_super_admin_no_dpr_proposal_create.sql 101_audit_log_gps_coordinates.sql; do
+  099_ee_project_create_after_tender.sql 100_super_admin_no_dpr_proposal_create.sql 101_audit_log_gps_coordinates.sql \
+  102_ee_construction_planning_permissions.sql; do
   if [[ -f "${ROOT}/database/migrations/${mig}" ]]; then
     "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
       < "${ROOT}/database/migrations/${mig}" || echo "WARN: ${mig} skipped"

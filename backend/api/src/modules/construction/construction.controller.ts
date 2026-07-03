@@ -20,6 +20,9 @@ import {
   UpdateCompletionVerificationDto, UpdateConstructionAssetDto, UpdateWorkPackageDto, UpdateWorkPlanningDto, UploadDocumentDto, WorkflowActionDto,
 } from './dto/construction.dto';
 
+/** EE has construction:approve by default (012); create/update granted in 102. */
+const PLANNING_WRITE = ['construction:update', 'construction:create', 'construction:approve'] as const;
+
 @ApiTags('Construction')
 @Controller('projects/:projectId/construction')
 @UseGuards(JwtAuthGuard, PermissionsGuard, ProjectDivisionGuard)
@@ -35,16 +38,26 @@ export class ConstructionController {
     }
   }
 
+  /** Daily DPR is created and submitted by the contractor; JE → AE → EE review after submit. */
+  private assertContractorForDpr(user: JwtPayload) {
+    assertNotSuperAdminForOperations(user, 'daily progress (DPR) submission');
+    if (!user.roles?.includes('contractor')) {
+      throw new ForbiddenException(
+        'Only the assigned contractor can create or submit daily progress reports. JE, AE, and EE review submitted DPRs.',
+      );
+    }
+  }
+
   @Get('overview')
   @RequirePermissions('construction:read')
   overview(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string) {
-    return this.constructionService.getOverview(user.tenantId, projectId);
+    return this.constructionService.getOverview(user.tenantId, projectId, user);
   }
 
   @Get('dashboard')
   @RequirePermissions('construction:read')
   dashboard(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string) {
-    return this.constructionService.getDashboard(user.tenantId, projectId);
+    return this.constructionService.getDashboard(user.tenantId, projectId, user);
   }
 
   @Get('boq-reconciliation')
@@ -62,11 +75,11 @@ export class ConstructionController {
   @Get('work-packages')
   @RequirePermissions('construction:read')
   listWorkPackages(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string) {
-    return this.constructionService.listWorkPackages(user.tenantId, projectId);
+    return this.constructionService.listWorkPackages(user.tenantId, projectId, user);
   }
 
   @Post('work-packages')
-  @RequirePermissions('construction:update', 'construction:create')
+  @RequirePermissions(...PLANNING_WRITE)
   createWorkPackage(
     @CurrentUser() user: JwtPayload,
     @Param('projectId') projectId: string,
@@ -77,7 +90,7 @@ export class ConstructionController {
   }
 
   @Put('work-packages/:id')
-  @RequirePermissions('construction:update')
+  @RequirePermissions(...PLANNING_WRITE)
   updateWorkPackage(
     @CurrentUser() user: JwtPayload,
     @Param('projectId') projectId: string,
@@ -95,7 +108,7 @@ export class ConstructionController {
   }
 
   @Put('work-planning')
-  @RequirePermissions('construction:update')
+  @RequirePermissions(...PLANNING_WRITE)
   upsertWorkPlanning(
     @CurrentUser() user: JwtPayload,
     @Param('projectId') projectId: string,
@@ -106,7 +119,7 @@ export class ConstructionController {
   }
 
   @Post('work-planning/upload/:kind')
-  @RequirePermissions('construction:update')
+  @RequirePermissions(...PLANNING_WRITE)
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
     limits: { fileSize: 50 * 1024 * 1024 },
@@ -134,7 +147,7 @@ export class ConstructionController {
   }
 
   @Post('boq/import')
-  @RequirePermissions('construction:update')
+  @RequirePermissions(...PLANNING_WRITE)
   importBoq(
     @CurrentUser() user: JwtPayload,
     @Param('projectId') projectId: string,
@@ -145,7 +158,7 @@ export class ConstructionController {
   }
 
   @Post('boq/upload-excel')
-  @RequirePermissions('construction:update')
+  @RequirePermissions(...PLANNING_WRITE)
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
     limits: { fileSize: 20 * 1024 * 1024 },
@@ -164,7 +177,7 @@ export class ConstructionController {
   @Get('dprs')
   @RequirePermissions('construction:read')
   listDprs(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string) {
-    return this.constructionService.listDprs(user.tenantId, projectId);
+    return this.constructionService.listDprs(user.tenantId, projectId, user);
   }
 
   @Get('dprs/:id')
@@ -174,7 +187,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
-    return this.constructionService.getDpr(user.tenantId, projectId, id);
+    return this.constructionService.getDpr(user.tenantId, projectId, id, user);
   }
 
   @Post('dprs')
@@ -184,7 +197,8 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Body() dto: CreateDprDto,
   ) {
-    return this.constructionService.createDpr(user.tenantId, projectId, user.sub, dto);
+    this.assertContractorForDpr(user);
+    return this.constructionService.createDpr(user.tenantId, projectId, user, dto);
   }
 
   @Put('dprs/:id')
@@ -195,7 +209,8 @@ export class ConstructionController {
     @Param('id') id: string,
     @Body() dto: CreateDprDto,
   ) {
-    return this.constructionService.updateDpr(user.tenantId, projectId, user.sub, id, dto);
+    this.assertContractorForDpr(user);
+    return this.constructionService.updateDpr(user.tenantId, projectId, user, id, dto);
   }
 
   @Post('dprs/:id/submit')
@@ -205,6 +220,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
+    this.assertContractorForDpr(user);
     return this.constructionService.submitDpr(user.tenantId, projectId, user, id);
   }
 

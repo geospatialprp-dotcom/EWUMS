@@ -1,7 +1,4 @@
 import type { SchemeType } from '../services/api';
-import { DPR_UNITS } from './dprForm';
-
-export { DPR_UNITS as MB_UNITS };
 
 export type MbEntryRow = {
   key: string;
@@ -38,7 +35,7 @@ export function emptyMbEntryRow(): MbEntryRow {
   return {
     key: `mb-row-${Date.now()}-${mbRowCounter}`,
     description: '',
-    unit: 'cum',
+    unit: '',
     measuredQty: 1,
     rate: 0,
     boqItemId: '',

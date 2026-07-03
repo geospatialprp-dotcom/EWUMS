@@ -192,26 +192,34 @@ function getPortfolioEmptyMessage(
       title: divisionName
         ? `Scheme(s) in ${divisionName} are in DPR approval`
         : 'Scheme(s) are progressing through DPR approval',
-      detail: 'HQ registers construction projects after tender is published. Division office staff then execute GIS, daily DPR, and billing.',
+      detail: 'Division EE registers construction projects after tender is published. Division office staff then execute GIS, daily DPR, and billing.',
+    };
+  }
+  if (readiness?.phase === 'ready' && canViewAllDivisions) {
+    return {
+      title: divisionName
+        ? `Tender published in ${divisionName} — awaiting Division EE project setup`
+        : 'Tender published — awaiting Division EE project setup',
+      detail: 'Division EE registers the construction project after tender. Use the division switcher to review each division\'s portfolio and reports.',
     };
   }
   if (readiness?.phase === 'ready' && isDivisionUser) {
     return {
       title: divisionName
-        ? `Tender published — awaiting HQ registration in ${divisionName}`
-        : 'Tender published — awaiting HQ registration',
-      detail: 'HQ officials (SE, CE, CGM, MD) register the construction project. Your division can begin GIS mapping and construction execution once registration is complete.',
+        ? `Tender published — awaiting EE project setup in ${divisionName}`
+        : 'Tender published — awaiting EE project setup',
+      detail: 'Division EE registers the construction project. Your division can begin GIS mapping and construction execution once registration is complete.',
     };
   }
   if (divisionName && !canViewAllDivisions) {
     return {
       title: `No schemes in ${divisionName} yet`,
-      detail: 'Initiate a DPR proposal in DPR & Planning. HQ registers construction projects after tender is published; division office staff execute the work.',
+      detail: 'Initiate a DPR proposal in DPR & Planning. Division EE registers construction projects after tender is published; division office staff execute the work.',
     };
   }
   return {
     title: 'No projects yet',
-    detail: 'HQ registers construction projects after tender is published in the DPR & Planning pipeline. Division offices execute GIS, construction, and billing.',
+    detail: 'Division EE registers construction projects after tender is published in the DPR & Planning pipeline. Division offices execute GIS, construction, and billing.',
   };
 }
 
@@ -245,6 +253,9 @@ export default function ProjectsPage() {
   const [deletionRequests, setDeletionRequests] = useState<ProjectDeletionRequest[]>([]);
   const [deleteDialogProject, setDeleteDialogProject] = useState<Project | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
+  const [deleteDialogError, setDeleteDialogError] = useState('');
+  const [deletionNotice, setDeletionNotice] = useState('');
+  const [approveDeletionRequest, setApproveDeletionRequest] = useState<ProjectDeletionRequest | null>(null);
   const [deletionBusy, setDeletionBusy] = useState(false);
   const [creatingSchemeId, setCreatingSchemeId] = useState<string | null>(null);
   const [lifecycleStep, setLifecycleStep] = useState(3);
@@ -261,7 +272,7 @@ export default function ProjectsPage() {
   const isSuperAdminUser = isSuperAdmin(user?.roles);
   const isDivisionEe = user?.roles?.includes('ee') ?? false;
   const isDivisionUser = isDivisionScopedUser(user);
-  const canCreateProject = portfolioReadiness?.canCreateProject === true && canCreate;
+  const canCreateProject = portfolioReadiness?.canCreateProject === true && canCreate && isDivisionEe && !isSuperAdminUser;
   const canManageProjectMilestones = canManageMilestones(user);
   const milestoneReadOnly = isMilestoneReadOnlyViewer(user);
   const { activeDivisionId, activeDivision } = useDivisionScope();
@@ -563,6 +574,7 @@ export default function ProjectsPage() {
   const handleRequestProjectDeletion = async () => {
     if (!deleteDialogProject) return;
     setDeletionBusy(true);
+    setDeleteDialogError('');
     setLoadError('');
     try {
       await projectsApi.requestDeletion(deleteDialogProject.id, {
@@ -570,22 +582,31 @@ export default function ProjectsPage() {
       });
       setDeleteDialogProject(null);
       setDeleteReason('');
+      setDeletionNotice(
+        `Deletion request submitted for "${deleteDialogProject.name}". Division EE must approve before the scheme is permanently removed.`,
+      );
       await load();
     } catch (err) {
-      setLoadError(getErrorMessage(err, 'request project deletion'));
+      const message = getErrorMessage(err, 'request project deletion');
+      setDeleteDialogError(message);
+      setLoadError(message);
     } finally {
       setDeletionBusy(false);
     }
   };
 
-  const handleApproveDeletion = async (request: ProjectDeletionRequest) => {
-    if (!window.confirm(`Approve deletion of "${request.projectName}" (${request.projectCode})? This cannot be undone.`)) {
-      return;
-    }
+  const handleApproveDeletion = (request: ProjectDeletionRequest) => {
+    setApproveDeletionRequest(request);
+  };
+
+  const handleConfirmApproveDeletion = async () => {
+    if (!approveDeletionRequest) return;
     setDeletionBusy(true);
     setLoadError('');
     try {
-      await projectsApi.approveDeletionRequest(request.id);
+      await projectsApi.approveDeletionRequest(approveDeletionRequest.id);
+      setApproveDeletionRequest(null);
+      setDeletionNotice(`Scheme "${approveDeletionRequest.projectName}" was permanently deleted.`);
       await load();
     } catch (err) {
       setLoadError(getErrorMessage(err, 'approve deletion'));
@@ -705,6 +726,18 @@ export default function ProjectsPage() {
 
       {loadError && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{loadError}</Alert>}
 
+      {deletionNotice && (
+        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setDeletionNotice('')}>
+          {deletionNotice}
+        </Alert>
+      )}
+
+      {isSuperAdminUser && (
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          Super Admin has view-only access on Project Management. Use the division switcher to review each division&apos;s portfolio and export reports. Division EE registers new projects after tender publication.
+        </Alert>
+      )}
+
       {isDivisionEe && eePendingDeletions.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
           <Typography variant="subtitle2" 
@@ -768,7 +801,7 @@ export default function ProjectsPage() {
           DPR → Tender → Project Setup → GIS → Construction → Milestones → O&M Handover
         </Typography>
         <Typography variant="body2" sx={{ color: 'rgba(248,250,252,0.85)', mb: 2, maxWidth: 760 }}>
-          HQ registers schemes after tender; division office staff execute GIS, construction, and billing.
+          Division EE registers schemes after tender; division office staff execute GIS, construction, and billing.
         </Typography>
         <ProjectLifecycleTracker activeStep={lifecycleStep} onStepSelect={handleLifecycleStep} />
       </Box>
@@ -849,7 +882,7 @@ export default function ProjectsPage() {
                           : ''}
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#cbd5e1', mt: 0.75, maxWidth: 720 }}>
-                      Tender published — HQ registers the construction project; division office staff then begin GIS mapping, daily DPR, measurement books, BOQ, and contractor billing.
+                      Tender published — Division EE registers the construction project; division office staff then begin GIS mapping, daily DPR, measurement books, BOQ, and contractor billing.
                     </Typography>
                   </Box>
                   <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
@@ -886,14 +919,14 @@ export default function ProjectsPage() {
                       </Tooltip>
                     ) : isDivisionUser ? (
                       <Chip
-                        label="Awaiting HQ registration"
+                        label="Awaiting EE project setup"
                         size="small"
                         color="warning"
                         sx={{ fontWeight: 600 }}
                       />
                     ) : (
                       <Typography variant="caption" sx={{ color: '#94a3b8' }}>
-                        HQ registration required before construction can begin.
+                        Division EE project setup required before construction can begin.
                       </Typography>
                     )}
                   </Box>
@@ -984,6 +1017,14 @@ export default function ProjectsPage() {
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                    )}
+                    {pendingDeletionByProjectId.has(project.id) && (
+                      <Chip
+                        label="Deletion pending EE"
+                        size="small"
+                        color="warning"
+                        sx={{ fontWeight: 600 }}
+                      />
                     )}
                     {isSuperAdminUser && (
                       <Tooltip title={
@@ -1192,7 +1233,7 @@ export default function ProjectsPage() {
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: projectDialogPaperSx }}>
         <ProjectDialogHeader
           title={editing ? 'Edit Project' : 'Create Project'}
-          subtitle={editing ? editing.projectCode : 'HQ registers a construction scheme after tender publication'}
+          subtitle={editing ? editing.projectCode : 'Division EE registers a construction scheme after tender publication'}
           phase={editing ? 'execution' : 'planning'}
           busy={saving}
         />
@@ -1224,7 +1265,7 @@ export default function ProjectsPage() {
                   projectCode: scheme?.title ? buildProjectCodeFromName(scheme.title) : prev.projectCode,
                 }));
               }}
-              helperText="HQ must link each construction project to a tender-published DPR proposal."
+              helperText="Link each construction project to a tender-published DPR proposal from your division."
             >
               {readySchemes.map((scheme) => (
                 <MenuItem key={scheme.id} value={scheme.id}>
@@ -1471,7 +1512,17 @@ export default function ProjectsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!deleteDialogProject} onClose={() => setDeleteDialogProject(null)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={!!deleteDialogProject}
+        onClose={() => {
+          if (!deletionBusy) {
+            setDeleteDialogProject(null);
+            setDeleteDialogError('');
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogContent>
           <Typography variant="h6" fontWeight={700} gutterBottom>
             Request scheme deletion
@@ -1481,6 +1532,9 @@ export default function ProjectsPage() {
               ? `"${deleteDialogProject.name}" (${deleteDialogProject.projectCode}) will be permanently removed only after the Division EE approves this request.`
               : ''}
           </Typography>
+          {deleteDialogError && (
+            <Alert severity="error" sx={{ mb: 2 }}>{deleteDialogError}</Alert>
+          )}
           <TextField
             fullWidth
             multiline
@@ -1491,9 +1545,46 @@ export default function ProjectsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialogProject(null)} disabled={deletionBusy}>Cancel</Button>
+          <Button onClick={() => { setDeleteDialogProject(null); setDeleteDialogError(''); }} disabled={deletionBusy}>Cancel</Button>
           <Button color="error" variant="contained" onClick={handleRequestProjectDeletion} disabled={deletionBusy}>
-            Submit request
+            {deletionBusy ? 'Submitting…' : 'Submit request'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={!!approveDeletionRequest}
+        onClose={() => !deletionBusy && setApproveDeletionRequest(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogContent>
+          <Typography variant="h6" fontWeight={700} gutterBottom color="error">
+            Confirm permanent deletion
+          </Typography>
+          <Typography variant="body1" sx={{ mb: 1.5 }}>
+            Are you sure you want to permanently delete this scheme?
+          </Typography>
+          {approveDeletionRequest && (
+            <>
+              <Typography variant="body2" fontWeight={700}>
+                {approveDeletionRequest.projectName} ({approveDeletionRequest.projectCode})
+              </Typography>
+              {approveDeletionRequest.reason ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Super Admin reason: {approveDeletionRequest.reason}
+                </Typography>
+              ) : null}
+            </>
+          )}
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            This cannot be undone. All GIS layers, construction records, milestones, and linked data for this scheme will be removed.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApproveDeletionRequest(null)} disabled={deletionBusy}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleConfirmApproveDeletion} disabled={deletionBusy}>
+            {deletionBusy ? 'Deleting…' : 'Yes, delete permanently'}
           </Button>
         </DialogActions>
       </Dialog>

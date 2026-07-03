@@ -1,8 +1,6 @@
 import type { ProjectComponent } from '../constants/construction';
 import type { SchemeType } from '../services/api';
 
-export const DPR_UNITS = ['cum', 'Rmt', 'Nos', 'Qtl', 'km', 'rm', 'joint'] as const;
-
 export type DprActivityRow = {
   key: string;
   description: string;
@@ -40,7 +38,7 @@ export function emptyDprActivityRow(): DprActivityRow {
   return {
     key: `dpr-row-${Date.now()}-${dprRowCounter}`,
     description: '',
-    unit: 'cum',
+    unit: '',
     quantityDone: 1,
     boqItemId: '',
     component: '',

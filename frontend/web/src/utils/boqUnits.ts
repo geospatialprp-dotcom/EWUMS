@@ -17,6 +17,28 @@ export function normalizeBoqUnit(raw: string): string {
   return aliases[key] ?? cleaned;
 }
 
+/** Unique units from imported BOQ rows (L1 contractor BOQ preferred at call site). */
+export function collectBoqUnits(
+  items: Array<Record<string, unknown>>,
+  schemeType?: string,
+): string[] {
+  const units = new Set<string>();
+  for (const item of items) {
+    if (schemeType && item.schemeType && String(item.schemeType) !== schemeType) continue;
+    const unit = String(item.unit ?? '').trim();
+    if (unit) units.add(unit);
+  }
+  return [...units].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
+/** BOQ units for a dropdown, keeping the row's current value when editing saved data. */
+export function boqUnitOptions(units: string[], current?: string): string[] {
+  const set = new Set(units);
+  const kept = String(current ?? '').trim();
+  if (kept) set.add(kept);
+  return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
 function looksLikeUnit(value: string): boolean {
   const v = String(value ?? '').trim();
   if (!v || v.length > 20) return false;

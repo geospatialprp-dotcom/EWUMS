@@ -29,7 +29,7 @@ import {
   constructionWorkflowChipSx,
 } from '../utils/constructionTableStyles';
 import {
-  buildDprPayload, defaultDprHeader, dprActivitySummary, DPR_UNITS,
+  buildDprPayload, defaultDprHeader, dprActivitySummary,
   emptyDprActivityRow, type DprActivityRow, type DprHeaderForm,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
@@ -48,8 +48,9 @@ import { EMPTY_BILINGUAL } from '../hooks/useBilingualRemark';
 import { hasBilingualContent, serializeBilingualText, parseBilingualText, type BilingualText } from '../utils/bilingualText';
 import {
   buildMbPayload, calcMbQuantity, defaultMbHeader, emptyMbEntryRow,
-  mbEntrySummary, MB_UNITS, type MbEntryRow, type MbHeaderForm,
+  mbEntrySummary, type MbEntryRow, type MbHeaderForm,
 } from '../utils/mbForm';
+import { boqUnitOptions, collectBoqUnits } from '../utils/boqUnits';
 import {
   aeChecksComplete, buildAeVerificationComments, buildEeVerificationComments,
   eeChecksComplete, type AeVerificationChecks, type EeVerificationChecks,
@@ -111,6 +112,50 @@ type PlanningFormState = {
   drawingUploadUrl: string;
   gisAlignmentApproved: boolean;
 };
+
+type ContractorLoginInfo = {
+  workPackageCode: string;
+  contractorName: string;
+  email: string;
+  password: string;
+  created: boolean;
+  passwordIssued: boolean;
+};
+
+function parseContractorLogin(data: unknown): ContractorLoginInfo | null {
+  const row = data as Record<string, unknown>;
+  const login = row.contractorLogin as Record<string, unknown> | undefined;
+  if (!login?.email) return null;
+  const created = Boolean(login.created);
+  const passwordIssued = login.passwordIssued !== false && created;
+  return {
+    workPackageCode: String(login.workPackageCode ?? row.packageCode ?? ''),
+    contractorName: String(login.contractorName ?? row.contractorName ?? ''),
+    email: String(login.email),
+    password: passwordIssued ? String(login.password ?? 'Contractor@123') : '',
+    created,
+    passwordIssued,
+  };
+}
+
+function mergeContractorLogins(logins: ContractorLoginInfo[]): ContractorLoginInfo[] {
+  const byEmail = new Map<string, ContractorLoginInfo>();
+  for (const login of logins) {
+    const existing = byEmail.get(login.email);
+    if (!existing) {
+      byEmail.set(login.email, login);
+      continue;
+    }
+    byEmail.set(login.email, {
+      ...existing,
+      workPackageCode: [existing.workPackageCode, login.workPackageCode].filter(Boolean).join(', '),
+      created: existing.created || login.created,
+      passwordIssued: existing.passwordIssued || login.passwordIssued,
+      password: existing.password || login.password,
+    });
+  }
+  return [...byEmail.values()];
+}
 
 function serializePlanningForm(form: PlanningFormState): string {
   return JSON.stringify(form);
@@ -503,7 +548,9 @@ export default function ProjectConstructionPage() {
   const { user, hasPermission } = useAuth();
   const roles = user?.roles ?? [];
 
-  const [tab, setTab] = useState<TabKey>('dashboard');
+  const [tab, setTab] = useState<TabKey>(() => (
+    roles.includes('contractor') && !roles.includes('super_admin') ? 'dpr' : 'dashboard'
+  ));
   const [projectName, setProjectName] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -587,6 +634,7 @@ export default function ProjectConstructionPage() {
     schemeType: 'gravity' as SchemeType, contractorName: '', chainageFrom: '', chainageTo: '',
   });
   const [contractorDrafts, setContractorDrafts] = useState<Record<string, string>>({});
+  const [contractorLogins, setContractorLogins] = useState<ContractorLoginInfo[]>([]);
   const [docForm, setDocForm] = useState({ docType: 'site_photo', fileName: '', fileUrl: '' });
 
   const displayGovBoq = useMemo(
@@ -596,6 +644,18 @@ export default function ProjectConstructionPage() {
   const displayL1Boq = useMemo(
     () => (pendingL1BoqUpload ? parsedBoqRowsToDisplayItems(pendingL1BoqUpload.rows) : l1Boq),
     [pendingL1BoqUpload, l1Boq],
+  );
+  const boqUnitsSource = useMemo(
+    () => (displayL1Boq.length > 0 ? displayL1Boq : displayGovBoq),
+    [displayL1Boq, displayGovBoq],
+  );
+  const dprBoqUnits = useMemo(
+    () => collectBoqUnits(boqUnitsSource, dprHeaderForm.schemeType),
+    [boqUnitsSource, dprHeaderForm.schemeType],
+  );
+  const mbBoqUnits = useMemo(
+    () => collectBoqUnits(boqUnitsSource, mbHeaderForm.schemeType),
+    [boqUnitsSource, mbHeaderForm.schemeType],
   );
 
   const planningDirty = useMemo(() => {
@@ -632,15 +692,30 @@ export default function ProjectConstructionPage() {
     planningDraftStorageKey, planningDirty, planningForm, boqFileName, l1BoqFileName,
     pendingGovBoq, pendingL1BoqUpload,
   ]);
-  const canSubmit = !isSuperAdmin(roles) && (hasPermission('construction:submit') || roles.includes('contractor'));
+  const isContractorUser = !isSuperAdmin(roles) && roles.includes('contractor');
+  const canSubmit = !isSuperAdmin(roles) && (hasPermission('construction:submit') || isContractorUser);
   const canApprove = !isSuperAdmin(roles) && (hasPermission('construction:approve') || roles.some((r) => ['je', 'ae', 'ee', 'accounts'].includes(r)));
-  const canMeasure = !isSuperAdmin(roles) && (hasPermission('construction:measure') || roles.includes('je') || roles.includes('contractor'));
+  const canMeasure = !isSuperAdmin(roles) && (hasPermission('construction:measure') || roles.includes('je'));
   const canUpdate = canPerformOperational(roles, hasPermission, 'construction:update');
   const canCreate = canPerformOperational(roles, hasPermission, 'construction:create') || (!isSuperAdmin(roles) && roles.includes('ee'));
-  const canCreateDpr = canCreate || (!isSuperAdmin(roles) && roles.includes('contractor'));
+  /** Daily DPR is created and submitted only by the contractor; JE/AE/EE review after submit. */
+  const canCreateDpr = isContractorUser;
+  const canSubmitDpr = isContractorUser;
   const canCreateMb = canMeasure || (!isSuperAdmin(roles) && roles.includes('je'));
   const canAdminPlanning = hasOperationalRole(roles, ['se', 'ce', 'cgm', 'md', 'ee']);
-  const canGenerateRa = !isSuperAdmin(roles) && roles.includes('contractor');
+  const canGenerateRa = isContractorUser;
+
+  const contractorOwnsDpr = (dpr: Record<string, unknown>) => {
+    if (!isContractorUser) return true;
+    if (String(dpr.submittedBy ?? '') === String(user?.id ?? '')) return true;
+    const wpId = String(dpr.workPackageId ?? '');
+    return Boolean(wpId) && workPackages.some((wp) => String(wp.id) === wpId);
+  };
+
+  const visibleDprs = useMemo(
+    () => (isContractorUser ? dprs.filter((d) => contractorOwnsDpr(d)) : dprs),
+    [dprs, isContractorUser, user?.id, workPackages],
+  );
 
   const fetchOptional = async <T,>(request: Promise<{ data: T }>, fallback: T): Promise<T> => {
     try {
@@ -753,6 +828,12 @@ export default function ProjectConstructionPage() {
   }, [projectId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (isContractorUser) {
+      setTab((current) => (current === 'dashboard' ? 'dpr' : current));
+    }
+  }, [isContractorUser, user?.id]);
 
   useEffect(() => {
     const applyConstructionTab = (tabKey: string) => {
@@ -927,11 +1008,23 @@ export default function ProjectConstructionPage() {
   const openNewDprDialog = () => {
     resetDprForm();
     const header = defaultDprHeader();
-    if (roles.includes('contractor') && user) {
-      header.contractorName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+    if (isContractorUser && user) {
+      const wpContractor = workPackages.length === 1
+        ? String(workPackages[0].contractorName ?? '').trim()
+        : '';
+      header.contractorName = wpContractor
+        || `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+        || user.email;
     }
     setDprHeaderForm(header);
     setDprDialog(true);
+  };
+
+  const canEditDpr = (dpr: Record<string, unknown>) => {
+    const status = String(dpr.status);
+    if (status !== 'draft' && status !== 'rejected') return false;
+    if (!canSubmitDpr) return false;
+    return contractorOwnsDpr(dpr);
   };
 
   const loadDprForEdit = async (id: string) => {
@@ -1296,12 +1389,16 @@ export default function ProjectConstructionPage() {
         status: 'draft',
       });
 
+      const newLogins: ContractorLoginInfo[] = [];
       await Promise.all(workPackages.map(async (wp) => {
         const wpId = String(wp.id);
         const contractorName = contractorDrafts[wpId]?.trim();
         if (!contractorName || contractorName === String(wp.contractorName ?? '').trim()) return;
-        await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
+        const { data } = await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
+        const login = parseContractorLogin(data);
+        if (login) newLogins.push(login);
       }));
+      if (newLogins.length) setContractorLogins(mergeContractorLogins(newLogins));
 
       setPlanningForm(nextForm);
       setSavedPlanningSnapshot(serializePlanningForm(nextForm));
@@ -1322,7 +1419,10 @@ export default function ProjectConstructionPage() {
         workPackages.length > 0 && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim()),
         nextForm.gisAlignmentApproved,
       ].filter(Boolean).length;
-      setSuccess(`Work planning saved (${doneCount}/10 items stored). Green checks show what is complete — you can keep editing.`);
+      const loginNote = newLogins.length
+        ? ` Contractor login${newLogins.length > 1 ? 's' : ''} created — see highlighted credentials below.`
+        : '';
+      setSuccess(`Work planning saved (${doneCount}/10 items stored).${loginNote}`);
       await refresh();
     } catch (err) {
       setError(formatApiError(err, 'Failed to save work planning.'));
@@ -1372,25 +1472,30 @@ export default function ProjectConstructionPage() {
     setWpDialogError('');
     setError('');
     try {
+      const contractorName = wpForm.contractorName.trim();
+      const payload = {
+        packageCode,
+        name,
+        component: wpForm.component,
+        schemeType: wpForm.schemeType,
+        chainageFrom: wpForm.chainageFrom.trim() || undefined,
+        chainageTo: wpForm.chainageTo.trim() || undefined,
+        ...(contractorName ? { contractorName } : {}),
+      };
       if (wpEditingId) {
-        await constructionApi.updateWorkPackage(projectId, wpEditingId, {
-          packageCode,
-          name,
-          component: wpForm.component,
-          schemeType: wpForm.schemeType,
-          chainageFrom: wpForm.chainageFrom.trim() || undefined,
-          chainageTo: wpForm.chainageTo.trim() || undefined,
-        });
-        setSuccess(`Work package "${name}" updated.`);
+        const { data } = await constructionApi.updateWorkPackage(projectId, wpEditingId, payload);
+        const login = parseContractorLogin(data);
+        if (login) setContractorLogins(mergeContractorLogins([login]));
+        setSuccess(login
+          ? `Work package "${name}" updated. Contractor login highlighted below.`
+          : `Work package "${name}" updated.`);
       } else {
-        await constructionApi.createWorkPackage(projectId, {
-          ...wpForm,
-          packageCode,
-          name,
-          chainageFrom: wpForm.chainageFrom.trim() || undefined,
-          chainageTo: wpForm.chainageTo.trim() || undefined,
-        });
-        setSuccess(`Work package "${name}" created.`);
+        const { data } = await constructionApi.createWorkPackage(projectId, payload);
+        const login = parseContractorLogin(data);
+        if (login) setContractorLogins(mergeContractorLogins([login]));
+        setSuccess(login
+          ? `Work package "${name}" created. Contractor login highlighted below.`
+          : `Work package "${name}" created.`);
       }
       setWpDialog(false);
       setWpEditingId(null);
@@ -1412,8 +1517,13 @@ export default function ProjectConstructionPage() {
     const contractorName = contractorDrafts[wpId]?.trim();
     if (!contractorName) return;
     try {
-      await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
+      const { data } = await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
+      const login = parseContractorLogin(data);
+      if (login) setContractorLogins(mergeContractorLogins([login]));
       await refresh();
+      setSuccess(login
+        ? `Contractor "${contractorName}" saved. Login highlighted below — contractor can submit daily DPR.`
+        : 'Contractor assigned.');
     } catch (err) {
       setError(formatApiError(err, 'Failed to assign contractor.'));
     }
@@ -1449,15 +1559,15 @@ export default function ProjectConstructionPage() {
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={styledTabsSx()}>
-        <Tab value="dashboard" label="Dashboard" />
-        <Tab value="planning" label="Work Planning" />
+        {!isContractorUser && <Tab value="dashboard" label="Dashboard" />}
+        {!isContractorUser && <Tab value="planning" label="Work Planning" />}
         <Tab value="dpr" label="Daily Progress" />
-        <Tab value="mb" label="Measurement Book" />
-        <Tab value="reconciliation" label="BOQ Reconciliation" />
-        <Tab value="ra-bills" label="RA Bills" />
-        <Tab value="final" label="Final Bill" />
-        <Tab value="gis" label="GIS Assets" />
-        <Tab value="reports" label="Reports" />
+        {!isContractorUser && <Tab value="mb" label="Measurement Book" />}
+        {!isContractorUser && <Tab value="reconciliation" label="BOQ Reconciliation" />}
+        {(!isContractorUser || canGenerateRa) && <Tab value="ra-bills" label="RA Bills" />}
+        {!isContractorUser && <Tab value="final" label="Final Bill" />}
+        {!isContractorUser && <Tab value="gis" label="GIS Assets" />}
+        {!isContractorUser && <Tab value="reports" label="Reports" />}
       </Tabs>
 
       {tab === 'dashboard' && (
@@ -1475,6 +1585,60 @@ export default function ProjectConstructionPage() {
             <Grid item xs={12}>
               <Alert severity="warning">
                 Unsaved changes — click Save Planning to store uploads, BOQ, and references.
+              </Alert>
+            </Grid>
+          )}
+          {contractorLogins.length > 0 && (
+            <Grid item xs={12}>
+              <Alert
+                severity="success"
+                onClose={() => setContractorLogins([])}
+                sx={{
+                  border: 2,
+                  borderColor: 'success.main',
+                  '& .contractor-credential': {
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    fontSize: '0.95rem',
+                    bgcolor: '#fff3cd',
+                    color: '#7a5c00',
+                    px: 1,
+                    py: 0.35,
+                    borderRadius: 0.5,
+                    border: '1px solid #ffc107',
+                    display: 'inline-block',
+                  },
+                }}
+              >
+                <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                  Contractor login credentials
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Same firm name reuses one login across all work packages and projects. Share these details with the contractor for daily DPR submission.
+                </Typography>
+                {contractorLogins.map((login) => (
+                  <Box key={`${login.email}-${login.workPackageCode}`} mb={1.5}>
+                    <Typography variant="body2" fontWeight={600}>
+                      {login.contractorName}
+                      {login.workPackageCode ? ` · ${login.workPackageCode}` : ''}
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      User ID: <span className="contractor-credential">{login.email}</span>
+                    </Typography>
+                    {login.passwordIssued ? (
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>
+                        Password: <span className="contractor-credential">{login.password}</span>
+                      </Typography>
+                    ) : (
+                      <Typography variant="body2" sx={{ mt: 0.5 }} color="text.secondary">
+                        Existing account — contractor uses their current password.
+                      </Typography>
+                    )}
+                  </Box>
+                ))}
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                  Contractor → Construction → Daily Progress → New DPR → Submit to JE → AE → EE review.
+                </Typography>
               </Alert>
             </Grid>
           )}
@@ -1663,16 +1827,25 @@ export default function ProjectConstructionPage() {
                           <TableCell>{COMPONENT_LABELS[wp.component as ProjectComponent] ?? String(wp.component)}</TableCell>
                           <TableCell>{String(wp.chainageFrom ?? '—')} – {String(wp.chainageTo ?? '—')}</TableCell>
                           <TableCell>
-                            <Box display="flex" gap={0.5} alignItems="center">
-                              <TextField
-                                size="small" placeholder="Contractor name"
-                                value={contractorDrafts[wpId] ?? ''}
-                                onChange={(e) => setContractorDrafts({ ...contractorDrafts, [wpId]: e.target.value })}
-                                disabled={!canAdminPlanning}
-                                sx={{ minWidth: 140 }}
-                              />
-                              {canAdminPlanning && (
-                                <Button size="small" onClick={() => { void handleAssignContractor(wpId); }}>Save</Button>
+                            <Box display="flex" flexDirection="column" gap={0.5}>
+                              <Box display="flex" gap={0.5} alignItems="center">
+                                <TextField
+                                  size="small" placeholder="Contractor firm name"
+                                  value={contractorDrafts[wpId] ?? ''}
+                                  onChange={(e) => setContractorDrafts({ ...contractorDrafts, [wpId]: e.target.value })}
+                                  disabled={!canAdminPlanning}
+                                  sx={{ minWidth: 140 }}
+                                />
+                                {canAdminPlanning && (
+                                  <Button size="small" variant="outlined" onClick={() => { void handleAssignContractor(wpId); }}>
+                                    Save
+                                  </Button>
+                                )}
+                              </Box>
+                              {Boolean(wp.contractorLoginEmail) && (
+                                <Typography variant="caption" color="success.main" fontWeight={600}>
+                                  Login: {String(wp.contractorLoginEmail)}
+                                </Typography>
                               )}
                             </Box>
                           </TableCell>
@@ -1730,6 +1903,11 @@ export default function ProjectConstructionPage() {
 
       {tab === 'dpr' && (
         <Box>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {isContractorUser
+              ? 'Log in as contractor, fill today\'s work items, save, then Submit — JE reviews, then AE, then EE.'
+              : 'Contractor submits daily progress from their login. JE → AE → EE review and approve each DPR.'}
+          </Alert>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5} gap={2} sx={constructionSectionBarSx('dpr')}>
             <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('dpr').headerColor}>
               Stage 2: Daily Construction Activity
@@ -1768,19 +1946,21 @@ export default function ProjectConstructionPage() {
               ]}
             />
             <TableBody>
-              {dprs.length === 0 && (
+              {visibleDprs.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10}>
                     <Typography variant="body2" color="text.secondary">
-                      No daily progress reports yet.
+                      {isContractorUser
+                        ? 'No daily progress reports yet — click New DPR to submit today\'s work.'
+                        : 'No daily progress reports yet.'}
                     </Typography>
                   </TableCell>
                 </TableRow>
               )}
-              {dprs.map((dpr) => {
+              {visibleDprs.map((dpr) => {
                 const summary = dprActivitySummary(dpr);
                 const status = String(dpr.status);
-                const isEditable = status === 'draft' || status === 'rejected';
+                const isEditable = canEditDpr(dpr);
                 const dprId = String(dpr.id);
                 return (
                   <TableRow key={dprId}>
@@ -1803,7 +1983,7 @@ export default function ProjectConstructionPage() {
                         >
                           View
                         </Button>
-                        {canCreateDpr && isEditable && (
+                        {canSubmitDpr && isEditable && (
                           <Button
                             size="small" variant="outlined"
                             onClick={() => { void loadDprForEdit(dprId); }}
@@ -1811,12 +1991,12 @@ export default function ProjectConstructionPage() {
                             Edit
                           </Button>
                         )}
-                        {canCreateDpr && isEditable && (
+                        {canSubmitDpr && isEditable && (
                           <Button
                             size="small" variant="contained"
                             onClick={() => { void submitWorkflow(() => constructionApi.submitDpr(projectId, dprId), 'submit DPR'); }}
                           >
-                            {status === 'rejected' ? 'Resubmit' : 'Submit'}
+                            {status === 'rejected' ? 'Resubmit' : 'Submit to JE'}
                           </Button>
                         )}
                         {!isEditable && <ApprovalButtons type="dpr" id={dprId} status={status} />}
@@ -1977,7 +2157,7 @@ export default function ProjectConstructionPage() {
         scroll="paper"
       >
         <DialogTitle>
-          {editingDprId ? 'Edit Daily Progress Report' : 'Daily Progress Report — Stage 2'}
+          {editingDprId ? 'Edit Daily Progress Report' : 'New Daily Progress Report — Contractor'}
         </DialogTitle>
         <DialogContent
           dividers
@@ -2036,6 +2216,8 @@ export default function ProjectConstructionPage() {
               required label="Contractor Name" sx={{ flex: 1, minWidth: 200 }}
               value={dprHeaderForm.contractorName}
               onChange={(e) => setDprHeaderForm({ ...dprHeaderForm, contractorName: e.target.value })}
+              InputProps={{ readOnly: isContractorUser }}
+              helperText={isContractorUser ? 'Filled from your contractor login' : undefined}
             />
             <TextField
               required label="Supervisor Name" sx={{ flex: 1, minWidth: 200 }}
@@ -2151,8 +2333,12 @@ export default function ProjectConstructionPage() {
                     select label="Unit" sx={{ flex: 1, minWidth: 100 }}
                     value={row.unit}
                     onChange={(e) => updateDprActivityRow(row.key, { unit: e.target.value })}
+                    helperText={dprBoqUnits.length === 0 ? 'Upload L1 Contractor BOQ in Work Planning' : undefined}
                   >
-                    {DPR_UNITS.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>)}
+                    <MenuItem value="">— Select —</MenuItem>
+                    {boqUnitOptions(dprBoqUnits, row.unit).map((u) => (
+                      <MenuItem key={u} value={u}>{u}</MenuItem>
+                    ))}
                   </TextField>
                 </Box>
 
@@ -2382,8 +2568,12 @@ export default function ProjectConstructionPage() {
                     <TextField type="number" required label="Quantity" sx={{ flex: 1, minWidth: 100 }} value={row.measuredQty}
                       onChange={(e) => updateMbEntryRow(row.key, { measuredQty: Number(e.target.value) })} />
                     <TextField select label="Unit" sx={{ flex: 1, minWidth: 90 }} value={row.unit}
-                      onChange={(e) => updateMbEntryRow(row.key, { unit: e.target.value })}>
-                      {MB_UNITS.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>)}
+                      onChange={(e) => updateMbEntryRow(row.key, { unit: e.target.value })}
+                      helperText={mbBoqUnits.length === 0 ? 'Upload L1 Contractor BOQ in Work Planning' : undefined}>
+                      <MenuItem value="">— Select —</MenuItem>
+                      {boqUnitOptions(mbBoqUnits, row.unit).map((u) => (
+                        <MenuItem key={u} value={u}>{u}</MenuItem>
+                      ))}
                     </TextField>
                     <TextField type="number" label="Rate" sx={{ flex: 1, minWidth: 100 }} value={row.rate}
                       onChange={(e) => updateMbEntryRow(row.key, { rate: Number(e.target.value) })} />

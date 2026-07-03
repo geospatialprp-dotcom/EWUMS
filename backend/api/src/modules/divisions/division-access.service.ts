@@ -668,6 +668,15 @@ export class DivisionAccessService {
 
   async getAccessibleProjectIds(user: JwtPayload, tenantId: string): Promise<string[] | null> {
     if (!(await this.isDivisionSchemaReady())) return null;
+    if (user.roles?.includes('contractor')) {
+      const rows = await this.projectRepo.query(
+        `SELECT DISTINCT project_id AS id
+         FROM work_packages
+         WHERE tenant_id = $1 AND contractor_id = $2`,
+        [tenantId, user.sub],
+      ) as Array<{ id: string }>;
+      return rows.map((r) => r.id);
+    }
     const divisionIds = await this.getAccessibleDivisionIds(user, tenantId);
     if (divisionIds === null) return null;
     if (divisionIds.length === 0) return [];
@@ -724,6 +733,19 @@ export class DivisionAccessService {
     alias = 'project',
     tenantId?: string,
   ): Promise<void> {
+    if (!(await this.isDivisionSchemaReady())) return;
+    const tid = tenantId ?? user.tenantId;
+    if (user.roles?.includes('contractor')) {
+      qb.andWhere(
+        `${alias}.id IN (
+          SELECT DISTINCT wp.project_id
+          FROM work_packages wp
+          WHERE wp.tenant_id = :tenantId AND wp.contractor_id = :contractorId
+        )`,
+        { tenantId: tid, contractorId: user.sub },
+      );
+      return;
+    }
     await this.applyDivisionScope(qb as SelectQueryBuilder<ObjectLiteral>, user, alias, tenantId);
   }
 
@@ -885,6 +907,19 @@ export class DivisionAccessService {
     const project = await this.projectRepo.findOne({ where: { id: projectId, tenantId } });
     if (!project) throw new NotFoundException('Project not found');
     if (!(await this.isDivisionSchemaReady())) return project;
+
+    if (user.roles?.includes('contractor')) {
+      const rows = await this.projectRepo.query(
+        `SELECT 1 FROM work_packages
+         WHERE tenant_id = $1 AND project_id = $2 AND contractor_id = $3
+         LIMIT 1`,
+        [tenantId, projectId, user.sub],
+      ) as Array<Record<string, unknown>>;
+      if (!rows.length) {
+        throw new ForbiddenException('This scheme has no work package assigned to your contractor account.');
+      }
+      return project;
+    }
 
     const projectDivisionId = await this.getProjectDivisionId(projectId);
     const accessible = await this.getAccessibleDivisionIds(user, tenantId);

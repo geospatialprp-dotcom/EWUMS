@@ -142,7 +142,7 @@ export const WORKFLOW_DONE_STATUSES = [
 
 /** DPR approval sequence: Contractor → JE → AE → EE */
 export const DPR_WORKFLOW_SEQUENCE = [
-  { status: 'draft', step: 1, label: 'Draft' },
+  { status: 'draft', step: 1, label: 'Contractor (Draft)' },
   { status: 'je_review', step: 2, label: 'JE Review' },
   { status: 'ae_review', step: 3, label: 'AE Review' },
   { status: 'ee_approved', step: 4, label: 'EE Approved' },
