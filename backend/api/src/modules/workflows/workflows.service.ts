@@ -270,19 +270,21 @@ export class WorkflowsService {
     };
   }
 
-  private notifyPendingTask(
+  private async notifyPendingTask(
     tenantId: string,
-    instance: Pick<WorkflowInstance, 'id' | 'title'>,
+    instance: Pick<WorkflowInstance, 'id' | 'title' | 'resourceType' | 'resourceId' | 'payload'>,
     stepName: string,
     assignedRole: string,
     taskId: string,
   ) {
+    const divisionId = await this.resolveInstanceDivisionId(tenantId, instance);
     return this.alertNotifications.notifyWorkflowPendingApproval(tenantId, {
       assignedRole,
       instanceTitle: instance.title,
       stepName,
       taskId,
       instanceId: instance.id,
+      divisionId,
     });
   }
 

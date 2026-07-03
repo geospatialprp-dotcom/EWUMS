@@ -242,6 +242,7 @@ export default function NotificationSettingsPage() {
                     <TableCell>{t('notificationSettings.log.channel')}</TableCell>
                     <TableCell>{t('notificationSettings.log.recipient')}</TableCell>
                     <TableCell>{t('notificationSettings.log.status')}</TableCell>
+                    <TableCell>Details</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -265,6 +266,11 @@ export default function NotificationSettingsPage() {
                           color={row.status === 'sent' ? 'success' : row.status === 'handoff' ? 'warning' : 'default'}
                           variant="outlined"
                         />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 220, display: 'block' }}>
+                          {row.errorReason ?? (row.status === 'sent' ? 'Delivered' : '—')}
+                        </Typography>
                       </TableCell>
                     </TableRow>
                   ))}

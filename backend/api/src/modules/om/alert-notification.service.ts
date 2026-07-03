@@ -240,12 +240,27 @@ export class AlertNotificationService {
       stepName: string;
       taskId: string;
       instanceId: string;
+      divisionId?: string | null;
     },
   ) {
-    const users = await this.queryUsersByRole(tenantId, data.assignedRole);
-    if (!users.length) {
+    const roleUsers = data.divisionId
+      ? await this.queryDivisionStaff(tenantId, data.divisionId, [data.assignedRole])
+      : await this.queryUsersByRole(tenantId, data.assignedRole);
+
+    const seen = new Set<string>();
+    const recipients = roleUsers.filter((user) => {
+      const email = user.email?.trim();
+      if (!email || !this.isDeliverableEmail(email)) return false;
+      const key = email.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (!recipients.length) {
       this.logger.log(
-        `[workflow_pending_approval] No active users with role "${data.assignedRole}" — skipped email alerts`,
+        `[workflow_pending_approval] No deliverable email for role "${data.assignedRole}"`
+        + `${data.divisionId ? ` (division ${data.divisionId})` : ''} — skipped (@egip.local has no mailbox)`,
       );
       return { notified: 0 };
     }
@@ -264,19 +279,20 @@ export class AlertNotificationService {
     ].join('\n');
 
     let notified = 0;
-    for (const user of users) {
-      if (!user.email?.trim()) continue;
+    for (const user of recipients) {
+      const email = user.email!.trim();
       await this.sendAlert({
         tenantId,
         eventType: 'workflow_pending_approval',
         subject,
         message,
-        email: user.email,
+        email,
         channels: ['email'],
         payload: {
           taskId: data.taskId,
           instanceId: data.instanceId,
           assignedRole: data.assignedRole,
+          divisionId: data.divisionId ?? null,
         },
       });
       notified += 1;
@@ -314,6 +330,13 @@ export class AlertNotificationService {
       mobile: data.mobile,
       payload: { billId: data.billId, billNo: data.billNo },
     });
+  }
+
+  private isDeliverableEmail(email: string): boolean {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized.includes('@')) return false;
+    if (normalized.endsWith('@egip.local')) return false;
+    return true;
   }
 
   private defaultChannels(input: SendAlertInput): AlertChannel[] {
