@@ -27,13 +27,23 @@ find "${ROOT}/.git" -maxdepth 3 \( -name '*.lock' -o -name 'shallow.lock' \) -de
 echo "==> Fix ownership (root-owned .git blocks egip git fetch/reset)"
 chown -R "${APP_USER}:${APP_USER}" "${ROOT}"
 
+echo "==> Restore write bit on git objects (pack .idx/.pack are often 444)"
+chmod -R u+w "${ROOT}/.git" 2>/dev/null || true
+if [[ -d "${ROOT}/.git/objects/pack" ]]; then
+  chmod -R u+w "${ROOT}/.git/objects/pack"
+fi
+
 echo "==> Verify egip can write pack index"
 PACK_IDX="$(find "${ROOT}/.git/objects/pack" -name 'pack-*.idx' 2>/dev/null | head -1 || true)"
 if [[ -n "${PACK_IDX}" ]]; then
   sudo -u "${APP_USER}" test -w "${PACK_IDX}" || {
-    echo "ERROR: ${PACK_IDX} still not writable by ${APP_USER}"
-    ls -la "${PACK_IDX}"
-    exit 1
+    echo "WARN: chmod retry on pack files"
+    chmod u+w "${ROOT}/.git/objects/pack/"* 2>/dev/null || true
+    sudo -u "${APP_USER}" test -w "${PACK_IDX}" || {
+      echo "ERROR: ${PACK_IDX} still not writable by ${APP_USER}"
+      ls -la "${PACK_IDX}"
+      exit 1
+    }
   }
 fi
 
