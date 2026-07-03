@@ -554,6 +554,13 @@ export const constructionApi = {
   workPlanning: (projectId: string) => api.get(`/projects/${projectId}/construction/work-planning`),
   updateWorkPlanning: (projectId: string, data: object) =>
     api.put(`/projects/${projectId}/construction/work-planning`, data),
+  uploadPlanningFile: (projectId: string, kind: 'dpr' | 'drawings' | 'contractor-po', file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post(`/projects/${projectId}/construction/work-planning/upload/${kind}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   boq: (projectId: string, params?: { schemeType?: SchemeType; component?: ProjectComponent; boqSource?: 'government' | 'l1_contractor' }) =>
     api.get(`/projects/${projectId}/construction/boq`, { params }),
   importBoq: (projectId: string, data: { fileName?: string; replaceExisting?: boolean; boqSource?: string; items: object[] }) =>

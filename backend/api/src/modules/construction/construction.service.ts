@@ -28,6 +28,8 @@ import {
   constructionUploadRelativeUrl,
   fileExists,
   guessMimeType,
+  planningUploadDir,
+  planningUploadRelativeUrl,
   resolveConstructionFilePath,
   uniqueUploadFileName,
   writeUploadFile,
@@ -613,6 +615,28 @@ export class ConstructionService {
       await this.refreshProjectProgress(tenantId, projectId, 'budget');
     }
     return saved;
+  }
+
+  private static readonly PLANNING_UPLOAD_KINDS = new Set(['dpr', 'drawings', 'contractor-po']);
+
+  uploadPlanningFile(
+    tenantId: string,
+    projectId: string,
+    kind: string,
+    file: { buffer: Buffer; originalname?: string },
+  ) {
+    const normalizedKind = kind.trim().toLowerCase();
+    if (!ConstructionService.PLANNING_UPLOAD_KINDS.has(normalizedKind)) {
+      throw new BadRequestException(`Invalid planning upload type: ${kind}`);
+    }
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('File is empty');
+    }
+    const fileName = uniqueUploadFileName(file.originalname ?? 'file');
+    const dir = planningUploadDir(normalizedKind);
+    writeUploadFile(dir, fileName, file.buffer);
+    const fileUrl = planningUploadRelativeUrl(normalizedKind, fileName);
+    return { fileName, fileUrl, kind: normalizedKind };
   }
 
   listBoq(

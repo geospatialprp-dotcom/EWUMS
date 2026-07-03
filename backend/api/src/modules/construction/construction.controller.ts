@@ -105,6 +105,22 @@ export class ConstructionController {
     return this.constructionService.upsertWorkPlanning(user.tenantId, projectId, user.sub, dto);
   }
 
+  @Post('work-planning/upload/:kind')
+  @RequirePermissions('construction:update')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 },
+  }))
+  uploadPlanningFile(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+    @Param('kind') kind: string,
+    @UploadedFile() file: { buffer: Buffer; originalname?: string },
+  ) {
+    this.assertAdminPlanning(user);
+    return this.constructionService.uploadPlanningFile(user.tenantId, projectId, kind, file);
+  }
+
   @Get('boq')
   @RequirePermissions('construction:read')
   listBoq(

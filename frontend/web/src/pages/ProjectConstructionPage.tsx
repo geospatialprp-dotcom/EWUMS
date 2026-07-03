@@ -359,15 +359,20 @@ function UploadedFileLink({ fileName, file }: { fileName: string; file?: File | 
 }
 
 function PlanningFileField({
-  label, value, file, disabled, onPick,
+  label, value, file, disabled, done, onPick,
 }: {
-  label: string; value: string; file?: File | null; disabled?: boolean;
+  label: string; value: string; file?: File | null; disabled?: boolean; done?: boolean;
   onPick: (file: File) => void;
 }) {
   const fileName = value ? value.split('/').pop() ?? value : '';
   return (
     <Box>
-      <Typography variant="body2" fontWeight={600} gutterBottom>{label}</Typography>
+      <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+        {done
+          ? <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
+          : <RadioButtonUncheckedIcon color="disabled" sx={{ fontSize: 20 }} />}
+        <Typography variant="body2" fontWeight={600}>{label}</Typography>
+      </Box>
       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
         <Button variant="outlined" component="label" size="small" startIcon={<UploadFileIcon />} disabled={disabled}>
           Choose file
@@ -391,14 +396,19 @@ function PlanningFileField({
 }
 
 function BoqUploadField({
-  label, fileName, file, disabled, importing, onUpload,
+  label, fileName, file, disabled, importing, done, onUpload,
 }: {
-  label: string; fileName: string; file?: File | null; disabled?: boolean; importing?: boolean;
+  label: string; fileName: string; file?: File | null; disabled?: boolean; importing?: boolean; done?: boolean;
   onUpload: (file: File) => Promise<void>;
 }) {
   return (
     <Box>
-      <Typography variant="body2" fontWeight={600} gutterBottom>{label}</Typography>
+      <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+        {done
+          ? <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
+          : <RadioButtonUncheckedIcon color="disabled" sx={{ fontSize: 20 }} />}
+        <Typography variant="body2" fontWeight={600}>{label}</Typography>
+      </Box>
       <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
         <Button
           variant="outlined" component="label" size="small" startIcon={<UploadFileIcon />}
@@ -763,21 +773,29 @@ export default function ProjectConstructionPage() {
   const planningChecklist = useMemo(() => {
     const hasBoqData = boq.length > 0 || Boolean(pendingGovBoq) || Boolean(planningForm.boqUploadUrl.trim());
     const hasL1BoqData = l1Boq.length > 0 || Boolean(pendingL1BoqUpload) || Boolean(planningForm.l1ContractorBoqUploadUrl.trim());
+    const hasDpr = Boolean(planningForm.approvedDprUrl) || Boolean(planningLocalFiles.dpr);
+    const hasDrawing = Boolean(planningForm.drawingUploadUrl) || Boolean(planningLocalFiles.drawing);
+    const hasContractorPo = Boolean(planningForm.contractorPoUploadUrl) || Boolean(planningLocalFiles.contractorPo);
     const packagesAssigned = workPackages.length > 0
       && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim());
     return [
-      { key: 'dpr', label: 'Approved DPR Upload', done: Boolean(planningForm.approvedDprUrl) },
+      { key: 'dpr', label: 'Approved DPR Upload', done: hasDpr },
       { key: 'admin', label: 'Administrative Approval (AA)', done: Boolean(planningForm.adminApprovalRef.trim()) },
       { key: 'ts', label: 'Expenditure Sanction (ES)', done: Boolean(planningForm.technicalSanctionRef.trim()) },
       { key: 'boq', label: 'BOQ Upload', done: hasBoqData },
       { key: 'l1Boq', label: 'L1 Contractor BOQ', done: hasL1BoqData },
-      { key: 'contractorPo', label: 'Contractor PO/WO Upload', done: Boolean(planningForm.contractorPoUploadUrl) },
-      { key: 'drawing', label: 'Drawing Upload', done: Boolean(planningForm.drawingUploadUrl) },
+      { key: 'contractorPo', label: 'Contractor PO/WO Upload', done: hasContractorPo },
+      { key: 'drawing', label: 'Drawing Upload', done: hasDrawing },
       { key: 'wp', label: 'Work Package Creation', done: workPackages.length > 0 },
       { key: 'contractor', label: 'Contractor Assignment', done: packagesAssigned },
       { key: 'gis', label: 'GIS Alignment Approval', done: planningForm.gisAlignmentApproved },
     ];
-  }, [planningForm, boq.length, l1Boq.length, workPackages, contractorDrafts, pendingGovBoq, pendingL1BoqUpload]);
+  }, [planningForm, boq.length, l1Boq.length, workPackages, contractorDrafts, pendingGovBoq, pendingL1BoqUpload, planningLocalFiles]);
+
+  const checklistByKey = useMemo(
+    () => Object.fromEntries(planningChecklist.map((item) => [item.key, item.done])),
+    [planningChecklist],
+  );
 
   const submitWorkflow = async (fn: () => Promise<unknown>, label: string) => {
     try {
@@ -1235,6 +1253,19 @@ export default function ProjectConstructionPage() {
     try {
       let nextForm: PlanningFormState = { ...planningForm };
 
+      if (planningLocalFiles.dpr) {
+        const { data } = await constructionApi.uploadPlanningFile(projectId, 'dpr', planningLocalFiles.dpr);
+        nextForm = { ...nextForm, approvedDprUrl: String(data.fileUrl) };
+      }
+      if (planningLocalFiles.drawing) {
+        const { data } = await constructionApi.uploadPlanningFile(projectId, 'drawings', planningLocalFiles.drawing);
+        nextForm = { ...nextForm, drawingUploadUrl: String(data.fileUrl) };
+      }
+      if (planningLocalFiles.contractorPo) {
+        const { data } = await constructionApi.uploadPlanningFile(projectId, 'contractor-po', planningLocalFiles.contractorPo);
+        nextForm = { ...nextForm, contractorPoUploadUrl: String(data.fileUrl) };
+      }
+
       if (pendingGovBoq) {
         const { data } = await constructionApi.importBoq(projectId, {
           fileName: pendingGovBoq.fileName,
@@ -1265,10 +1296,18 @@ export default function ProjectConstructionPage() {
         status: 'draft',
       });
 
+      await Promise.all(workPackages.map(async (wp) => {
+        const wpId = String(wp.id);
+        const contractorName = contractorDrafts[wpId]?.trim();
+        if (!contractorName || contractorName === String(wp.contractorName ?? '').trim()) return;
+        await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
+      }));
+
       setPlanningForm(nextForm);
       setSavedPlanningSnapshot(serializePlanningForm(nextForm));
       setPendingGovBoq(null);
       setPendingL1BoqUpload(null);
+      setPlanningLocalFiles({});
       if (planningDraftStorageKey) sessionStorage.removeItem(planningDraftStorageKey);
 
       const doneCount = [
@@ -1283,7 +1322,7 @@ export default function ProjectConstructionPage() {
         workPackages.length > 0 && workPackages.every((wp) => String(contractorDrafts[String(wp.id)] ?? wp.contractorName ?? '').trim()),
         nextForm.gisAlignmentApproved,
       ].filter(Boolean).length;
-      setSuccess(`Work planning saved (${doneCount}/10 checklist items complete). You can continue editing.`);
+      setSuccess(`Work planning saved (${doneCount}/10 items stored). Green checks show what is complete — you can keep editing.`);
       await refresh();
     } catch (err) {
       setError(formatApiError(err, 'Failed to save work planning.'));
@@ -1427,12 +1466,15 @@ export default function ProjectConstructionPage() {
 
       {tab === 'planning' && (
         <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <Alert severity="info">
+              Upload or fill each item — a green check appears immediately. Click Save Planning to store everything to the server.
+            </Alert>
+          </Grid>
           {planningDirty && (
             <Grid item xs={12}>
               <Alert severity="warning">
-                Unsaved work planning changes
-                {pendingGovBoq || pendingL1BoqUpload ? ' (including BOQ Excel)' : ''}.
-                BOQ upload stays available until you click Save Planning.
+                Unsaved changes — click Save Planning to store uploads, BOQ, and references.
               </Alert>
             </Grid>
           )}
@@ -1453,7 +1495,7 @@ export default function ProjectConstructionPage() {
                     <ListItem key={item.key} disableGutters sx={{ py: 0.25 }}>
                       <ListItemIcon sx={{ minWidth: 32 }}>
                         {item.done
-                          ? <CheckCircleOutlineIcon color="success" fontSize="small" />
+                          ? <CheckCircleIcon color="success" fontSize="small" />
                           : <RadioButtonUncheckedIcon color="disabled" fontSize="small" />}
                       </ListItemIcon>
                       <ListItemText
@@ -1476,13 +1518,14 @@ export default function ProjectConstructionPage() {
                     label="1. Approved DPR Upload"
                     value={planningForm.approvedDprUrl}
                     file={planningLocalFiles.dpr}
+                    done={checklistByKey.dpr}
                     disabled={!canAdminPlanning}
                     onPick={(file) => {
                       setPlanningLocalFiles((prev) => ({ ...prev, dpr: file }));
-                      setPlanningForm({
-                        ...planningForm,
+                      setPlanningForm((prev) => ({
+                        ...prev,
                         approvedDprUrl: planningUploadPath('dpr', file.name),
-                      });
+                      }));
                     }}
                   />
                   {planningSecretariatMsg && (
@@ -1514,6 +1557,7 @@ export default function ProjectConstructionPage() {
                     label="4. BOQ Upload (Excel) — Original / Tender BOQ"
                     fileName={boqFileName}
                     file={planningLocalFiles.boq}
+                    done={checklistByKey.boq}
                     disabled={!canAdminPlanning}
                     importing={boqImporting}
                     onUpload={handleBoqUpload}
@@ -1522,6 +1566,7 @@ export default function ProjectConstructionPage() {
                     label="5. L1 Contractor BOQ (Excel)"
                     fileName={l1BoqFileName}
                     file={planningLocalFiles.l1Boq}
+                    done={checklistByKey.l1Boq}
                     disabled={!canAdminPlanning}
                     importing={l1BoqImporting}
                     onUpload={handleL1BoqUpload}
@@ -1530,26 +1575,28 @@ export default function ProjectConstructionPage() {
                     label="6. Contractor PO/WO Upload"
                     value={planningForm.contractorPoUploadUrl}
                     file={planningLocalFiles.contractorPo}
+                    done={checklistByKey.contractorPo}
                     disabled={!canAdminPlanning}
                     onPick={(file) => {
                       setPlanningLocalFiles((prev) => ({ ...prev, contractorPo: file }));
-                      setPlanningForm({
-                        ...planningForm,
+                      setPlanningForm((prev) => ({
+                        ...prev,
                         contractorPoUploadUrl: planningUploadPath('contractor-po', file.name),
-                      });
+                      }));
                     }}
                   />
                   <PlanningFileField
                     label="7. Drawing Upload"
                     value={planningForm.drawingUploadUrl}
                     file={planningLocalFiles.drawing}
+                    done={checklistByKey.drawing}
                     disabled={!canAdminPlanning}
                     onPick={(file) => {
                       setPlanningLocalFiles((prev) => ({ ...prev, drawing: file }));
-                      setPlanningForm({
-                        ...planningForm,
+                      setPlanningForm((prev) => ({
+                        ...prev,
                         drawingUploadUrl: planningUploadPath('drawings', file.name),
-                      });
+                      }));
                     }}
                   />
                   <TextField
