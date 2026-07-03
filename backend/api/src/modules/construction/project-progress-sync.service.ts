@@ -12,7 +12,7 @@ import { BoqItem } from './entities/boq-item.entity';
 import { DprActivity } from './entities/dpr-activity.entity';
 import { RaBill } from './entities/ra-bill.entity';
 import { WorkPlanning } from './entities/work-planning.entity';
-import { boqContractLineAmount } from './utils/boq-amount.util';
+import { boqContractLineAmount, roundBoqTotalToNearestRupee } from './utils/boq-amount.util';
 import { maxDprQtyByItemCode, resolveFinancialBoqSource } from './utils/boq-financial.util';
 
 /** Map milestone names to BOQ components fed by contractor daily DPR. */
@@ -67,7 +67,7 @@ export class ProjectProgressSyncService {
       return sum + boqContractLineAmount(qty, rate, amount);
     }, 0);
 
-    const rounded = Number(budget.toFixed(2));
+    const rounded = roundBoqTotalToNearestRupee(budget);
     const project = await this.projectRepo.findOne({ where: { id: projectId, tenantId } });
     if (!project) return;
 

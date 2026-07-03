@@ -81,6 +81,13 @@ export function boqSavingsQty(mbQty: number, mbVariance: number): number {
 /** Default GST % — BOQ Excel uses "Rate with GST" / "Total Amount with Tax". */
 export const BOQ_GST_PERCENT = 18;
 
+/** Round BOQ grand total to nearest whole rupee (.50 and above rounds up). */
+export function roundBoqTotalToNearestRupee(amount: number): number {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n);
+}
+
 /** Extract GST component from a GST-inclusive amount: inclusive × rate / (100 + rate). */
 export function gstFromInclusiveAmount(inclusiveAmount: number, gstPercent = BOQ_GST_PERCENT): number {
   const amt = Number(inclusiveAmount) || 0;

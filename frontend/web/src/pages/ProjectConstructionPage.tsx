@@ -55,6 +55,7 @@ import {
   eeChecksComplete, type AeVerificationChecks, type EeVerificationChecks,
 } from '../utils/mbVerification';
 import { parseBoqExcel, type ParsedBoqRow } from '../utils/boqExcelImport';
+import { formatBoqRoundedRupee, roundBoqTotalToNearestRupee } from '../utils/boqAmount';
 import {
   BOQ_EXCEL_SECTION_LABELS, BOQ_EXCEL_SECTION_ORDER, BOQ_TABLE_COLUMNS, COMPONENT_LABELS,
   CONSTRUCTION_PIPELINE, DPR_WORKFLOW_SEQUENCE, dprWorkflowStepLabel, MB_WORKFLOW_SEQUENCE,
@@ -204,7 +205,10 @@ function BoqTablesCard({
   items: Array<Record<string, unknown>>;
 }) {
   const sections = useMemo(() => buildBoqSections(items), [items]);
-  const grandTotal = useMemo(() => items.reduce((sum, item) => sum + boqLineAmount(item), 0), [items]);
+  const grandTotal = useMemo(
+    () => roundBoqTotalToNearestRupee(items.reduce((sum, item) => sum + boqLineAmount(item), 0)),
+    [items],
+  );
 
   return (
     <Card variant="outlined" sx={{ mt: 2 }}>
@@ -268,7 +272,7 @@ function BoqTablesCard({
         {items.length > 0 && (
           <Box display="flex" justifyContent="flex-end" mt={1} px={1}>
             <Typography variant="subtitle1" fontWeight={700}>
-              Grand Total Amount with Tax: ₹{grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              Grand Total Amount with Tax: ₹{formatBoqRoundedRupee(grandTotal)}
             </Typography>
           </Box>
         )}
