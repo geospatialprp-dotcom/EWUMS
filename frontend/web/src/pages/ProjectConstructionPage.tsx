@@ -1688,7 +1688,7 @@ export default function ProjectConstructionPage() {
       }
       await refresh();
       setSuccess(login
-        ? login.passwordIssued
+        ? (login.passwordIssued
           ? `Contractor "${contractorName}" saved. Login highlighted below — contractor can submit daily DPR.`
           : `Contractor "${contractorName}" saved. Existing firm login (${login.email}) highlighted below.`)
         : `Contractor "${contractorName}" saved.`);
