@@ -12,7 +12,7 @@ import { BoqItem } from './entities/boq-item.entity';
 import { DprActivity } from './entities/dpr-activity.entity';
 import { RaBill } from './entities/ra-bill.entity';
 import { WorkPlanning } from './entities/work-planning.entity';
-import { boqContractLineAmount, roundBoqTotalToNearestRupee } from './utils/boq-amount.util';
+import { boqContractLineAmount, roundBoqTotalToNearestRupee, sumBoqAmounts } from './utils/boq-amount.util';
 import { maxDprQtyByItemCode, resolveFinancialBoqSource } from './utils/boq-financial.util';
 
 /** Map milestone names to BOQ components fed by contractor daily DPR. */
@@ -60,12 +60,12 @@ export class ProjectProgressSyncService {
     });
     if (!items.length) return;
 
-    const budget = items.reduce((sum, item) => {
+    const budget = sumBoqAmounts(items.map((item) => {
       const qty = Number(item.contractQty);
       const rate = Number(item.rate);
       const amount = Number(item.contractAmount);
-      return sum + boqContractLineAmount(qty, rate, amount);
-    }, 0);
+      return boqContractLineAmount(qty, rate, amount);
+    }));
 
     const rounded = roundBoqTotalToNearestRupee(budget);
     const project = await this.projectRepo.findOne({ where: { id: projectId, tenantId } });

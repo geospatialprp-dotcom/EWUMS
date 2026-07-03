@@ -495,17 +495,22 @@ export class ConstructionService {
   }
 
   createWorkPackage(tenantId: string, projectId: string, dto: CreateWorkPackageDto) {
+    const packageCode = dto.packageCode?.trim();
+    const name = dto.name?.trim();
+    if (!packageCode || !name) {
+      throw new BadRequestException('Package code and name are required');
+    }
     return this.wpRepo.save(this.wpRepo.create({
       tenantId,
       projectId,
-      packageCode: dto.packageCode,
-      name: dto.name,
+      packageCode,
+      name,
       component: dto.component,
       schemeType: dto.schemeType ?? null,
-      contractorName: dto.contractorName ?? null,
-      chainageFrom: dto.chainageFrom ?? null,
-      chainageTo: dto.chainageTo ?? null,
-      remarks: dto.remarks ?? null,
+      contractorName: dto.contractorName?.trim() || null,
+      chainageFrom: dto.chainageFrom?.trim() || null,
+      chainageTo: dto.chainageTo?.trim() || null,
+      remarks: dto.remarks?.trim() || null,
       status: 'planned',
     }));
   }
@@ -532,7 +537,7 @@ export class ConstructionService {
   }
 
   private async getSecretariatSanctionRefs(tenantId: string, projectId: string) {
-    const proposal = await this.dprProposalRepo.findOne({ where: { tenantId, projectId } });
+    const proposal = await this.findDprProposalForProject(tenantId, projectId);
     if (!proposal) return null;
 
     const sanction = await this.dprSanctionRepo.findOne({
@@ -551,6 +556,24 @@ export class ConstructionService {
       administrativeApprovalNo,
       expenditureSanctionNo,
     };
+  }
+
+  private async findDprProposalForProject(tenantId: string, projectId: string) {
+    const direct = await this.dprProposalRepo.findOne({ where: { tenantId, projectId } });
+    if (direct) return direct;
+
+    const rows = await this.dprProposalRepo.manager.query(
+      `SELECT dp.id
+       FROM dpr_proposals dp
+       JOIN la_cases c ON c.dpr_proposal_id = dp.id AND c.tenant_id = dp.tenant_id
+       WHERE c.project_id = $1 AND dp.tenant_id = $2
+       ORDER BY dp.updated_at DESC NULLS LAST, dp.created_at DESC
+       LIMIT 1`,
+      [projectId, tenantId],
+    ) as Array<{ id: string }>;
+
+    if (!rows[0]?.id) return null;
+    return this.dprProposalRepo.findOne({ where: { id: rows[0].id, tenantId } });
   }
 
   async upsertWorkPlanning(tenantId: string, projectId: string, userId: string, dto: UpdateWorkPlanningDto) {

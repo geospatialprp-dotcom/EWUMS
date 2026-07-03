@@ -55,7 +55,8 @@ import {
   eeChecksComplete, type AeVerificationChecks, type EeVerificationChecks,
 } from '../utils/mbVerification';
 import { parseBoqExcel, type ParsedBoqRow } from '../utils/boqExcelImport';
-import { formatBoqRoundedRupee, roundBoqTotalToNearestRupee } from '../utils/boqAmount';
+import { formatBoqAmount, formatBoqRoundedRupee, roundBoqTotalToNearestRupee, sumBoqAmounts } from '../utils/boqAmount';
+import { formatApiError } from '../utils/apiError';
 import {
   BOQ_EXCEL_SECTION_LABELS, BOQ_EXCEL_SECTION_ORDER, BOQ_TABLE_COLUMNS, COMPONENT_LABELS,
   CONSTRUCTION_PIPELINE, DPR_WORKFLOW_SEQUENCE, dprWorkflowStepLabel, MB_WORKFLOW_SEQUENCE,
@@ -205,10 +206,11 @@ function BoqTablesCard({
   items: Array<Record<string, unknown>>;
 }) {
   const sections = useMemo(() => buildBoqSections(items), [items]);
-  const grandTotal = useMemo(
-    () => roundBoqTotalToNearestRupee(items.reduce((sum, item) => sum + boqLineAmount(item), 0)),
+  const grandTotalRaw = useMemo(
+    () => sumBoqAmounts(items.map((item) => boqLineAmount(item))),
     [items],
   );
+  const grandTotal = useMemo(() => roundBoqTotalToNearestRupee(grandTotalRaw), [grandTotalRaw]);
 
   return (
     <Card variant="outlined" sx={{ mt: 2 }}>
@@ -218,7 +220,8 @@ function BoqTablesCard({
           <Typography variant="body2" color="text.secondary">No items.</Typography>
         )}
         {sections.map((section) => {
-          const sectionTotal = section.items.reduce((sum, item) => sum + boqLineAmount(item), 0);
+          const sectionTotalRaw = sumBoqAmounts(section.items.map((item) => boqLineAmount(item)));
+          const sectionTotal = roundBoqTotalToNearestRupee(sectionTotalRaw);
           return (
             <Box key={section.key} mb={3}>
               <Typography
@@ -250,7 +253,7 @@ function BoqTablesCard({
                         <TableCell align="right">{qty.toLocaleString()}</TableCell>
                         <TableCell>{String(item.unit)}</TableCell>
                         <TableCell align="right">₹{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                        <TableCell align="right">₹{amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="right">₹{formatBoqAmount(amount)}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -260,7 +263,7 @@ function BoqTablesCard({
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" fontWeight={700}>
-                        ₹{sectionTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ₹{formatBoqRoundedRupee(sectionTotal)}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -270,10 +273,15 @@ function BoqTablesCard({
           );
         })}
         {items.length > 0 && (
-          <Box display="flex" justifyContent="flex-end" mt={1} px={1}>
+          <Box display="flex" flexDirection="column" alignItems="flex-end" mt={1} px={1} gap={0.25}>
             <Typography variant="subtitle1" fontWeight={700}>
               Grand Total Amount with Tax: ₹{formatBoqRoundedRupee(grandTotal)}
             </Typography>
+            {grandTotal !== grandTotalRaw && (
+              <Typography variant="caption" color="text.secondary">
+                Calculated ₹{formatBoqAmount(grandTotalRaw)} — rounded to nearest rupee
+              </Typography>
+            )}
           </Box>
         )}
       </CardContent>
@@ -548,6 +556,8 @@ export default function ProjectConstructionPage() {
   const [aeRemarks, setAeRemarks] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [eeRemarks, setEeRemarks] = useState<BilingualText>(EMPTY_BILINGUAL);
   const [wpDialog, setWpDialog] = useState(false);
+  const [wpSaving, setWpSaving] = useState(false);
+  const [wpDialogError, setWpDialogError] = useState('');
   const [docDialog, setDocDialog] = useState<{ resourceType: string; resourceId: string } | null>(null);
 
   const [planningForm, setPlanningForm] = useState<PlanningFormState>({
@@ -1270,16 +1280,41 @@ export default function ProjectConstructionPage() {
   };
 
   const handleCreateWorkPackage = async () => {
+    if (!projectId) {
+      setWpDialogError('Project not found — reload the page and try again.');
+      return;
+    }
+    const packageCode = wpForm.packageCode.trim();
+    const name = wpForm.name.trim();
+    if (!packageCode || !name) {
+      setWpDialogError('Package code and package name are required.');
+      return;
+    }
+
+    setWpSaving(true);
+    setWpDialogError('');
+    setError('');
     try {
-      await constructionApi.createWorkPackage(projectId, wpForm);
+      await constructionApi.createWorkPackage(projectId, {
+        ...wpForm,
+        packageCode,
+        name,
+        chainageFrom: wpForm.chainageFrom.trim() || undefined,
+        chainageTo: wpForm.chainageTo.trim() || undefined,
+      });
       setWpDialog(false);
       setWpForm({
         packageCode: '', name: '', component: 'gravity_main',
         schemeType: 'gravity', contractorName: '', chainageFrom: '', chainageTo: '',
       });
+      setSuccess(`Work package "${name}" created.`);
       await refresh();
     } catch (err) {
-      setError(formatApiError(err, 'Failed to create work package.'));
+      const message = formatApiError(err, 'Failed to create work package.');
+      setWpDialogError(message);
+      setError(message);
+    } finally {
+      setWpSaving(false);
     }
   };
 
@@ -1494,7 +1529,10 @@ export default function ProjectConstructionPage() {
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                   <Typography variant="subtitle1" fontWeight={700}>6. Work Packages & 7. Contractor Assignment</Typography>
                   {canAdminPlanning && (
-                    <Button startIcon={<AddIcon />} size="small" variant="outlined" onClick={() => setWpDialog(true)}>
+                    <Button
+                      startIcon={<AddIcon />} size="small" variant="outlined"
+                      onClick={() => { setWpDialogError(''); setWpDialog(true); }}
+                    >
                       New Package
                     </Button>
                   )}
@@ -1504,6 +1542,7 @@ export default function ProjectConstructionPage() {
                     stage="planning"
                     columns={[
                       { label: 'Code' },
+                      { label: 'Name' },
                       { label: 'Component' },
                       { label: 'Chainage' },
                       { label: 'Contractor' },
@@ -1517,6 +1556,7 @@ export default function ProjectConstructionPage() {
                       return (
                         <TableRow key={wpId}>
                           <TableCell>{String(wp.packageCode)}</TableCell>
+                          <TableCell>{String(wp.name ?? '—')}</TableCell>
                           <TableCell>{COMPONENT_LABELS[wp.component as ProjectComponent] ?? String(wp.component)}</TableCell>
                           <TableCell>{String(wp.chainageFrom ?? '—')} – {String(wp.chainageTo ?? '—')}</TableCell>
                           <TableCell>
@@ -1548,7 +1588,7 @@ export default function ProjectConstructionPage() {
                     })}
                     {!workPackages.length && (
                       <TableRow>
-                        <TableCell colSpan={6} align="center">
+                        <TableCell colSpan={7} align="center">
                           <Typography variant="body2" color="text.secondary">
                             No work packages yet.
                           </Typography>
@@ -2388,24 +2428,32 @@ export default function ProjectConstructionPage() {
       </Dialog>
 
 
-      <Dialog open={wpDialog} onClose={() => setWpDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={wpDialog}
+        onClose={() => { if (!wpSaving) setWpDialog(false); }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Create Work Package (Admin)</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
-          <TextField label="Package Code" value={wpForm.packageCode} onChange={(e) => setWpForm({ ...wpForm, packageCode: e.target.value })} placeholder="WP-GM-02" required />
-          <TextField label="Package Name" value={wpForm.name} onChange={(e) => setWpForm({ ...wpForm, name: e.target.value })} required />
-          <TextField select label="Component" value={wpForm.component} onChange={(e) => setWpForm({ ...wpForm, component: e.target.value as ProjectComponent })}>
+          {wpDialogError && <Alert severity="error">{wpDialogError}</Alert>}
+          <TextField label="Package Code" value={wpForm.packageCode} onChange={(e) => setWpForm({ ...wpForm, packageCode: e.target.value })} placeholder="WP-GM-02" required disabled={wpSaving} />
+          <TextField label="Package Name" value={wpForm.name} onChange={(e) => setWpForm({ ...wpForm, name: e.target.value })} required disabled={wpSaving} />
+          <TextField select label="Component" value={wpForm.component} onChange={(e) => setWpForm({ ...wpForm, component: e.target.value as ProjectComponent })} disabled={wpSaving}>
             {Object.entries(COMPONENT_LABELS).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
           </TextField>
-          <TextField select label="Scheme Type" value={wpForm.schemeType} onChange={(e) => setWpForm({ ...wpForm, schemeType: e.target.value as SchemeType })}>
+          <TextField select label="Scheme Type" value={wpForm.schemeType} onChange={(e) => setWpForm({ ...wpForm, schemeType: e.target.value as SchemeType })} disabled={wpSaving}>
             <MenuItem value="gravity">Gravity</MenuItem>
             <MenuItem value="pumping">Pumping</MenuItem>
           </TextField>
-          <TextField label="Chainage From" value={wpForm.chainageFrom} onChange={(e) => setWpForm({ ...wpForm, chainageFrom: e.target.value })} placeholder="0+000" />
-          <TextField label="Chainage To" value={wpForm.chainageTo} onChange={(e) => setWpForm({ ...wpForm, chainageTo: e.target.value })} placeholder="2+000" />
+          <TextField label="Chainage From" value={wpForm.chainageFrom} onChange={(e) => setWpForm({ ...wpForm, chainageFrom: e.target.value })} placeholder="0+000" disabled={wpSaving} />
+          <TextField label="Chainage To" value={wpForm.chainageTo} onChange={(e) => setWpForm({ ...wpForm, chainageTo: e.target.value })} placeholder="2+000" disabled={wpSaving} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setWpDialog(false)}>Cancel</Button>
-          <Button variant="contained" onClick={() => { void handleCreateWorkPackage(); }}>Save Package</Button>
+          <Button onClick={() => setWpDialog(false)} disabled={wpSaving}>Cancel</Button>
+          <Button variant="contained" disabled={wpSaving} onClick={() => { void handleCreateWorkPackage(); }}>
+            {wpSaving ? 'Saving…' : 'Save Package'}
+          </Button>
         </DialogActions>
       </Dialog>
     </PageShell>
