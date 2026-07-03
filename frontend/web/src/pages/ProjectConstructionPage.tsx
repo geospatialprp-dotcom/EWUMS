@@ -125,17 +125,41 @@ type ContractorLoginInfo = {
 function parseContractorLogin(data: unknown): ContractorLoginInfo | null {
   const row = data as Record<string, unknown>;
   const login = row.contractorLogin as Record<string, unknown> | undefined;
-  if (!login?.email) return null;
-  const created = Boolean(login.created);
-  const passwordIssued = login.passwordIssued !== false && created;
+  const email = String(login?.email ?? row.contractorLoginEmail ?? '').trim();
+  if (!email) return null;
+  const created = Boolean(login?.created);
+  const passwordIssued = login?.passwordIssued !== false && created;
   return {
-    workPackageCode: String(login.workPackageCode ?? row.packageCode ?? ''),
-    contractorName: String(login.contractorName ?? row.contractorName ?? ''),
-    email: String(login.email),
-    password: passwordIssued ? String(login.password ?? 'Contractor@123') : '',
+    workPackageCode: String(login?.workPackageCode ?? row.packageCode ?? ''),
+    contractorName: String(login?.contractorName ?? row.contractorName ?? ''),
+    email,
+    password: passwordIssued ? String(login?.password ?? 'Contractor@123') : '',
     created,
     passwordIssued,
   };
+}
+
+function contractorLoginFromWorkPackage(wp: Record<string, unknown>): ContractorLoginInfo | null {
+  const email = String(wp.contractorLoginEmail ?? '').trim();
+  if (!email) return null;
+  return {
+    workPackageCode: String(wp.packageCode ?? ''),
+    contractorName: String(wp.contractorName ?? ''),
+    email,
+    password: '',
+    created: false,
+    passwordIssued: false,
+  };
+}
+
+function contractorLoginsFromWorkPackages(wps: Array<Record<string, unknown>>): ContractorLoginInfo[] {
+  return mergeContractorLogins(
+    wps.map(contractorLoginFromWorkPackage).filter((login): login is ContractorLoginInfo => login !== null),
+  );
+}
+
+function scrollToTopForFeedback() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function mergeContractorLogins(logins: ContractorLoginInfo[]): ContractorLoginInfo[] {
@@ -161,11 +185,12 @@ function contractorDraftName(wp: Record<string, unknown>, drafts: Record<string,
   return String(drafts[String(wp.id)] ?? wp.contractorName ?? '').trim();
 }
 
-/** Provision when name is set and login is missing or firm name changed. */
+/** Provision when name is set and login is missing, email unknown, or firm name changed. */
 function needsContractorProvision(wp: Record<string, unknown>, contractorName: string): boolean {
   const trimmed = contractorName.trim();
   if (!trimmed) return false;
   if (!wp.contractorId) return true;
+  if (!String(wp.contractorLoginEmail ?? '').trim()) return true;
   return trimmed !== String(wp.contractorName ?? '').trim();
 }
 
@@ -837,6 +862,7 @@ export default function ProjectConstructionPage() {
       setContractorDrafts(Object.fromEntries(
         wpList.map((wp) => [String(wp.id), String(wp.contractorName ?? '')]),
       ));
+      setContractorLogins(contractorLoginsFromWorkPackages(wpList));
     } catch (err) {
       setError(formatApiError(err, 'Failed to load construction data. Run migrations 012 & 013 and restart API.'));
     } finally {
@@ -1414,8 +1440,8 @@ export default function ProjectConstructionPage() {
         if (!needsContractorProvision(wp, contractorName)) continue;
         try {
           const { data } = await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
-          const login = parseContractorLogin(data);
           const saved = data as Record<string, unknown>;
+          const login = parseContractorLogin(data) ?? contractorLoginFromWorkPackage(saved);
           if (login) {
             newLogins.push(login);
           } else if (!saved.contractorId) {
@@ -1457,9 +1483,11 @@ export default function ProjectConstructionPage() {
         ? ` Contractor login${newLogins.length > 1 ? 's' : ''} created — see highlighted credentials below.`
         : '';
       setSuccess(`Work planning saved (${doneCount}/10 items stored).${loginNote}`);
+      scrollToTopForFeedback();
       await refresh();
     } catch (err) {
       setError(formatApiError(err, 'Failed to save work planning.'));
+      scrollToTopForFeedback();
     } finally {
       setPlanningSaving(false);
     }
@@ -1559,24 +1587,31 @@ export default function ProjectConstructionPage() {
 
   const handleAssignContractor = async (wpId: string) => {
     const wp = workPackages.find((row) => String(row.id) === wpId);
-    const contractorName = contractorDrafts[wpId]?.trim();
+    const contractorName = (contractorDrafts[wpId] ?? String(wp?.contractorName ?? '')).trim();
     if (!contractorName) {
       setError('Enter the contractor firm name before saving.');
+      scrollToTopForFeedback();
       return;
     }
     if (wp && !needsContractorProvision(wp, contractorName)) {
-      const email = String(wp.contractorLoginEmail ?? '').trim();
-      setSuccess(email
-        ? `Contractor "${contractorName}" is already assigned (login: ${email}).`
+      const existingLogin = contractorLoginFromWorkPackage(wp);
+      if (existingLogin) {
+        setContractorLogins((prev) => mergeContractorLogins([...prev, existingLogin]));
+      }
+      setSuccess(existingLogin
+        ? `Contractor "${contractorName}" is already assigned — login credentials shown below.`
         : `Contractor "${contractorName}" is already assigned.`);
+      scrollToTopForFeedback();
       return;
     }
     setAssigningContractorWpId(wpId);
     setError('');
+    setSuccess('');
     try {
       const { data } = await constructionApi.updateWorkPackage(projectId, wpId, { contractorName });
-      const login = parseContractorLogin(data);
       const saved = data as Record<string, unknown>;
+      const login = parseContractorLogin(data)
+        ?? contractorLoginFromWorkPackage(saved);
       if (login) {
         setContractorLogins((prev) => mergeContractorLogins([...prev, login]));
       } else if (!saved.contractorId) {
@@ -1586,10 +1621,14 @@ export default function ProjectConstructionPage() {
       }
       await refresh();
       setSuccess(login
-        ? `Contractor "${contractorName}" saved. Login highlighted below — contractor can submit daily DPR.`
-        : `Contractor "${contractorName}" linked to existing firm login — see email under the firm name.`);
+        ? login.passwordIssued
+          ? `Contractor "${contractorName}" saved. Login highlighted below — contractor can submit daily DPR.`
+          : `Contractor "${contractorName}" saved. Existing firm login (${login.email}) highlighted below.`)
+        : `Contractor "${contractorName}" saved.`);
+      scrollToTopForFeedback();
     } catch (err) {
       setError(formatApiError(err, 'Failed to assign contractor.'));
+      scrollToTopForFeedback();
     } finally {
       setAssigningContractorWpId(null);
     }
@@ -1897,7 +1936,7 @@ export default function ProjectConstructionPage() {
                               <Box display="flex" gap={0.5} alignItems="center">
                                 <TextField
                                   size="small" placeholder="Contractor firm name"
-                                  value={contractorDrafts[wpId] ?? ''}
+                                  value={contractorDrafts[wpId] ?? String(wp.contractorName ?? '')}
                                   onChange={(e) => setContractorDrafts({ ...contractorDrafts, [wpId]: e.target.value })}
                                   disabled={!canAdminPlanning}
                                   sx={{ minWidth: 140 }}

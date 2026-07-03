@@ -589,7 +589,7 @@ export class ConstructionService {
       );
     }
     const saved = await this.wpRepo.save(wp);
-    return contractorLogin ? { ...saved, contractorLogin } : saved;
+    return this.attachContractorLoginToWorkPackage(tenantId, saved, contractorLogin);
   }
 
   async updateWorkPackage(tenantId: string, projectId: string, id: string, dto: UpdateWorkPackageDto) {
@@ -635,7 +635,34 @@ export class ConstructionService {
 
     wp.updatedAt = new Date();
     const saved = await this.wpRepo.save(wp);
-    return contractorLogin ? { ...saved, contractorLogin } : saved;
+    return this.attachContractorLoginToWorkPackage(tenantId, saved, contractorLogin);
+  }
+
+  private async attachContractorLoginToWorkPackage(
+    tenantId: string,
+    wp: WorkPackage,
+    contractorLogin: Awaited<ReturnType<DivisionStaffProvisionerService['ensureWorkPackageContractor']>> | null,
+  ) {
+    if (contractorLogin) {
+      return { ...wp, contractorLogin };
+    }
+    if (!wp.contractorId) return wp;
+    const user = await this.userRepo.findOne({ where: { id: wp.contractorId, tenantId } });
+    if (!user?.email) return wp;
+    return {
+      ...wp,
+      contractorLogin: {
+        role: 'contractor' as const,
+        roleLabel: 'Contractor',
+        email: user.email,
+        password: '',
+        created: false,
+        passwordIssued: false,
+        userId: user.id,
+        contractorName: wp.contractorName ?? '',
+        workPackageCode: wp.packageCode,
+      },
+    };
   }
 
   async getWorkPlanning(tenantId: string, projectId: string) {
