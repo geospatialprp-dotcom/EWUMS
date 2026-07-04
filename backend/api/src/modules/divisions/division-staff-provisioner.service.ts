@@ -61,7 +61,7 @@ export class DivisionStaffProvisionerService {
     const local = email.split('@')[0]?.toLowerCase() ?? '';
     if (email === 'admin@egip.local') return 'Admin@123';
     if (email === 'gis@egip.local') return 'Gis@123';
-    if (email === 'contractor@egip.local' || local.startsWith('contractor.')) return 'Contractor@123';
+    if (email === 'contractor@egip.local' || local.startsWith('contractor.') || local.startsWith('c.')) return 'Contractor@123';
     if (local === 'accounts' || local.startsWith('accounts.')) return 'Accounts@123';
     if (local === 'ee' || local.startsWith('ee.')) return 'EE@123';
     if (local === 'ae' || local.startsWith('ae.')) return 'AE@123';
@@ -228,7 +228,29 @@ export class DivisionStaffProvisionerService {
     );
   }
 
+  private static readonly CONTRACTOR_FIRM_STOP_WORDS = new Set([
+    'and', 'the', 'of', 'pvt', 'ltd', 'limited', 'private', 'sons', 'son',
+    'co', 'company', 'solutions', 'enterprises', 'contractor', 'contractors',
+    'works', 'work',
+  ]);
+
+  /** Short slug for contractor login — first meaningful firm word, max 10 chars. */
   contractorFirmSlug(firmName: string): string {
+    const words = firmName
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, 'and')
+      .split(/[^a-z0-9]+/i)
+      .map((w) => w.replace(/[^a-z0-9]/g, ''))
+      .filter(Boolean)
+      .filter((w) => !DivisionStaffProvisionerService.CONTRACTOR_FIRM_STOP_WORDS.has(w));
+
+    const first = words[0] ?? firmName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10);
+    return (first || 'firm').slice(0, 10);
+  }
+
+  /** Legacy long slug — kept for looking up accounts created before short-login rollout. */
+  private contractorFirmSlugLegacy(firmName: string): string {
     const raw = firmName
       .trim()
       .toLowerCase()
@@ -239,20 +261,35 @@ export class DivisionStaffProvisionerService {
     return raw.slice(0, 48) || 'firm';
   }
 
+  private contractorEmailFromSlug(slug: string): string {
+    return `c.${slug}@egip.local`;
+  }
+
+  private legacyContractorEmail(firmName: string): string {
+    return `contractor.${this.contractorFirmSlugLegacy(firmName)}@egip.local`;
+  }
+
   normalizeFirmName(firmName: string): string {
     return firmName.trim().toLowerCase().replace(/\s+/g, ' ');
   }
 
-  private async findContractorUserByFirm(tenantId: string, firmName: string) {
-    const slug = this.contractorFirmSlug(firmName);
-    const email = `contractor.${slug}@egip.local`;
-    const normalized = this.normalizeFirmName(firmName);
+  private async allocateContractorEmail(
+    tenantId: string,
+    firmName: string,
+    existingUserId?: string,
+  ): Promise<string> {
+    const base = this.contractorFirmSlug(firmName);
+    for (let suffix = 0; suffix <= 99; suffix += 1) {
+      const slug = suffix === 0 ? base : `${base}${suffix}`;
+      const email = this.contractorEmailFromSlug(slug);
+      const user = await this.userRepo.findOne({ where: { tenantId, email } });
+      if (!user || user.id === existingUserId) return email;
+    }
+    throw new BadRequestException('Could not allocate a contractor login — too many firms with a similar name');
+  }
 
-    let user = await this.userRepo.findOne({
-      where: { tenantId, email },
-      relations: ['roles'],
-    });
-    if (user) return user;
+  private async findContractorUserByFirm(tenantId: string, firmName: string) {
+    const normalized = this.normalizeFirmName(firmName);
 
     const rows = await this.userRepo.query(
       `SELECT u.id
@@ -264,12 +301,26 @@ export class DivisionStaffProvisionerService {
        LIMIT 1`,
       [tenantId, normalized],
     ) as Array<{ id: string }>;
-    if (!rows[0]?.id) return null;
+    if (rows[0]?.id) {
+      return this.userRepo.findOne({
+        where: { id: rows[0].id, tenantId },
+        relations: ['roles'],
+      });
+    }
 
-    return this.userRepo.findOne({
-      where: { id: rows[0].id, tenantId },
+    const legacyEmail = this.legacyContractorEmail(firmName);
+    let user = await this.userRepo.findOne({
+      where: { tenantId, email: legacyEmail },
       relations: ['roles'],
     });
+    if (user) return user;
+
+    const shortEmail = this.contractorEmailFromSlug(this.contractorFirmSlug(firmName));
+    user = await this.userRepo.findOne({
+      where: { tenantId, email: shortEmail },
+      relations: ['roles'],
+    });
+    return user;
   }
 
   /** One login per contractor firm; reused across work packages and projects. */
@@ -292,8 +343,7 @@ export class DivisionStaffProvisionerService {
       throw new BadRequestException('Contractor role is not configured for this tenant');
     }
 
-    const slug = this.contractorFirmSlug(firmName);
-    const email = `contractor.${slug}@egip.local`;
+    const email = await this.allocateContractorEmail(tenantId, firmName);
     const password = this.demoPasswordForEmail(email);
 
     const nameParts = firmName.split(/\s+/).filter(Boolean);
@@ -320,6 +370,8 @@ export class DivisionStaffProvisionerService {
       user.firstName = firstName;
       user.lastName = lastName;
       user.department = firmName;
+      const shortEmail = await this.allocateContractorEmail(tenantId, firmName, user.id);
+      if (user.email !== shortEmail) user.email = shortEmail;
       if (!user.roles?.some((r) => r.id === contractorRole.id)) {
         user.roles = [...(user.roles ?? []), contractorRole];
       }
