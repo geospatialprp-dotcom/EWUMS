@@ -644,14 +644,6 @@ export default function ProjectConstructionPage() {
     () => workPackages.find((w) => String(w.id) === dprHeaderForm.workPackageId),
     [workPackages, dprHeaderForm.workPackageId],
   );
-  const dprBoqItemsForRow = useCallback((rowComponent: string) => {
-    let items = dprBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType);
-    const comp = rowComponent || String(selectedDprWorkPackage?.component ?? '');
-    if (comp) {
-      items = items.filter((b) => !b.component || String(b.component) === comp);
-    }
-    return items;
-  }, [dprBoq, dprHeaderForm.schemeType, selectedDprWorkPackage]);
   const [dprActivityRows, setDprActivityRows] = useState<DprActivityRow[]>([emptyDprActivityRow()]);
   const [dprProgressHints, setDprProgressHints] = useState<Record<string, DprProgressSummary>>({});
   const [dprPhotos, setDprPhotos] = useState<File[]>([]);
@@ -721,6 +713,15 @@ export default function ProjectConstructionPage() {
     () => collectBoqUnits(boqUnitsSource, mbHeaderForm.schemeType),
     [boqUnitsSource, mbHeaderForm.schemeType],
   );
+
+  const dprBoqItemsForRow = useCallback((rowComponent: string) => {
+    let items = dprBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType);
+    const comp = rowComponent || String(selectedDprWorkPackage?.component ?? '');
+    if (comp) {
+      items = items.filter((b) => !b.component || String(b.component) === comp);
+    }
+    return items;
+  }, [dprBoq, dprHeaderForm.schemeType, selectedDprWorkPackage]);
 
   const planningDirty = useMemo(() => {
     if (pendingGovBoq || pendingL1BoqUpload) return true;
