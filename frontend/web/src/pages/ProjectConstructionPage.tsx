@@ -33,7 +33,7 @@ import {
   activityRowFromBoqAndWp, buildDprPayload, defaultDprHeader, dprActivityDescriptionFromBoq,
   dprActivitySummaryForActivity,
   emptyDprActivityRow, findL1BoqForComponent, flattenDprsForTable, formatProgressQty,
-  frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillDprActivitiesFromWp, resolveDprProgressHint, resolveL1BoqItem, wholeJobQtySelectOptions,
+  frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillDprActivitiesFromWp, primaryDprActivity, resolveDprProgressHint, resolveL1BoqItem, wholeJobQtySelectOptions,
   wholeJobScopeBalanceQty, matchingWorkPackageCount,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
@@ -1224,12 +1224,14 @@ export default function ProjectConstructionPage() {
         remarks: String(d.remarks ?? ''),
       });
       const acts = (d.activities as Array<Record<string, unknown>>) ?? [];
+      const primaryAct = primaryDprActivity(acts);
       const wpId = String(d.workPackageId ?? '');
       const wp = workPackages.find((w) => String(w.id) === wpId);
       const schemeType = (d.schemeType as SchemeType) ?? 'gravity';
       let activityRows: DprActivityRow[];
-      if (acts.length) {
-        activityRows = acts.map((act) => {
+      if (primaryAct) {
+        const act = primaryAct;
+        activityRows = [(() => {
           const unit = String(act.unit ?? 'cum');
           const wholeJob = isWholeJobMeasurement(String(act.progressMode ?? ''), unit);
           let quantityDone = Number(act.quantityDone ?? 0);
@@ -1267,7 +1269,7 @@ export default function ProjectConstructionPage() {
           labourCount: Number(act.labourCount ?? 0),
           equipmentDetails: String(act.equipmentDetails ?? ''),
         };
-        });
+        })()];
       } else if (wp && dprBoq.length) {
         activityRows = prefillDprActivitiesFromWp(wp, dprBoq, schemeType);
       } else {

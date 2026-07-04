@@ -452,20 +452,6 @@ export function prefillDprActivitiesFromWp(
   return [activityRowFromBoqAndWp(items[0], wp)];
 }
 
-/** Prefill all matching L1 BOQ lines (edit / list enrichment mirror). */
-export function prefillAllDprActivitiesFromWp(
-  wp: Record<string, unknown>,
-  l1Boq: Array<Record<string, unknown>>,
-  schemeType: string,
-): DprActivityRow[] {
-  const matches = findL1BoqForComponent(l1Boq, String(wp.component ?? ''), schemeType);
-  const items = matches.length
-    ? matches
-    : l1Boq.filter((b) => !b.schemeType || String(b.schemeType) === schemeType);
-  if (!items.length) return [emptyDprActivityRow()];
-  return items.map((boq) => activityRowFromBoqAndWp(boq, wp));
-}
-
 export function buildDprPayload(
   header: DprHeaderForm,
   activities: DprActivityRow[],
@@ -486,6 +472,7 @@ export function buildDprPayload(
     remarks: header.remarks || undefined,
     activities: activities
       .filter((row) => row.boqItemId || row.description.trim())
+      .slice(0, 1)
       .map((row) => {
         const wholeJob = isWholeJobMeasurement(row.progressMode, row.unit);
         const boqLine = row.boqItemId
@@ -581,22 +568,24 @@ export type DprTableRow = {
   actCount: number;
 };
 
-/** One table row per activity (or one placeholder row when no activities saved). */
+/** Primary activity for list display — one BOQ line per daily report. */
+export function primaryDprActivity(
+  activities: Array<Record<string, unknown>>,
+): Record<string, unknown> | null {
+  if (!activities.length) return null;
+  const sorted = activities
+    .slice()
+    .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0));
+  return sorted.find((a) => a.boqItemId || a.activityCode) ?? sorted[0];
+}
+
+/** One table row per DPR (primary activity only). */
 export function flattenDprsForTable(dprs: Array<Record<string, unknown>>): DprTableRow[] {
-  const rows: DprTableRow[] = [];
-  for (const dpr of dprs) {
-    const activities = ((dpr.activities as Array<Record<string, unknown>>) ?? [])
-      .slice()
-      .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0));
-    if (!activities.length) {
-      rows.push({ dpr, act: null, actIndex: 0, actCount: 1 });
-      continue;
-    }
-    activities.forEach((act, actIndex) => {
-      rows.push({ dpr, act, actIndex, actCount: activities.length });
-    });
-  }
-  return rows;
+  return dprs.map((dpr) => {
+    const activities = (dpr.activities as Array<Record<string, unknown>>) ?? [];
+    const act = primaryDprActivity(activities);
+    return { dpr, act, actIndex: 0, actCount: 1 };
+  });
 }
 
 export function dprActivitySummary(

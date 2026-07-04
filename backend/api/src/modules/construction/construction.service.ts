@@ -1455,6 +1455,11 @@ export class ConstructionService {
       }
     }
 
+    if (inputActivities.length > 1) {
+      const primary = inputActivities.find((a) => a.boqItemId) ?? inputActivities[0];
+      inputActivities = [primary];
+    }
+
     for (const act of inputActivities) {
       if (!act.boqItemId) {
         const desc = String(act.description ?? '').trim();
