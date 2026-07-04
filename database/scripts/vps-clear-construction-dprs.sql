@@ -64,12 +64,17 @@ BEGIN
     );
   GET DIAGNOSTICS v_wf_deleted = ROW_COUNT;
 
+  DELETE FROM dpr_boq_execution
+  WHERE tenant_id = v_tenant
+    AND project_id IN (SELECT project_id FROM tmp_dpr_projects);
+
   DELETE FROM dpr_reports dr
   WHERE dr.id IN (SELECT dpr_id FROM tmp_dpr_ids);
   GET DIAGNOSTICS v_dpr_deleted = ROW_COUNT;
 
   UPDATE boq_items
-  SET dpr_qty = 0
+  SET dpr_qty = 0,
+      dpr_execution_status = 'not_started'
   WHERE tenant_id = v_tenant
     AND project_id IN (SELECT project_id FROM tmp_dpr_projects);
 

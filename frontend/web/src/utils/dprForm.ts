@@ -42,6 +42,9 @@ export type DprProgressSummary = {
   sanctionedQty?: number;
   scopeSanctionedQty?: number;
   scopeBalancePct?: number;
+  boqSource?: string;
+  boqSourceLabel?: string;
+  itemCode?: string;
   yesterdaysProgress: number;
   yesterdaysProgressLabel: 'pct' | 'qty';
   executionStatus: string;
@@ -49,6 +52,7 @@ export type DprProgressSummary = {
   measurementMode: 'discrete_qty' | 'whole_job';
   scopeContributionQty?: number;
   scopeContributionPct?: number;
+  scopeBalanceQty?: number;
   chainageFrom?: string | null;
   chainageTo?: string | null;
 };
@@ -137,16 +141,91 @@ export function wholeJobQtySelectOptions(maxQty: number): number[] {
 export function frozenProgressFromRow(
   qty: number,
   hint?: DprProgressSummary | null,
-): { boqPctToday: number; locationPctToday: number | null; locationComplete: boolean } {
+): {
+  boqPctToday: number;
+  jobPctToday: number | null;
+  locationComplete: boolean;
+  /** @deprecated use jobPctToday */
+  locationPctToday: number | null;
+} {
   const boqSanctioned = Number(hint?.sanctionedQty ?? 0);
   const scopeSanctioned = Number(hint?.scopeSanctionedQty ?? boqSanctioned);
   const scopeDone = Number(hint?.scopeContributionQty ?? 0);
   const scopeBalance = Math.max(0, scopeSanctioned - scopeDone);
-  const boqPctToday = pctFromQty(qty, boqSanctioned);
   const split = scopeSanctioned > 0 && scopeSanctioned < boqSanctioned - 0.0005;
-  const locationPctToday = split ? pctFromQty(qty, scopeSanctioned) : null;
+  const jobPctToday = split ? pctFromQty(qty, scopeSanctioned) : null;
+  const boqPctToday = pctFromQty(qty, boqSanctioned);
   const locationComplete = scopeSanctioned > 0 && qty >= scopeBalance - 0.0005 && qty > 0;
-  return { boqPctToday, locationPctToday, locationComplete };
+  return { boqPctToday, jobPctToday, locationPctToday: jobPctToday, locationComplete };
+}
+
+export type PlannedActualRow = {
+  label: string;
+  planned: number;
+  actual: number;
+  remaining: number;
+  pctDone: number;
+  unit: string;
+};
+
+/** Planned vs actual rows for DPR form (scheme + per-job when split). */
+export function buildPlannedActualRows(
+  hint: DprProgressSummary,
+  todayQty: number,
+  unit: string,
+): PlannedActualRow[] {
+  const u = unit || '—';
+  const schemePlanned = Number(hint.sanctionedQty ?? 0);
+  const schemeActual = Number(hint.cumulativeQty ?? 0);
+  const schemeRemaining = Number(hint.balanceQty ?? Math.max(0, schemePlanned - schemeActual));
+  const rows: PlannedActualRow[] = [{
+    label: hint.boqSourceLabel ? `Scheme (${hint.boqSourceLabel})` : 'Scheme (BOQ line)',
+    planned: schemePlanned,
+    actual: schemeActual,
+    remaining: schemeRemaining,
+    pctDone: Number(hint.cumulativePct ?? 0),
+    unit: u,
+  }];
+
+  const jobPlanned = Number(hint.scopeSanctionedQty ?? 0);
+  const jobActual = Number(hint.scopeContributionQty ?? 0);
+  const jobRemaining = Number(hint.scopeBalanceQty ?? Math.max(0, jobPlanned - jobActual));
+  const splitJob = jobPlanned > 0 && jobPlanned < schemePlanned - 0.0005;
+  if (splitJob) {
+    rows.push({
+      label: 'This Job (work package)',
+      planned: jobPlanned,
+      actual: jobActual,
+      remaining: jobRemaining,
+      pctDone: Number(hint.scopeContributionPct ?? 0),
+      unit: u,
+    });
+  }
+
+  if (todayQty > 0) {
+    rows.push({
+      label: 'After today (scheme)',
+      planned: schemePlanned,
+      actual: schemeActual + todayQty,
+      remaining: Math.max(0, schemeRemaining - todayQty),
+      pctDone: schemePlanned > 0
+        ? pctFromQty(schemeActual + todayQty, schemePlanned)
+        : 0,
+      unit: u,
+    });
+    if (splitJob) {
+      rows.push({
+        label: 'After today (this Job)',
+        planned: jobPlanned,
+        actual: jobActual + todayQty,
+        remaining: Math.max(0, jobRemaining - todayQty),
+        pctDone: pctFromQty(jobActual + todayQty, jobPlanned),
+        unit: u,
+      });
+    }
+  }
+
+  return rows;
 }
 
 /** Billing-focused qty breakdown for list / MB / RA reference. */
@@ -154,20 +233,32 @@ export type DprActivityBilling = {
   unit: string;
   todayQty: number;
   cumQty: number;
+  plannedQty: number | null;
+  remainingQty: number | null;
   todayPct: number | null;
   cumPct: number | null;
 };
 
-export function parseDprActivityBilling(act: Record<string, unknown> | null | undefined): DprActivityBilling {
+export function parseDprActivityBilling(
+  act: Record<string, unknown> | null | undefined,
+  plannedQty?: number | null,
+): DprActivityBilling {
   if (!act) {
-    return { unit: '—', todayQty: 0, cumQty: 0, todayPct: null, cumPct: null };
+    return {
+      unit: '—', todayQty: 0, cumQty: 0, plannedQty: null, remainingQty: null,
+      todayPct: null, cumPct: null,
+    };
   }
   const unit = String(act.unit ?? '').trim() || '—';
   const todayQty = Number(act.quantityDone ?? 0);
   const cumQty = Number(act.cumulativeQty ?? todayQty);
+  const planned = plannedQty != null && plannedQty > 0 ? plannedQty : null;
+  const remainingQty = planned != null ? Math.max(0, planned - cumQty) : null;
   const todayPct = act.progressPctToday != null ? Number(act.progressPctToday) : null;
   const cumPct = act.cumulativeProgressPct != null ? Number(act.cumulativeProgressPct) : null;
-  return { unit, todayQty, cumQty, todayPct, cumPct };
+  return {
+    unit, todayQty, cumQty, plannedQty: planned, remainingQty, todayPct, cumPct,
+  };
 }
 
 /** Today + cumulative progress with qty and % (all BOQ items). */
@@ -221,7 +312,10 @@ export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRo
   };
 }
 
-export function dprActivitySummary(dpr: Record<string, unknown>): {
+export function dprActivitySummary(
+  dpr: Record<string, unknown>,
+  plannedQty?: number | null,
+): {
   workItem: string;
   billing: DprActivityBilling;
   chainage: string;
@@ -233,7 +327,7 @@ export function dprActivitySummary(dpr: Record<string, unknown>): {
   const workItem = first
     ? String(first.description ?? '—')
     : '—';
-  const billing = parseDprActivityBilling(first);
+  const billing = parseDprActivityBilling(first, plannedQty);
   const progress = first ? formatDprActivityProgress(first) : '—';
   const chainage = first
     ? [first.chainageFrom, first.chainageTo].filter(Boolean).join(' → ') || '—'

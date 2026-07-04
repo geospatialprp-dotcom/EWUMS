@@ -1077,6 +1077,31 @@ export class ConstructionService {
     }
   }
 
+  /** DPR planned / actual / billing always uses L1 Contractor BOQ when uploaded. */
+  private async resolveDprFinancialBoqItem(
+    tenantId: string,
+    projectId: string,
+    boqItemId: string,
+  ): Promise<{ item: BoqItem; financialSource: Awaited<ReturnType<typeof resolveFinancialBoqSource>> }> {
+    const linked = await this.boqRepo.findOne({
+      where: { id: boqItemId, tenantId, projectId, isActive: true },
+    });
+    if (!linked) throw new NotFoundException('BOQ item not found');
+
+    const financialSource = await resolveFinancialBoqSource(this.boqRepo, tenantId, projectId);
+    const allItems = await this.boqRepo.find({ where: { tenantId, projectId, isActive: true } });
+    const item = resolveFinancialBoqItem(linked, financialSource, allItems);
+
+    if (!item) {
+      throw new BadRequestException(
+        financialSource === 'l1_contractor'
+          ? 'Item not found in L1 Contractor BOQ — upload L1 BOQ in Work Planning'
+          : 'BOQ item not found for DPR progress',
+      );
+    }
+    return { item, financialSource };
+  }
+
   async getDprBoqProgressSummary(
     tenantId: string,
     projectId: string,
@@ -1086,8 +1111,7 @@ export class ConstructionService {
     chainageTo?: string | null,
     reportDate?: string,
   ) {
-    const item = await this.boqRepo.findOne({ where: { id: boqItemId, tenantId, projectId, isActive: true } });
-    if (!item) throw new NotFoundException('BOQ item not found');
+    const { item, financialSource } = await this.resolveDprFinancialBoqItem(tenantId, projectId, boqItemId);
 
     const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
     const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
@@ -1096,7 +1120,7 @@ export class ConstructionService {
       ? scopeSanctionedQty(sanctioned, item.component, workPackages)
       : sanctioned;
     const scopeKey = buildExecutionScopeKey({
-      projectId, boqItemId, workPackageId, chainageFrom, chainageTo,
+      projectId, boqItemId: item.id, workPackageId, chainageFrom, chainageTo,
     });
 
     const execution = await this.dprExecutionRepo.findOne({ where: { projectId, scopeKey } });
@@ -1110,6 +1134,9 @@ export class ConstructionService {
     const scopeBalancePct = mode === 'whole_job' && scopeSanctioned > 0
       ? Math.max(0, 100 - cumulativePctFromQty(scopeContributionQty, scopeSanctioned))
       : undefined;
+    const scopeBalanceQty = mode === 'whole_job'
+      ? Math.max(0, scopeSanctioned - scopeContributionQty)
+      : undefined;
 
     const yesterdayRows = await this.dprActivityRepo.query(
       `SELECT a.progress_pct_today AS "progressPctToday", a.quantity_done AS "quantityDone",
@@ -1122,7 +1149,7 @@ export class ConstructionService {
          AND ($5::date IS NULL OR d.report_date < $5::date)
        ORDER BY d.report_date DESC
        LIMIT 1`,
-      [tenantId, projectId, boqItemId, scopeKey, reportDate ?? null],
+      [tenantId, projectId, item.id, scopeKey, reportDate ?? null],
     ) as Array<{
       progressPctToday: string | null;
       quantityDone: string;
@@ -1140,7 +1167,7 @@ export class ConstructionService {
          AND d.status NOT IN ('draft', 'rejected')
        ORDER BY d.report_date DESC
        LIMIT 7`,
-      [tenantId, projectId, boqItemId, scopeKey],
+      [tenantId, projectId, item.id, scopeKey],
     ) as Array<{ quantityDone: string | null }>;
 
     const dailyPcts = recentQtyRows
@@ -1151,7 +1178,10 @@ export class ConstructionService {
       .filter((p) => p > 0);
 
     return {
-      boqItemId,
+      boqItemId: item.id,
+      boqSource: financialSource,
+      boqSourceLabel: financialBoqLabel(financialSource),
+      itemCode: item.itemCode,
       scopeKey,
       measurementMode: mode,
       sanctionedQty: sanctioned,
@@ -1164,6 +1194,7 @@ export class ConstructionService {
       scopeContributionPct: mode === 'whole_job'
         ? cumulativePctFromQty(scopeContributionQty, scopeSanctioned)
         : undefined,
+      scopeBalanceQty,
       scopeBalancePct,
       chainageFrom: chainageFrom ?? execution?.chainageFrom ?? null,
       chainageTo: chainageTo ?? execution?.chainageTo ?? null,
@@ -1209,8 +1240,7 @@ export class ConstructionService {
         continue;
       }
 
-      const item = await this.boqRepo.findOne({ where: { id: act.boqItemId, tenantId, projectId, isActive: true } });
-      if (!item) throw new BadRequestException(`BOQ item not found for activity "${act.description}"`);
+      const { item } = await this.resolveDprFinancialBoqItem(tenantId, projectId, act.boqItemId);
 
       const mode = (act.progressMode ?? item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
       const boqSanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
@@ -1219,7 +1249,7 @@ export class ConstructionService {
         : boqSanctioned;
       const scopeKey = buildExecutionScopeKey({
         projectId,
-        boqItemId: act.boqItemId,
+        boqItemId: item.id,
         workPackageId,
         chainageFrom: act.chainageFrom,
         chainageTo: act.chainageTo,
@@ -1256,7 +1286,7 @@ export class ConstructionService {
         execution = this.dprExecutionRepo.create({
           tenantId,
           projectId,
-          boqItemId: act.boqItemId,
+          boqItemId: item.id,
           workPackageId,
           scopeKey,
           chainageFrom: act.chainageFrom ?? null,
@@ -1278,6 +1308,7 @@ export class ConstructionService {
 
       prepared.push({
         ...act,
+        boqItemId: item.id,
         progressMode: mode,
         progressPctToday: todayPct ?? undefined,
         cumulativeProgressPct: cumulativePct,
@@ -1309,8 +1340,12 @@ export class ConstructionService {
     for (const act of dpr.activities) {
       if (!act.boqItemId || !act.executionScopeKey) continue;
 
-      const item = await this.boqRepo.findOne({ where: { id: act.boqItemId, tenantId, projectId: dpr.projectId } });
-      if (!item) continue;
+      let item: BoqItem;
+      try {
+        ({ item } = await this.resolveDprFinancialBoqItem(tenantId, dpr.projectId, act.boqItemId));
+      } catch {
+        continue;
+      }
 
       const deltaQty = Number(act.quantityDone ?? 0);
       if (deltaQty <= 0) continue;
@@ -1332,7 +1367,7 @@ export class ConstructionService {
         projectId: dpr.projectId,
         dprId: dpr.id,
         dprActivityId: act.id,
-        boqItemId: act.boqItemId,
+        boqItemId: item.id,
         scopeKey: act.executionScopeKey,
         deltaQty,
         deltaPct: act.progressPctToday != null ? Number(act.progressPctToday) : null,

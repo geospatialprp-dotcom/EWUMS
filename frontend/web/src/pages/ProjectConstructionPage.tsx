@@ -37,6 +37,7 @@ import {
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
 import DprDetailDialog from '../components/construction/DprDetailDialog';
+import DprPlannedVsActualPanel from '../components/construction/DprPlannedVsActualPanel';
 import DprExecutionQtyDisplay from '../components/construction/DprExecutionQtyDisplay';
 import BoqReconciliationPanel from '../components/construction/BoqReconciliationPanel';
 import RaBillPanel from '../components/construction/RaBillPanel';
@@ -644,13 +645,13 @@ export default function ProjectConstructionPage() {
     [workPackages, dprHeaderForm.workPackageId],
   );
   const dprBoqItemsForRow = useCallback((rowComponent: string) => {
-    let items = billingBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType);
+    let items = dprBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType);
     const comp = rowComponent || String(selectedDprWorkPackage?.component ?? '');
     if (comp) {
       items = items.filter((b) => !b.component || String(b.component) === comp);
     }
     return items;
-  }, [billingBoq, dprHeaderForm.schemeType, selectedDprWorkPackage]);
+  }, [dprBoq, dprHeaderForm.schemeType, selectedDprWorkPackage]);
   const [dprActivityRows, setDprActivityRows] = useState<DprActivityRow[]>([emptyDprActivityRow()]);
   const [dprProgressHints, setDprProgressHints] = useState<Record<string, DprProgressSummary>>({});
   const [dprPhotos, setDprPhotos] = useState<File[]>([]);
@@ -707,13 +708,14 @@ export default function ProjectConstructionPage() {
     () => (pendingL1BoqUpload ? parsedBoqRowsToDisplayItems(pendingL1BoqUpload.rows) : l1Boq),
     [pendingL1BoqUpload, l1Boq],
   );
+  const dprBoq = useMemo(() => displayL1Boq, [displayL1Boq]);
   const boqUnitsSource = useMemo(
     () => (displayL1Boq.length > 0 ? displayL1Boq : displayGovBoq),
     [displayL1Boq, displayGovBoq],
   );
   const dprBoqUnits = useMemo(
-    () => collectBoqUnits(boqUnitsSource, dprHeaderForm.schemeType),
-    [boqUnitsSource, dprHeaderForm.schemeType],
+    () => collectBoqUnits(dprBoq, dprHeaderForm.schemeType),
+    [dprBoq, dprHeaderForm.schemeType],
   );
   const mbBoqUnits = useMemo(
     () => collectBoqUnits(boqUnitsSource, mbHeaderForm.schemeType),
@@ -2224,6 +2226,7 @@ export default function ProjectConstructionPage() {
                 { label: 'Unit', align: 'center' as const, minWidth: 56 },
                 { label: 'Qty Today', align: 'right' as const, minWidth: 88 },
                 { label: 'Cumulative Qty', align: 'right' as const, minWidth: 100 },
+                { label: 'Remaining', align: 'right' as const, minWidth: 88 },
                 { label: 'Contractor' },
                 { label: 'Supervisor' },
                 { label: 'Weather', minWidth: 90 },
@@ -2234,7 +2237,7 @@ export default function ProjectConstructionPage() {
             <TableBody>
               {filteredDprs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={13}>
+                  <TableCell colSpan={14}>
                     <Typography variant="body2" color="text.secondary">
                       {dprWeatherFilter
                         ? 'No daily progress reports match the selected weather filter.'
@@ -2246,7 +2249,14 @@ export default function ProjectConstructionPage() {
                 </TableRow>
               )}
               {filteredDprs.map((dpr) => {
-                const summary = dprActivitySummary(dpr);
+                const firstAct = ((dpr.activities as Array<Record<string, unknown>>) ?? [])[0];
+                const boqRef = firstAct?.boqItemId
+                  ? dprBoq.find((b) => String(b.id) === String(firstAct.boqItemId))
+                  : undefined;
+                const plannedQty = boqRef
+                  ? Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0) || null
+                  : null;
+                const summary = dprActivitySummary(dpr, plannedQty);
                 const status = String(dpr.status);
                 const isEditable = canEditDpr(dpr);
                 const dprId = String(dpr.id);
@@ -2267,6 +2277,16 @@ export default function ProjectConstructionPage() {
                     </TableCell>
                     <TableCell align="right">
                       <DprExecutionQtyDisplay billing={summary.billing} variant="cumulative" />
+                    </TableCell>
+                    <TableCell align="right">
+                      {summary.billing.remainingQty != null ? (
+                        <Box>
+                          <Typography variant="body2" fontWeight={700} fontFamily="monospace" color="warning.dark">
+                            {formatProgressQty(summary.billing.remainingQty)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">{summary.billing.unit}</Typography>
+                        </Box>
+                      ) : '—'}
                     </TableCell>
                     <TableCell>{String(dpr.contractorName ?? '—')}</TableCell>
                     <TableCell>{String(dpr.supervisorName ?? '—')}</TableCell>
@@ -2474,6 +2494,11 @@ export default function ProjectConstructionPage() {
           }}
         >
           <Typography variant="subtitle2" fontWeight={700}>Contractor — Daily Progress</Typography>
+          {dprBoq.length === 0 && (
+            <Alert severity="warning">
+              Upload <strong>L1 Contractor BOQ</strong> in Work Planning first. DPR planned qty, actual, and remaining use L1 BOQ only (not government tender BOQ).
+            </Alert>
+          )}
           <Box display="flex" gap={1} flexWrap="wrap">
             <TextField
               required label="DPR number" sx={{ flex: 1, minWidth: 160 }}
@@ -2627,10 +2652,10 @@ export default function ProjectConstructionPage() {
                     {Object.entries(COMPONENT_LABELS).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
                   </TextField>
                   <TextField
-                    select label="BOQ Item" sx={{ flex: 1, minWidth: 160 }}
+                    select label="BOQ Item (L1 Contractor)" sx={{ flex: 1, minWidth: 160 }}
                     value={row.boqItemId}
                     onChange={(e) => {
-                      const item = billingBoq.find((b) => String(b.id) === e.target.value);
+                      const item = dprBoq.find((b) => String(b.id) === e.target.value);
                       const wholeJob = isWholeJobMeasurement(
                         String(item?.measurementMode ?? ''),
                         String(item?.unit ?? ''),
@@ -2666,11 +2691,11 @@ export default function ProjectConstructionPage() {
                   </TextField>
                 </Box>
                 {row.boqItemId && (() => {
-                  const boqRef = billingBoq.find((b) => String(b.id) === row.boqItemId);
+                  const boqRef = dprBoq.find((b) => String(b.id) === row.boqItemId);
                   if (!boqRef) return null;
                   return (
                     <Typography variant="caption" color="text.secondary" display="block">
-                      As per BOQ: <strong>{String(boqRef.itemCode)}</strong>
+                      As per L1 Contractor BOQ: <strong>{String(boqRef.itemCode)}</strong>
                       {' · sanctioned '}{String(boqRef.contractQty)} {String(boqRef.unit)}
                       {boqRef.component
                         ? ` · ${COMPONENT_LABELS[boqRef.component as ProjectComponent] ?? boqRef.component}`
@@ -2731,19 +2756,21 @@ export default function ProjectConstructionPage() {
                         ))}
                       </TextField>
                       <TextField
-                        label="BOQ % (frozen)"
+                        label="Scheme % (frozen)"
                         sx={{ flex: 1, minWidth: 120 }}
                         value={`${frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).boqPctToday}%`}
                         InputProps={{ readOnly: true }}
                         disabled
+                        helperText="of full BOQ line"
                       />
-                      {frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).locationPctToday != null && (
+                      {frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).jobPctToday != null && (
                         <TextField
-                          label="Location % (frozen)"
-                          sx={{ flex: 1, minWidth: 120 }}
-                          value={`${frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).locationPctToday}%`}
+                          label="% of this Job (frozen)"
+                          sx={{ flex: 1, minWidth: 140 }}
+                          value={`${frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).jobPctToday}%`}
                           InputProps={{ readOnly: true }}
                           disabled
+                          helperText="physical progress on this Job"
                         />
                       )}
                     </>
@@ -2779,11 +2806,12 @@ export default function ProjectConstructionPage() {
                       />
                       {row.boqItemId && dprProgressHints[row.key] && Number(dprProgressHints[row.key].sanctionedQty) > 0 && (
                         <TextField
-                          label="BOQ % (frozen)"
-                          sx={{ flex: 1, minWidth: 120 }}
+                          label="% of BOQ line (frozen)"
+                          sx={{ flex: 1, minWidth: 140 }}
                           value={`${pctFromQty(row.quantityDone, Number(dprProgressHints[row.key].sanctionedQty))}%`}
                           InputProps={{ readOnly: true }}
                           disabled
+                          helperText="remaining = planned − actual"
                         />
                       )}
                     </>
@@ -2812,79 +2840,13 @@ export default function ProjectConstructionPage() {
                     ))}
                   </TextField>
                 </Box>
-                {row.boqItemId && (() => {
-                  const boqRef = billingBoq.find((b) => String(b.id) === row.boqItemId);
-                  if (!boqRef) return null;
-                  const hint = dprProgressHints[row.key];
-                  const boqQty = Number(hint?.sanctionedQty ?? boqRef.contractQty);
-                  const unit = String(boqRef.unit);
-                  const scopeQty = Number(hint?.scopeSanctionedQty ?? boqQty);
-                  const splitAcrossLocations = scopeQty < boqQty - 0.0005;
-                  return (
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      BOQ: <strong>{boqQty} {unit}</strong> total.
-                      {splitAcrossLocations ? (
-                        <>
-                          {' '}This work package: up to <strong>{scopeQty} {unit}</strong>.
-                          {' '}Select qty — when you pick <strong>1 {unit}</strong>, location % freezes at <strong>100%</strong>.
-                        </>
-                      ) : (
-                        <>
-                          {' '}Select qty executed today — % freezes automatically from BOQ qty.
-                        </>
-                      )}
-                    </Typography>
-                  );
-                })()}
-                {dprProgressHints[row.key] && (() => {
-                  const hint = dprProgressHints[row.key];
-                  const unit = row.unit || '';
-                  const boqSanctioned = Number(hint.sanctionedQty ?? 0);
-                  const cumQty = Number(hint.cumulativeQty ?? 0);
-                  const balQty = Number(hint.balanceQty ?? 0);
-                  return (
-                  <Alert severity="info" sx={{ py: 0.5 }}>
-                    {isWholeJobMeasurement(row.progressMode, row.unit) && (row.chainageFrom || row.chainageTo)
-                      ? `Location ${row.chainageFrom || '0'}–${row.chainageTo || '0'} · `
-                      : ''}
-                    Yesterday: {formatProgressQty(hint.yesterdaysProgress)}{unit ? ` ${unit}` : ''}
-                    {' · '}
-                    <strong>
-                      BOQ cumulative: {formatProgressQty(cumQty)}{unit ? ` ${unit}` : ''} ({hint.cumulativePct}%)
-                    </strong>
-                    {' · '}
-                    Balance: {formatProgressQty(balQty)}{unit ? ` ${unit}` : ''} ({hint.balancePct}%)
-                    {hint.scopeContributionQty != null && hint.scopeContributionQty > 0
-                      ? ` · This location: ${formatProgressQty(hint.scopeContributionQty)}${unit ? ` ${unit}` : ''}`
-                        + (hint.scopeContributionPct != null ? ` (${hint.scopeContributionPct}%)` : '')
-                      : ''}
-                    {hint.scopeBalancePct != null
-                      && hint.scopeSanctionedQty != null
-                      && Number(hint.scopeSanctionedQty) < boqSanctioned
-                      ? ` · Location balance: ${formatProgressQty(Math.max(0, Number(hint.scopeSanctionedQty) - Number(hint.scopeContributionQty ?? 0)))}${unit ? ` ${unit}` : ''} (${hint.scopeBalancePct}%)`
-                      : ''}
-                    {hint.expectedCompletionDate
-                      ? ` · ETC: ${hint.expectedCompletionDate}`
-                      : ''}
-                    {row.quantityDone > 0 && boqSanctioned > 0 && (() => {
-                      const scopeSanctioned = Number(hint.scopeSanctionedQty ?? boqSanctioned);
-                      const deltaQty = row.quantityDone;
-                      const afterBoqQty = cumQty + deltaQty;
-                      const todayBoqPct = Math.round((deltaQty / boqSanctioned) * 10000) / 100;
-                      const afterBoqPct = Math.min(100, Math.round((afterBoqQty / boqSanctioned) * 10000) / 100);
-                      const afterScopeQty = Number(hint.scopeContributionQty ?? 0) + deltaQty;
-                      const afterScopePct = scopeSanctioned > 0
-                        ? Math.min(100, Math.round((afterScopeQty / scopeSanctioned) * 10000) / 100)
-                        : null;
-                      if (afterScopePct != null && scopeSanctioned < boqSanctioned) {
-                        const todayScopePct = Math.round((deltaQty / scopeSanctioned) * 10000) / 100;
-                        return ` · After today: BOQ ${formatProgressQty(afterBoqQty)} ${unit} (${afterBoqPct}%), this location ${formatProgressQty(afterScopeQty)} ${unit} (${afterScopePct}%) — today ${formatProgressQty(deltaQty)} ${unit} (${todayBoqPct}% BOQ, ${todayScopePct}% location)`;
-                      }
-                      return ` · After today: ${formatProgressQty(afterBoqQty)} ${unit} (${afterBoqPct}%) — today ${formatProgressQty(deltaQty)} ${unit} (${todayBoqPct}%)`;
-                    })()}
-                  </Alert>
-                  );
-                })()}
+                {row.boqItemId && dprProgressHints[row.key] && (
+                  <DprPlannedVsActualPanel
+                    hint={dprProgressHints[row.key]}
+                    todayQty={row.quantityDone}
+                    unit={row.unit}
+                  />
+                )}
                 <TextField
                   fullWidth
                   label="Work done today"
