@@ -637,6 +637,18 @@ export default function ProjectConstructionPage() {
   const [dprWeatherFilter, setDprWeatherFilter] = useState('');
   const [editingDprId, setEditingDprId] = useState<string | null>(null);
   const [dprHeaderForm, setDprHeaderForm] = useState<DprHeaderForm>(defaultDprHeader());
+  const selectedDprWorkPackage = useMemo(
+    () => workPackages.find((w) => String(w.id) === dprHeaderForm.workPackageId),
+    [workPackages, dprHeaderForm.workPackageId],
+  );
+  const dprBoqItemsForRow = useCallback((rowComponent: string) => {
+    let items = billingBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType);
+    const comp = rowComponent || String(selectedDprWorkPackage?.component ?? '');
+    if (comp) {
+      items = items.filter((b) => !b.component || String(b.component) === comp);
+    }
+    return items;
+  }, [billingBoq, dprHeaderForm.schemeType, selectedDprWorkPackage]);
   const [dprActivityRows, setDprActivityRows] = useState<DprActivityRow[]>([emptyDprActivityRow()]);
   const [dprProgressHints, setDprProgressHints] = useState<Record<string, DprProgressSummary>>({});
   const [dprPhotos, setDprPhotos] = useState<File[]>([]);
@@ -2479,7 +2491,18 @@ export default function ProjectConstructionPage() {
                   ...dprHeaderForm,
                   workPackageId: wpId,
                   contractorName: wp ? String(wp.contractorName ?? dprHeaderForm.contractorName) : dprHeaderForm.contractorName,
+                  workLocation: wp && !dprHeaderForm.workLocation
+                    ? String(wp.name ?? '')
+                    : dprHeaderForm.workLocation,
                 });
+                if (wp) {
+                  setDprActivityRows((rows) => rows.map((r) => ({
+                    ...r,
+                    component: (String(wp.component ?? r.component) as ProjectComponent),
+                    chainageFrom: String(wp.chainageFrom ?? r.chainageFrom),
+                    chainageTo: String(wp.chainageTo ?? r.chainageTo),
+                  })));
+                }
               }}
             >
               <MenuItem value="">— None —</MenuItem>
@@ -2612,14 +2635,28 @@ export default function ProjectConstructionPage() {
                     }}
                   >
                     <MenuItem value="">— None —</MenuItem>
-                    {billingBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType).map((b) => (
+                    {dprBoqItemsForRow(String(row.component)).map((b) => (
                       <MenuItem key={String(b.id)} value={String(b.id)}>
-                        {String(b.itemCode)} — {String(b.description).slice(0, 40)}
+                        {String(b.itemCode)} · {String(b.contractQty)} {String(b.unit)}
+                        {' — '}{String(b.description).slice(0, 36)}
                         {isWholeJobMeasurement(String(b.measurementMode ?? ''), String(b.unit ?? '')) ? ' (Job)' : ''}
                       </MenuItem>
                     ))}
                   </TextField>
                 </Box>
+                {row.boqItemId && (() => {
+                  const boqRef = billingBoq.find((b) => String(b.id) === row.boqItemId);
+                  if (!boqRef) return null;
+                  return (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      As per BOQ: <strong>{String(boqRef.itemCode)}</strong>
+                      {' · sanctioned '}{String(boqRef.contractQty)} {String(boqRef.unit)}
+                      {boqRef.component
+                        ? ` · ${COMPONENT_LABELS[boqRef.component as ProjectComponent] ?? boqRef.component}`
+                        : ''}
+                    </Typography>
+                  );
+                })()}
                 <Box display="flex" gap={1} flexWrap="wrap">
                   <TextField
                     label="Chainage From" placeholder="0+000" sx={{ flex: 1, minWidth: 120 }}
@@ -2671,9 +2708,9 @@ export default function ProjectConstructionPage() {
                 </Box>
                 {isWholeJobMeasurement(row.progressMode, row.unit) && row.boqItemId && (
                   <Typography variant="caption" color="text.secondary" display="block">
-                    <strong>1 Job total</strong> for this BOQ item — use <strong>Chainage</strong> and <strong>Site location</strong> to record
-                    which stretch was worked today (e.g. Location 1: 0–50, Location 2: 50–100).
-                    Today&apos;s % counts toward the single Job, not separately per location.
+                    As per BOQ this item is <strong>1 Job total</strong>.
+                    Select the <strong>Work Package</strong> for today&apos;s location (chainage comes from EE work planning).
+                    Today&apos;s % updates the BOQ line — not a separate Job per location.
                   </Typography>
                 )}
                 {dprProgressHints[row.key] && (
