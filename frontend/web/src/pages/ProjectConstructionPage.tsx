@@ -1234,6 +1234,7 @@ export default function ProjectConstructionPage() {
             : row
         )));
         setGpsCapturingKey(null);
+        setError('');
         setSuccess('GPS coordinates captured.');
       },
       (err) => {
@@ -1290,12 +1291,17 @@ export default function ProjectConstructionPage() {
       return;
     }
     try {
+      setError('');
       const { data } = editingDprId
         ? await constructionApi.updateDpr(projectId, editingDprId, payload)
         : await constructionApi.createDpr(projectId, payload);
       const dprId = String((data as Record<string, unknown>).id);
       if (dprPhotos.length) {
-        await uploadDprPhotos(dprId);
+        try {
+          await uploadDprPhotos(dprId);
+        } catch (photoErr) {
+          setError(formatApiError(photoErr, 'DPR saved but photo upload failed.'));
+        }
       }
       setDprDialog(false);
       resetDprForm();
