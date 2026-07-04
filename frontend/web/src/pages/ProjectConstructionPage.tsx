@@ -18,6 +18,7 @@ import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import SendIcon from '@mui/icons-material/Send';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { constructionApi, projectsApi, type SchemeType } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -2276,7 +2277,7 @@ export default function ProjectConstructionPage() {
             </Box>
           </Box>
           <Box sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ ...constructionTableShellSx('dpr'), minWidth: 1524, tableLayout: 'fixed', width: 'max-content' }}>
+          <Table size="small" sx={{ ...constructionTableShellSx('dpr'), minWidth: 1572, tableLayout: 'fixed', width: 'max-content' }}>
             <colgroup>
               <col style={{ width: 52 }} />
               <col style={{ width: 92 }} />
@@ -2293,7 +2294,7 @@ export default function ProjectConstructionPage() {
               <col style={{ width: 100 }} />
               <col style={{ width: 72 }} />
               <col style={{ width: 108 }} />
-              <col style={{ width: 200 }} />
+              <col style={{ width: 248 }} />
             </colgroup>
             <ConstructionTableHead
               stage="dpr"
@@ -2313,7 +2314,7 @@ export default function ProjectConstructionPage() {
                 { label: 'Supervisor', width: 100 },
                 { label: 'Weather', width: 72 },
                 { label: 'Workflow', width: 108 },
-                { label: 'Actions', width: 200 },
+                { label: 'Actions', width: 248 },
               ]}
             />
             <TableBody>
@@ -2411,7 +2412,11 @@ export default function ProjectConstructionPage() {
                             </Button>
                             {canSubmitDpr && isEditable && (
                               <Button
-                                size="small" variant="outlined"
+                                size="small"
+                                variant="outlined"
+                                color="inherit"
+                                startIcon={<EditOutlinedIcon fontSize="small" />}
+                                sx={{ whiteSpace: 'nowrap' }}
                                 onClick={() => { void loadDprForEdit(dprId); }}
                               >
                                 Edit
@@ -2419,7 +2424,11 @@ export default function ProjectConstructionPage() {
                             )}
                             {canSubmitDpr && isEditable && (
                               <Button
-                                size="small" variant="contained"
+                                size="small"
+                                variant="contained"
+                                color="success"
+                                startIcon={<SendIcon fontSize="small" />}
+                                sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}
                                 onClick={() => { void submitWorkflow(() => constructionApi.submitDpr(projectId, dprId), 'submit DPR'); }}
                               >
                                 {status === 'rejected' ? 'Resubmit' : 'Submit to JE'}
