@@ -30,10 +30,10 @@ import {
   constructionWorkflowChipSx,
 } from '../utils/constructionTableStyles';
 import {
-  activityRowFromBoqAndWp, buildDprPayload, defaultDprHeader, dprActivitySummaryForActivity,
+  activityRowFromBoqAndWp, buildDprPayload, defaultDprHeader, dprActivityDescriptionFromBoq,
+  dprActivitySummaryForActivity,
   emptyDprActivityRow, findL1BoqForComponent, flattenDprsForTable, formatProgressQty,
-  frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillAllDprActivitiesFromWp,
-  prefillDprActivitiesFromWp, resolveDprProgressHint, resolveL1BoqItem, wholeJobQtySelectOptions,
+  frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillDprActivitiesFromWp, resolveDprProgressHint, resolveL1BoqItem, wholeJobQtySelectOptions,
   wholeJobScopeBalanceQty, matchingWorkPackageCount,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
@@ -1174,6 +1174,8 @@ export default function ProjectConstructionPage() {
   const openNewDprDialog = () => {
     resetDprForm();
     const header = defaultDprHeader();
+    const nums = visibleDprs.map((d) => Number(String(d.dprNumber).replace(/\D/g, '')) || 0);
+    header.dprNumber = String(nums.length ? Math.max(...nums) + 1 : 1);
     let activityRows = [emptyDprActivityRow()];
     if (isContractorUser && user) {
       const wpContractor = workPackages.length === 1
@@ -1239,15 +1241,22 @@ export default function ProjectConstructionPage() {
               quantityDone = 0;
             }
           }
+          const boqLine = resolveL1BoqItem(
+            String(act.boqItemId ?? ''),
+            String(act.activityCode ?? ''),
+            dprBoq,
+            boq,
+          );
+          const boqDesc = boqLine ? String(boqLine.description ?? '').trim() : '';
           return {
           key: emptyDprActivityRow().key,
-          description: String(act.description ?? ''),
+          description: boqDesc || String(act.description ?? ''),
           unit,
           quantityDone,
           progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
           progressPctToday: Number(act.progressPctToday ?? 0),
-          workDoneToday: String(act.workDoneToday ?? act.description ?? ''),
-          boqItemId: String(act.boqItemId ?? ''),
+          workDoneToday: boqDesc || String(act.workDoneToday ?? act.description ?? ''),
+          boqItemId: boqLine ? String(boqLine.id) : String(act.boqItemId ?? ''),
           component: (act.component as ProjectComponent) ?? '',
           chainageFrom: String(act.chainageFrom ?? ''),
           chainageTo: String(act.chainageTo ?? ''),
@@ -1260,7 +1269,7 @@ export default function ProjectConstructionPage() {
         };
         });
       } else if (wp && dprBoq.length) {
-        activityRows = prefillAllDprActivitiesFromWp(wp, dprBoq, schemeType);
+        activityRows = prefillDprActivitiesFromWp(wp, dprBoq, schemeType);
       } else {
         activityRows = [emptyDprActivityRow()];
       }
@@ -2701,7 +2710,7 @@ export default function ProjectConstructionPage() {
           <Box display="flex" flexDirection="column" gap={2} sx={{ flexShrink: 0 }}>
           {dprActivityRows.map((row, idx) => {
             const boqRef = row.boqItemId
-              ? dprBoq.find((b) => String(b.id) === row.boqItemId)
+              ? resolveL1BoqItem(row.boqItemId, '', dprBoq, boq)
               : undefined;
             const wpCount = matchingWorkPackageCount(workPackages, String(row.component));
             const progressHint = resolveDprProgressHint(dprProgressHints[row.key], boqRef, wpCount);
@@ -2733,17 +2742,26 @@ export default function ProjectConstructionPage() {
                 )}
               </Box>
               <Box display="flex" flexDirection="column" gap={1.5}>
-                <TextField
-                  fullWidth
-                  required label="Work Item / Activity Description"
-                  value={row.description}
-                  onChange={(e) => updateDprActivityRow(row.key, { description: e.target.value })}
-                />
                 <Box display="flex" gap={1} flexWrap="wrap">
                   <TextField
                     select label="Component" sx={{ flex: 1, minWidth: 160 }}
                     value={row.component}
-                    onChange={(e) => updateDprActivityRow(row.key, { component: e.target.value as ProjectComponent })}
+                    onChange={(e) => {
+                      const component = e.target.value as ProjectComponent;
+                      setDprActivityRows((rows) => rows.map((r) => (
+                        r.key === row.key
+                          ? {
+                            ...r,
+                            component,
+                            boqItemId: '',
+                            description: '',
+                            workDoneToday: '',
+                            quantityDone: 0,
+                            progressPctToday: 0,
+                          }
+                          : r
+                      )));
+                    }}
                   >
                     <MenuItem value="">— Select —</MenuItem>
                     {PROJECT_COMPONENT_ORDER.map((k) => (
@@ -2754,32 +2772,35 @@ export default function ProjectConstructionPage() {
                     select label="BOQ Item (L1 Contractor)" sx={{ flex: 1, minWidth: 160 }}
                     value={row.boqItemId}
                     onChange={(e) => {
-                      const item = dprBoq.find((b) => String(b.id) === e.target.value);
+                      const boqItemId = e.target.value;
+                      const item = boqItemId
+                        ? resolveL1BoqItem(boqItemId, '', dprBoq, boq)
+                        : undefined;
+                      const boqDesc = item ? String(item.description ?? '').trim() : '';
                       const wholeJob = isWholeJobMeasurement(
                         String(item?.measurementMode ?? ''),
                         String(item?.unit ?? ''),
                       );
-                      const nextRow = {
+                      const nextRow: DprActivityRow = {
                         ...row,
-                        boqItemId: e.target.value,
-                        description: row.description || (item ? String(item.description) : ''),
+                        boqItemId: item ? String(item.id) : boqItemId,
+                        description: boqDesc,
+                        workDoneToday: boqDesc,
                         unit: item ? String(item.unit) : row.unit,
-                        progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
+                        component: (item?.component
+                          ? String(item.component)
+                          : row.component) as ProjectComponent,
+                        progressMode: wholeJob ? 'whole_job' : 'discrete_qty',
                         quantityDone: 0,
                         progressPctToday: 0,
                       };
-                      updateDprActivityRow(row.key, {
-                        boqItemId: nextRow.boqItemId,
-                        description: nextRow.description,
-                        unit: nextRow.unit,
-                        progressMode: nextRow.progressMode,
-                        quantityDone: 0,
-                        progressPctToday: 0,
-                      });
-                      void refreshDprProgressHint(nextRow);
+                      setDprActivityRows((rows) => rows.map((r) => (
+                        r.key === row.key ? nextRow : r
+                      )));
+                      if (boqItemId) void refreshDprProgressHint(nextRow);
                     }}
                   >
-                    <MenuItem value="">— None —</MenuItem>
+                    <MenuItem value="">— Select —</MenuItem>
                     {dprBoqItemsForRow(String(row.component)).map((b) => (
                       <MenuItem key={String(b.id)} value={String(b.id)}>
                         {String(b.itemCode)} · {String(b.contractQty)} {String(b.unit)}
@@ -2789,6 +2810,16 @@ export default function ProjectConstructionPage() {
                     ))}
                   </TextField>
                 </Box>
+                <TextField
+                  fullWidth
+                  required
+                  label="Work Item / Activity Description"
+                  value={dprActivityDescriptionFromBoq(row, boqRef)}
+                  InputProps={{ readOnly: true }}
+                  helperText={row.boqItemId
+                    ? 'Auto-filled from selected L1 BOQ item'
+                    : 'Select a BOQ item above'}
+                />
                 {row.boqItemId && boqRef && (
                     <Typography variant="caption" color="text.secondary" display="block">
                       As per L1 Contractor BOQ: <strong>{String(boqRef.itemCode)}</strong>
@@ -2952,7 +2983,9 @@ export default function ProjectConstructionPage() {
                   fullWidth
                   label="Work done today"
                   placeholder="Describe physical progress completed today"
-                  value={row.workDoneToday}
+                  value={boqRef ? dprActivityDescriptionFromBoq(row, boqRef) : row.workDoneToday}
+                  InputProps={{ readOnly: Boolean(boqRef) }}
+                  helperText={boqRef ? 'From selected L1 BOQ item' : undefined}
                   onChange={(e) => updateDprActivityRow(row.key, { workDoneToday: e.target.value })}
                 />
 

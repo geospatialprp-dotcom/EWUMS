@@ -148,6 +148,32 @@ export class ConstructionService {
     return user?.roles?.includes('contractor') ?? false;
   }
 
+  private raiseDprPersistenceError(err: unknown): never {
+    if (
+      err instanceof BadRequestException
+      || err instanceof ForbiddenException
+      || err instanceof NotFoundException
+    ) {
+      throw err;
+    }
+    if (err instanceof QueryFailedError) {
+      const code = (err as { code?: string }).code;
+      const detail = String((err as { detail?: string }).detail ?? '');
+      if (code === '23505' && (detail.includes('dpr_number') || detail.includes('project_id'))) {
+        throw new BadRequestException(
+          'DPR number already exists for this project. Edit the existing DPR or use the next number.',
+        );
+      }
+      const msg = String(err.message ?? '');
+      if (/progress_mode|execution_scope_key|cumulative_progress|dpr_boq_execution/i.test(msg)) {
+        throw new BadRequestException(
+          'DPR progress is not set up on this server — run migration 104 (vps-migrate-104-dpr-progress.sh).',
+        );
+      }
+    }
+    throw err;
+  }
+
   async getOverview(tenantId: string, projectId: string, user?: JwtPayload) {
     const dashboard = await this.getDashboard(tenantId, projectId, user);
     return {
@@ -1023,7 +1049,10 @@ export class ConstructionService {
       const items = matches.length
         ? matches
         : this.findBoqItemsForComponent(boqItems, null, dpr.schemeType);
-      activities = items.map((item, idx) => this.buildSyntheticDprActivity(item, wp, idx)) as unknown as DprActivity[];
+      const first = items[0];
+      if (first) {
+        activities = [this.buildSyntheticDprActivity(first, wp, 0) as unknown as DprActivity];
+      }
     } else {
       activities = activities.map((act) => {
         const enriched = { ...act } as DprActivity & { itemCode?: string; plannedQty?: number };
@@ -1065,21 +1094,20 @@ export class ConstructionService {
       ? matches
       : this.findBoqItemsForComponent(boqItems, null, schemeType);
     if (!items.length) return [];
-    return items.map((item) => {
-      const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
-      return {
-        description: item.description,
-        activityCode: item.itemCode,
-        unit: item.unit,
-        quantityDone: 0,
-        progressMode: mode,
-        boqItemId: item.id,
-        component: wp.component,
-        chainageFrom: wp.chainageFrom ?? undefined,
-        chainageTo: wp.chainageTo ?? undefined,
-        workDoneToday: item.description,
-      };
-    });
+    const item = items[0];
+    const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
+    return [{
+      description: item.description,
+      activityCode: item.itemCode,
+      unit: item.unit,
+      quantityDone: 0,
+      progressMode: mode,
+      boqItemId: item.id,
+      component: wp.component,
+      chainageFrom: wp.chainageFrom ?? undefined,
+      chainageTo: wp.chainageTo ?? undefined,
+      workDoneToday: item.description,
+    }];
   }
 
   async listDprs(tenantId: string, projectId: string, user?: JwtPayload) {
@@ -1129,10 +1157,20 @@ export class ConstructionService {
       }
     }
 
+    const dprNumber = dto.dprNumber?.trim();
+    if (!dprNumber) throw new BadRequestException('DPR number is required');
+
+    const duplicate = await this.dprRepo.findOne({ where: { tenantId, projectId, dprNumber } });
+    if (duplicate) {
+      throw new BadRequestException(
+        `DPR number "${dprNumber}" already exists. Edit that report or use the next number.`,
+      );
+    }
+
     const dpr = this.dprRepo.create({
       tenantId,
       projectId,
-      dprNumber: dto.dprNumber,
+      dprNumber,
       reportDate: dto.reportDate,
       schemeType: dto.schemeType,
       workSite: dto.workLocation ?? null,
@@ -1145,13 +1183,24 @@ export class ConstructionService {
       status: 'draft',
       submittedBy: user.sub,
     });
-    const saved = await this.dprRepo.save(dpr);
-    const prepared = await this.validateAndPrepareDprActivities(
-      tenantId, projectId, dto.reportDate, dto.schemeType, dto.workPackageId ?? null, dto.activities,
-    );
-    await this.saveDprActivities(saved.id, prepared);
-    await this.refreshProjectProgress(tenantId, projectId, 'milestones');
-    return this.getDpr(tenantId, projectId, saved.id, user);
+
+    let savedId: string | undefined;
+    try {
+      const saved = await this.dprRepo.save(dpr);
+      savedId = saved.id;
+      const prepared = await this.validateAndPrepareDprActivities(
+        tenantId, projectId, dto.reportDate, dto.schemeType, dto.workPackageId ?? null, dto.activities,
+      );
+      await this.saveDprActivities(saved.id, prepared);
+      await this.refreshProjectProgress(tenantId, projectId, 'milestones');
+      return this.getDpr(tenantId, projectId, saved.id, user);
+    } catch (err) {
+      if (savedId) {
+        await this.dprActivityRepo.delete({ dprId: savedId }).catch(() => undefined);
+        await this.dprRepo.delete({ id: savedId }).catch(() => undefined);
+      }
+      this.raiseDprPersistenceError(err);
+    }
   }
 
   async updateDpr(
@@ -1171,8 +1220,19 @@ export class ConstructionService {
       throw new BadRequestException('Only draft or rejected DPRs can be edited');
     }
 
+    const dprNumber = dto.dprNumber?.trim();
+    if (!dprNumber) throw new BadRequestException('DPR number is required');
+    if (dprNumber !== dpr.dprNumber) {
+      const duplicate = await this.dprRepo.findOne({ where: { tenantId, projectId, dprNumber } });
+      if (duplicate && duplicate.id !== id) {
+        throw new BadRequestException(
+          `DPR number "${dprNumber}" is already used by another report.`,
+        );
+      }
+    }
+
     Object.assign(dpr, {
-      dprNumber: dto.dprNumber,
+      dprNumber,
       reportDate: dto.reportDate,
       schemeType: dto.schemeType,
       workSite: dto.workLocation ?? null,
@@ -1184,13 +1244,17 @@ export class ConstructionService {
       remarks: dto.remarks ?? null,
       submittedBy: user.sub,
     });
-    await this.dprRepo.save(dpr);
-    const prepared = await this.validateAndPrepareDprActivities(
-      tenantId, projectId, dto.reportDate, dto.schemeType, dto.workPackageId ?? null, dto.activities,
-    );
-    await this.saveDprActivities(dpr.id, prepared);
-    await this.refreshProjectProgress(tenantId, projectId, 'milestones');
-    return this.getDpr(tenantId, projectId, dpr.id, user);
+    try {
+      await this.dprRepo.save(dpr);
+      const prepared = await this.validateAndPrepareDprActivities(
+        tenantId, projectId, dto.reportDate, dto.schemeType, dto.workPackageId ?? null, dto.activities,
+      );
+      await this.saveDprActivities(dpr.id, prepared);
+      await this.refreshProjectProgress(tenantId, projectId, 'milestones');
+      return this.getDpr(tenantId, projectId, dpr.id, user);
+    } catch (err) {
+      this.raiseDprPersistenceError(err);
+    }
   }
 
   private async assertContractorOwnsDpr(dpr: DprReport, user?: JwtPayload, tenantId?: string): Promise<void> {
@@ -1294,12 +1358,12 @@ export class ConstructionService {
        ORDER BY d.report_date DESC
        LIMIT 1`,
       [tenantId, projectId, item.id, scopeKey, reportDate ?? null],
-    ) as Array<{
+    ).catch(() => [] as Array<{
       progressPctToday: string | null;
       quantityDone: string;
       progressMode: string;
       reportDate: string;
-    }>;
+    }>);
 
     const yesterday = yesterdayRows[0];
     const recentQtyRows = await this.dprActivityRepo.query(
@@ -1312,7 +1376,7 @@ export class ConstructionService {
        ORDER BY d.report_date DESC
        LIMIT 7`,
       [tenantId, projectId, item.id, scopeKey],
-    ) as Array<{ quantityDone: string | null }>;
+    ).catch(() => [] as Array<{ quantityDone: string | null }>);
 
     const dailyPcts = recentQtyRows
       .map((r) => {

@@ -407,6 +407,14 @@ export function findL1BoqForComponent(
   return items;
 }
 
+export function dprActivityDescriptionFromBoq(
+  row: Pick<DprActivityRow, 'description' | 'boqItemId'>,
+  boqRef?: Record<string, unknown> | null,
+): string {
+  if (boqRef) return String(boqRef.description ?? '').trim();
+  return String(row.description ?? '').trim();
+}
+
 export function activityRowFromBoqAndWp(
   boq: Record<string, unknown>,
   wp: Record<string, unknown>,
@@ -481,8 +489,9 @@ export function buildDprPayload(
         const boqLine = row.boqItemId
           ? l1Boq.find((b) => String(b.id) === row.boqItemId)
           : undefined;
-        const description = row.description.trim()
-          || (boqLine ? String(boqLine.description ?? '') : '');
+        const description = boqLine
+          ? String(boqLine.description ?? '').trim()
+          : row.description.trim();
         return {
           description,
           activityCode: boqLine ? String(boqLine.itemCode ?? '') || undefined : undefined,
