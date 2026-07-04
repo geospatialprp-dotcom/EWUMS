@@ -1131,8 +1131,8 @@ export class ConstructionService {
     }>;
 
     const yesterday = yesterdayRows[0];
-    const recentPctRows = await this.dprActivityRepo.query(
-      `SELECT a.progress_pct_today AS "progressPctToday"
+    const recentQtyRows = await this.dprActivityRepo.query(
+      `SELECT a.quantity_done AS "quantityDone"
        FROM dpr_activities a
        JOIN dpr_reports d ON d.id = a.dpr_id
        WHERE d.tenant_id = $1 AND d.project_id = $2 AND a.boq_item_id = $3
@@ -1141,10 +1141,13 @@ export class ConstructionService {
        ORDER BY d.report_date DESC
        LIMIT 7`,
       [tenantId, projectId, boqItemId, scopeKey],
-    ) as Array<{ progressPctToday: string | null }>;
+    ) as Array<{ quantityDone: string | null }>;
 
-    const dailyPcts = recentPctRows
-      .map((r) => Number(r.progressPctToday ?? 0))
+    const dailyPcts = recentQtyRows
+      .map((r) => {
+        const qty = Number(r.quantityDone ?? 0);
+        return sanctioned > 0 ? (qty / sanctioned) * 100 : 0;
+      })
       .filter((p) => p > 0);
 
     return {
@@ -1165,12 +1168,8 @@ export class ConstructionService {
       chainageFrom: chainageFrom ?? execution?.chainageFrom ?? null,
       chainageTo: chainageTo ?? execution?.chainageTo ?? null,
       executionStatus: item.dprExecutionStatus ?? execution?.status ?? 'not_started',
-      yesterdaysProgress: yesterday
-        ? (yesterday.progressMode === 'whole_job'
-          ? Number(yesterday.progressPctToday ?? 0)
-          : Number(yesterday.quantityDone ?? 0))
-        : 0,
-      yesterdaysProgressLabel: yesterday?.progressMode === 'whole_job' ? 'pct' : 'qty',
+      yesterdaysProgress: yesterday ? Number(yesterday.quantityDone ?? 0) : 0,
+      yesterdaysProgressLabel: 'qty' as const,
       expectedCompletionDate: execution?.expectedCompletionDate
         ?? estimateExpectedCompletion(reportDate ?? new Date().toISOString().slice(0, 10), cumulativePct, dailyPcts),
     };
@@ -1218,7 +1217,6 @@ export class ConstructionService {
       const scopeSanctioned = mode === 'whole_job'
         ? scopeSanctionedQty(boqSanctioned, item.component, workPackages)
         : boqSanctioned;
-      const pctBase = mode === 'whole_job' ? scopeSanctioned : boqSanctioned;
       const scopeKey = buildExecutionScopeKey({
         projectId,
         boqItemId: act.boqItemId,
@@ -1233,8 +1231,8 @@ export class ConstructionService {
 
       const { deltaQty } = progressIncrementQty(
         mode,
-        pctBase,
-        act.progressPctToday,
+        boqSanctioned,
+        null,
         act.quantityDone,
       );
 
@@ -1276,9 +1274,7 @@ export class ConstructionService {
         await this.dprExecutionRepo.save(execution);
       }
 
-      const todayPct = mode === 'whole_job'
-        ? Number(act.progressPctToday ?? 0)
-        : (boqSanctioned > 0 ? cumulativePctFromQty(deltaQty, boqSanctioned) : null);
+      const todayPct = boqSanctioned > 0 ? cumulativePctFromQty(deltaQty, boqSanctioned) : null;
 
       prepared.push({
         ...act,

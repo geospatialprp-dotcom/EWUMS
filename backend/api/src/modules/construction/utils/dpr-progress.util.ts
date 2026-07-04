@@ -56,18 +56,13 @@ export function buildExecutionScopeKey(parts: {
 }
 
 export function progressIncrementQty(
-  mode: BoqMeasurementMode,
-  sanctionedQty: number,
-  progressPctToday: number | null | undefined,
+  _mode: BoqMeasurementMode,
+  _sanctionedQty: number,
+  _progressPctToday: number | null | undefined,
   quantityDone: number,
 ): { deltaQty: number; deltaPct: number | null } {
-  if (mode === 'whole_job') {
-    const pct = Number(progressPctToday ?? 0);
-    const deltaQty = (pct / 100) * sanctionedQty;
-    return { deltaQty, deltaPct: pct };
-  }
   const deltaQty = Number(quantityDone ?? 0);
-  const deltaPct = sanctionedQty > 0 ? (deltaQty / sanctionedQty) * 100 : null;
+  const deltaPct = _sanctionedQty > 0 ? (deltaQty / _sanctionedQty) * 100 : null;
   return { deltaQty, deltaPct };
 }
 
@@ -86,9 +81,8 @@ export function assertProgressWithinSanction(
   const limit = mode === 'whole_job' ? sanctionedQty : sanctionedQty;
   if (after > limit + 0.0005) {
     const balance = Math.max(0, limit - cumulativeBefore);
-    const label = mode === 'whole_job'
-      ? `${cumulativePctFromQty(cumulativeBefore, sanctionedQty)}% complete, balance ${cumulativePctFromQty(balance, sanctionedQty)}%`
-      : `${cumulativeBefore} done, balance ${balance}`;
+    const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
+    const label = `${fmt(cumulativeBefore)} done, balance ${fmt(balance)}`;
     throw new Error(
       `Progress exceeds sanctioned BOQ quantity (${label})`,
     );
