@@ -159,15 +159,25 @@ export class ConstructionService {
     if (err instanceof QueryFailedError) {
       const code = (err as { code?: string }).code;
       const detail = String((err as { detail?: string }).detail ?? '');
-      if (code === '23505' && (detail.includes('dpr_number') || detail.includes('project_id'))) {
-        throw new BadRequestException(
-          'DPR number already exists for this project. Edit the existing DPR or use the next number.',
-        );
-      }
       const msg = String(err.message ?? '');
-      if (/progress_mode|execution_scope_key|cumulative_progress|dpr_boq_execution/i.test(msg)) {
+      if (code === '23505') {
+        if (detail.includes('dpr_number') || detail.includes('project_id')) {
+          throw new BadRequestException(
+            'DPR number already exists for this project. Edit the existing DPR or use the next number.',
+          );
+        }
+      }
+      if (
+        code === '42703'
+        || /progress_mode|execution_scope_key|cumulative_progress|dpr_boq_execution|does not exist/i.test(msg)
+      ) {
         throw new BadRequestException(
           'DPR progress is not set up on this server — run migration 104 (vps-migrate-104-dpr-progress.sh).',
+        );
+      }
+      if (code === '23502' || /not-null|null value in column/i.test(msg)) {
+        throw new BadRequestException(
+          'DPR work item data is incomplete — select an L1 BOQ item for each work line and try again.',
         );
       }
     }
@@ -1447,8 +1457,14 @@ export class ConstructionService {
 
     for (const act of inputActivities) {
       if (!act.boqItemId) {
+        const desc = String(act.description ?? '').trim();
+        if (!desc) {
+          throw new BadRequestException('Each work item needs a description or L1 BOQ line.');
+        }
         prepared.push({
           ...act,
+          description: desc,
+          unit: String(act.unit ?? '').trim() || 'nos',
           progressMode: act.progressMode ?? 'discrete_qty',
           progressPctToday: act.progressPctToday ?? undefined,
           cumulativeProgressPct: 0,
@@ -1528,15 +1544,16 @@ export class ConstructionService {
 
       prepared.push({
         ...act,
+        description: String(act.description ?? '').trim() || item.description,
         boqItemId: item.id,
         progressMode: mode,
         progressPctToday: todayPct ?? undefined,
         cumulativeProgressPct: cumulativePct,
         cumulativeQty: boqCumulativeAfter,
         executionScopeKey: scopeKey,
-        workDoneToday: act.workDoneToday ?? act.description,
+        workDoneToday: act.workDoneToday?.trim() || act.description?.trim() || item.description,
         quantityDone: deltaQty,
-        unit: act.unit || item.unit,
+        unit: act.unit?.trim() || item.unit,
       });
     }
 
@@ -2968,8 +2985,8 @@ export class ConstructionService {
       activities.map((item, index) => this.dprActivityRepo.create({
         dprId,
         activityCode: item.activityCode ?? null,
-        description: item.description,
-        unit: item.unit,
+        description: String(item.description ?? '').trim() || 'Work item',
+        unit: String(item.unit ?? '').trim() || 'nos',
         quantityDone: item.quantityDone,
         progressMode: item.progressMode ?? 'discrete_qty',
         progressPctToday: item.progressPctToday ?? null,

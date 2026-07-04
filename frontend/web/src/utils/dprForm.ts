@@ -470,37 +470,40 @@ export function buildDprPayload(
   header: DprHeaderForm,
   activities: DprActivityRow[],
   l1Boq: Array<Record<string, unknown>> = [],
+  fallbackBoq: Array<Record<string, unknown>> = [],
 ) {
+  const wpId = header.workPackageId?.trim();
   return {
-    dprNumber: header.dprNumber,
+    dprNumber: header.dprNumber.trim(),
     reportDate: header.reportDate,
     schemeType: header.schemeType,
-    workLocation: header.workLocation || undefined,
-    weather: header.weather || undefined,
+    workLocation: header.workLocation?.trim() || undefined,
+    weather: header.weather?.trim() || undefined,
     manpowerCount: Number(header.manpowerCount) || 0,
-    contractorName: header.contractorName || undefined,
-    supervisorName: header.supervisorName || undefined,
-    workPackageId: header.workPackageId || undefined,
+    contractorName: header.contractorName?.trim() || undefined,
+    supervisorName: header.supervisorName?.trim() || undefined,
+    workPackageId: wpId || undefined,
     remarks: header.remarks || undefined,
     activities: activities
-      .filter((row) => row.description.trim() || row.boqItemId)
+      .filter((row) => row.boqItemId || row.description.trim())
       .map((row) => {
         const wholeJob = isWholeJobMeasurement(row.progressMode, row.unit);
         const boqLine = row.boqItemId
-          ? l1Boq.find((b) => String(b.id) === row.boqItemId)
+          ? resolveL1BoqItem(row.boqItemId, '', l1Boq, fallbackBoq)
           : undefined;
         const description = boqLine
           ? String(boqLine.description ?? '').trim()
           : row.description.trim();
+        const unit = row.unit?.trim() || (boqLine ? String(boqLine.unit ?? '') : '');
         return {
-          description,
+          description: description || 'Work item',
           activityCode: boqLine ? String(boqLine.itemCode ?? '') || undefined : undefined,
-          unit: row.unit || (boqLine ? String(boqLine.unit ?? '') : ''),
+          unit: unit || 'nos',
           progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
           workDoneToday: row.workDoneToday.trim() || description,
           quantityDone: Number(row.quantityDone) || 0,
           progressPctToday: row.progressPctToday > 0 ? row.progressPctToday : undefined,
-          boqItemId: row.boqItemId || undefined,
+          boqItemId: boqLine ? String(boqLine.id) : (row.boqItemId || undefined),
           component: row.component || undefined,
           chainageFrom: row.chainageFrom || undefined,
           chainageTo: row.chainageTo || undefined,

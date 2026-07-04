@@ -1370,7 +1370,7 @@ export default function ProjectConstructionPage() {
   };
 
   const handleSaveDpr = async () => {
-    const payload = buildDprPayload(dprHeaderForm, dprActivityRows, dprBoq);
+    const payload = buildDprPayload(dprHeaderForm, dprActivityRows, dprBoq, boq);
     if (!payload.dprNumber.trim()) {
       reportDprFormError('DPR number is required.');
       return;
@@ -1385,6 +1385,10 @@ export default function ProjectConstructionPage() {
     }
     if (payload.activities.some((a) => !a.boqItemId)) {
       reportDprFormError('Select an L1 BOQ item for each work line.');
+      return;
+    }
+    if (payload.activities.some((a) => !a.description?.trim())) {
+      reportDprFormError('Work item description is missing — re-select the L1 BOQ item.');
       return;
     }
     try {
