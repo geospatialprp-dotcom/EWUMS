@@ -812,35 +812,52 @@ export default function ProjectConstructionPage() {
     }
   };
 
+  const fetchOptionalTracked = async <T,>(
+    label: string,
+    request: Promise<{ data: T }>,
+    fallback: T,
+    failures: string[],
+  ): Promise<T> => {
+    try {
+      const { data } = await request;
+      return data;
+    } catch {
+      failures.push(label);
+      return fallback;
+    }
+  };
+
   const refresh = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
     setError('');
+    const failures: string[] = [];
     try {
+      const { data: project } = await projectsApi.get(projectId);
+      setProjectName(project.name);
+
       const [
-        projectRes, overviewRes, boqRes, l1BoqRes, dprRes, mbRes, invRes,
+        overviewRes, boqRes, l1BoqRes, dprRes, mbRes, invRes,
         raData, wpData, planningData, reconData, completionData,
       ] = await Promise.all([
-        projectsApi.get(projectId),
-        constructionApi.overview(projectId),
-        constructionApi.boq(projectId, { boqSource: 'government' }),
-        fetchOptional(constructionApi.boq(projectId, { boqSource: 'l1_contractor' }), []),
-        constructionApi.listDprs(projectId),
-        constructionApi.listMbs(projectId),
-        constructionApi.listInvoices(projectId),
-        fetchOptional(constructionApi.listRaBills(projectId), []),
-        fetchOptional(constructionApi.workPackages(projectId), []),
-        fetchOptional(constructionApi.workPlanning(projectId), null),
-        fetchOptional(constructionApi.boqReconciliation(projectId), null),
-        fetchOptional(constructionApi.completion(projectId), null),
+        fetchOptionalTracked('overview', constructionApi.overview(projectId), null, failures),
+        fetchOptionalTracked('BOQ', constructionApi.boq(projectId, { boqSource: 'government' }), [], failures),
+        fetchOptionalTracked('L1 BOQ', constructionApi.boq(projectId, { boqSource: 'l1_contractor' }), [], failures),
+        fetchOptionalTracked('DPR list', constructionApi.listDprs(projectId), [], failures),
+        fetchOptionalTracked('measurement books', constructionApi.listMbs(projectId), [], failures),
+        fetchOptionalTracked('invoices', constructionApi.listInvoices(projectId), [], failures),
+        fetchOptionalTracked('RA bills', constructionApi.listRaBills(projectId), [], failures),
+        fetchOptionalTracked('work packages', constructionApi.workPackages(projectId), [], failures),
+        fetchOptionalTracked('work planning', constructionApi.workPlanning(projectId), null, failures),
+        fetchOptionalTracked('BOQ reconciliation', constructionApi.boqReconciliation(projectId), null, failures),
+        fetchOptionalTracked('completion', constructionApi.completion(projectId), null, failures),
       ]);
-      setProjectName(projectRes.data.name);
-      setOverview(overviewRes.data);
-      setBoq(boqRes.data);
+      if (overviewRes) setOverview(overviewRes as Record<string, unknown>);
+      setBoq(boqRes as Array<Record<string, unknown>>);
       setL1Boq(l1BoqRes as Array<Record<string, unknown>>);
-      setDprs(dprRes.data);
-      setMbs(mbRes.data);
-      setInvoices(invRes.data);
+      setDprs(dprRes as Array<Record<string, unknown>>);
+      setMbs(mbRes as Array<Record<string, unknown>>);
+      setInvoices(invRes as Array<Record<string, unknown>>);
       setRaBills(raData as Array<Record<string, unknown>>);
       setWorkPackages(wpData as Array<Record<string, unknown>>);
       setWorkPlanning(planningData as Record<string, unknown> | null);
@@ -907,8 +924,15 @@ export default function ProjectConstructionPage() {
         wpList.map((wp) => [String(wp.id), String(wp.contractorName ?? '')]),
       ));
       setContractorLogins(contractorLoginsFromWorkPackages(wpList));
+      if (failures.length > 0) {
+        setError(
+          `Could not load: ${failures.join(', ')}. `
+          + 'If DPR list failed, run migration 104 on VPS and restart API: '
+          + 'bash /opt/egip/database/scripts/vps-migrate-104-dpr-progress.sh',
+        );
+      }
     } catch (err) {
-      setError(formatApiError(err, 'Failed to load construction data. Run migrations 012 & 013 and restart API.'));
+      setError(formatApiError(err, 'Failed to load project. Check API is running.'));
     } finally {
       setLoading(false);
     }
@@ -1834,18 +1858,6 @@ export default function ProjectConstructionPage() {
 
       {tab === 'planning' && (
         <Grid container spacing={2}>
-          <Grid item xs={12}>
-            <Alert severity="info">
-              Upload or fill each item — a green check appears immediately. Click Save Planning to store everything to the server.
-            </Alert>
-          </Grid>
-          {planningDirty && (
-            <Grid item xs={12}>
-              <Alert severity="warning">
-                Unsaved changes — click Save Planning to store uploads, BOQ, and references.
-              </Alert>
-            </Grid>
-          )}
           {contractorLogins.length > 0 && (
             <Grid item xs={12}>
               <Alert
@@ -2227,7 +2239,8 @@ export default function ProjectConstructionPage() {
           <Typography variant="caption" color="text.secondary" display="block" mb={1}>
             L1 Contractor BOQ — planned vs actual (qty in unit column; balance = planned − cumulative)
           </Typography>
-          <Table size="small" sx={constructionTableShellSx('dpr')}>
+          <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ ...constructionTableShellSx('dpr'), minWidth: 1100 }}>
             <ConstructionTableHead
               stage="dpr"
               columns={[
@@ -2353,6 +2366,7 @@ export default function ProjectConstructionPage() {
               })}
             </TableBody>
           </Table>
+          </Box>
         </Box>
       )}
 
