@@ -37,6 +37,7 @@ import {
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
 import DprDetailDialog from '../components/construction/DprDetailDialog';
+import DprExecutionQtyDisplay from '../components/construction/DprExecutionQtyDisplay';
 import BoqReconciliationPanel from '../components/construction/BoqReconciliationPanel';
 import RaBillPanel from '../components/construction/RaBillPanel';
 import FinalBillPanel from '../components/construction/FinalBillPanel';
@@ -2219,8 +2220,10 @@ export default function ProjectConstructionPage() {
                 { label: 'Date' },
                 { label: 'Location' },
                 { label: 'Chainage' },
-                { label: 'Work Item' },
-                { label: 'Progress' },
+                { label: 'Work Item', minWidth: 180 },
+                { label: 'Unit', align: 'center' as const, minWidth: 56 },
+                { label: 'Qty Today', align: 'right' as const, minWidth: 88 },
+                { label: 'Cumulative Qty', align: 'right' as const, minWidth: 100 },
                 { label: 'Contractor' },
                 { label: 'Supervisor' },
                 { label: 'Weather', minWidth: 90 },
@@ -2231,7 +2234,7 @@ export default function ProjectConstructionPage() {
             <TableBody>
               {filteredDprs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={11}>
+                  <TableCell colSpan={13}>
                     <Typography variant="body2" color="text.secondary">
                       {dprWeatherFilter
                         ? 'No daily progress reports match the selected weather filter.'
@@ -2254,7 +2257,17 @@ export default function ProjectConstructionPage() {
                     <TableCell>{summary.location}</TableCell>
                     <TableCell>{summary.chainage}</TableCell>
                     <TableCell>{summary.workItem}</TableCell>
-                    <TableCell>{summary.qty}</TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" fontWeight={600}>
+                        {summary.billing.unit}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <DprExecutionQtyDisplay billing={summary.billing} variant="today" />
+                    </TableCell>
+                    <TableCell align="right">
+                      <DprExecutionQtyDisplay billing={summary.billing} variant="cumulative" />
+                    </TableCell>
                     <TableCell>{String(dpr.contractorName ?? '—')}</TableCell>
                     <TableCell>{String(dpr.supervisorName ?? '—')}</TableCell>
                     <TableCell>

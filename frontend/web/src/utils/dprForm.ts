@@ -149,27 +149,37 @@ export function frozenProgressFromRow(
   return { boqPctToday, locationPctToday, locationComplete };
 }
 
-/** Today + cumulative progress with qty and % (all BOQ items). */
-export function formatDprActivityProgress(act: Record<string, unknown>): string {
-  const unit = String(act.unit ?? '').trim();
+/** Billing-focused qty breakdown for list / MB / RA reference. */
+export type DprActivityBilling = {
+  unit: string;
+  todayQty: number;
+  cumQty: number;
+  todayPct: number | null;
+  cumPct: number | null;
+};
+
+export function parseDprActivityBilling(act: Record<string, unknown> | null | undefined): DprActivityBilling {
+  if (!act) {
+    return { unit: '—', todayQty: 0, cumQty: 0, todayPct: null, cumPct: null };
+  }
+  const unit = String(act.unit ?? '').trim() || '—';
   const todayQty = Number(act.quantityDone ?? 0);
   const cumQty = Number(act.cumulativeQty ?? todayQty);
   const todayPct = act.progressPctToday != null ? Number(act.progressPctToday) : null;
   const cumPct = act.cumulativeProgressPct != null ? Number(act.cumulativeProgressPct) : null;
+  return { unit, todayQty, cumQty, todayPct, cumPct };
+}
 
-  const qtyLabel = (q: number) => `${formatProgressQty(q)}${unit ? ` ${unit}` : ''}`;
-  const pctLabel = (p: number | null) => (p != null && Number.isFinite(p) ? `${formatProgressQty(p)}%` : null);
-
-  const todayPctStr = pctLabel(todayPct);
-  const today = todayPctStr != null
-    ? `Today ${qtyLabel(todayQty)} (${todayPctStr})`
-    : `Today ${qtyLabel(todayQty)}`;
-
-  const cumPctStr = pctLabel(cumPct);
-  const cum = cumPctStr != null
-    ? `Cum ${qtyLabel(cumQty)} (${cumPctStr})`
-    : `Cum ${qtyLabel(cumQty)}`;
-
+/** Today + cumulative progress with qty and % (all BOQ items). */
+export function formatDprActivityProgress(act: Record<string, unknown>): string {
+  const b = parseDprActivityBilling(act);
+  const qtyLabel = (q: number) => `${formatProgressQty(q)} ${b.unit}`;
+  const today = b.todayPct != null
+    ? `Today ${qtyLabel(b.todayQty)} (${formatProgressQty(b.todayPct)}%)`
+    : `Today ${qtyLabel(b.todayQty)}`;
+  const cum = b.cumPct != null
+    ? `Cum ${qtyLabel(b.cumQty)} (${formatProgressQty(b.cumPct)}%)`
+    : `Cum ${qtyLabel(b.cumQty)}`;
   return `${today} · ${cum}`;
 }
 
@@ -213,7 +223,7 @@ export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRo
 
 export function dprActivitySummary(dpr: Record<string, unknown>): {
   workItem: string;
-  qty: string;
+  billing: DprActivityBilling;
   chainage: string;
   location: string;
   progress: string;
@@ -223,10 +233,11 @@ export function dprActivitySummary(dpr: Record<string, unknown>): {
   const workItem = first
     ? String(first.description ?? '—')
     : '—';
+  const billing = parseDprActivityBilling(first);
   const progress = first ? formatDprActivityProgress(first) : '—';
   const chainage = first
     ? [first.chainageFrom, first.chainageTo].filter(Boolean).join(' → ') || '—'
     : '—';
   const location = String(dpr.workSite ?? first?.siteDetail ?? '—');
-  return { workItem, qty: progress, chainage, location, progress };
+  return { workItem, billing, chainage, location, progress };
 }

@@ -12,8 +12,9 @@ import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import type { ReactNode } from 'react';
 import DprPhotoGallery from './DprPhotoGallery';
+import DprExecutionQtyDisplay from './DprExecutionQtyDisplay';
 import { dprWorkflowStepLabel, STATUS_COLORS } from '../../constants/construction';
-import { formatDprActivityProgress } from '../../utils/dprForm';
+import { parseDprActivityBilling } from '../../utils/dprForm';
 import { constructionTableTheme } from '../../utils/constructionTableStyles';
 
 type InfoTileProps = {
@@ -172,7 +173,9 @@ export default function DprDetailDialog({
                 {activities.length === 0 && (
                   <Typography variant="body2" color="text.secondary">No work items recorded.</Typography>
                 )}
-                {activities.map((act, idx) => (
+                {activities.map((act, idx) => {
+                  const billing = parseDprActivityBilling(act);
+                  return (
                   <Paper
                     key={String(act.id ?? idx)}
                     variant="outlined"
@@ -185,13 +188,29 @@ export default function DprDetailDialog({
                     <Typography variant="subtitle2" fontWeight={700} gutterBottom>
                       {idx + 1}. {String(act.description)}
                     </Typography>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <WorkItemMeta
-                          label="Progress"
-                          value={formatDprActivityProgress(act)}
-                        />
+                    <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, bgcolor: 'grey.50' }}>
+                      <Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={0.5} display="block" mb={1}>
+                        Execution quantity (billing basis)
+                      </Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={4} sm={2}>
+                          <WorkItemMeta label="Unit" value={billing.unit} />
+                        </Grid>
+                        <Grid item xs={4} sm={2}>
+                          <Box textAlign="left">
+                            <Typography variant="caption" color="text.secondary" display="block">Qty today</Typography>
+                            <DprExecutionQtyDisplay billing={billing} variant="today" showPct />
+                          </Box>
+                        </Grid>
+                        <Grid item xs={4} sm={2}>
+                          <Box textAlign="left">
+                            <Typography variant="caption" color="text.secondary" display="block">Cumulative qty</Typography>
+                            <DprExecutionQtyDisplay billing={billing} variant="cumulative" showPct />
+                          </Box>
+                        </Grid>
                       </Grid>
+                    </Paper>
+                    <Grid container spacing={2}>
                       <Grid item xs={6} sm={3}>
                         <WorkItemMeta
                           label="Chainage"
@@ -235,7 +254,8 @@ export default function DprDetailDialog({
                       )}
                     </Grid>
                   </Paper>
-                ))}
+                  );
+                })}
               </Box>
             </Box>
 
