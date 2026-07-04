@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 export type BoqMeasurementMode = 'discrete_qty' | 'whole_job';
 
 const WHOLE_JOB_UNIT = /^(job|jobs|ls|l\.s\.|item|lump\s*sum)$/i;
@@ -52,7 +54,8 @@ export function buildExecutionScopeKey(parts: {
   const wp = parts.workPackageId?.trim() || 'none';
   const from = parts.chainageFrom?.trim() || '0';
   const to = parts.chainageTo?.trim() || '0';
-  return `${parts.projectId}:${parts.boqItemId}:${wp}:${from}-${to}`;
+  const raw = `${parts.projectId}:${parts.boqItemId}:${wp}:${from}-${to}`;
+  return createHash('sha256').update(raw).digest('hex').slice(0, 64);
 }
 
 export function progressIncrementQty(

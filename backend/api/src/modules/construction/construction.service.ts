@@ -180,6 +180,11 @@ export class ConstructionService {
           'DPR work item data is incomplete — select an L1 BOQ item for each work line and try again.',
         );
       }
+      if (code === '22001' || /value too long/i.test(msg)) {
+        throw new BadRequestException(
+          'DPR could not be saved — scope data exceeds database limits. Update to the latest API build.',
+        );
+      }
     }
     throw err;
   }
