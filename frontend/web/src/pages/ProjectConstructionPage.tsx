@@ -161,33 +161,8 @@ function contractorLoginFromWorkPackage(wp: Record<string, unknown>): Contractor
   };
 }
 
-function contractorLoginsFromWorkPackages(wps: Array<Record<string, unknown>>): ContractorLoginInfo[] {
-  return mergeContractorLogins(
-    wps.map(contractorLoginFromWorkPackage).filter((login): login is ContractorLoginInfo => login !== null),
-  );
-}
-
 function scrollToTopForFeedback() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function mergeContractorLogins(logins: ContractorLoginInfo[]): ContractorLoginInfo[] {
-  const byEmail = new Map<string, ContractorLoginInfo>();
-  for (const login of logins) {
-    const existing = byEmail.get(login.email);
-    if (!existing) {
-      byEmail.set(login.email, login);
-      continue;
-    }
-    byEmail.set(login.email, {
-      ...existing,
-      workPackageCode: [existing.workPackageCode, login.workPackageCode].filter(Boolean).join(', '),
-      created: existing.created || login.created,
-      passwordIssued: existing.passwordIssued || login.passwordIssued,
-      password: existing.password || login.password,
-    });
-  }
-  return [...byEmail.values()];
 }
 
 function contractorDraftName(wp: Record<string, unknown>, drafts: Record<string, string>): string {
@@ -690,7 +665,6 @@ export default function ProjectConstructionPage() {
     schemeType: 'gravity' as SchemeType, contractorName: '', chainageFrom: '', chainageTo: '',
   });
   const [contractorDrafts, setContractorDrafts] = useState<Record<string, string>>({});
-  const [contractorLogins, setContractorLogins] = useState<ContractorLoginInfo[]>([]);
   const [assigningContractorWpId, setAssigningContractorWpId] = useState<string | null>(null);
   const [deletingWpId, setDeletingWpId] = useState<string | null>(null);
   const [docForm, setDocForm] = useState({ docType: 'site_photo', fileName: '', fileUrl: '' });
@@ -923,7 +897,6 @@ export default function ProjectConstructionPage() {
       setContractorDrafts(Object.fromEntries(
         wpList.map((wp) => [String(wp.id), String(wp.contractorName ?? '')]),
       ));
-      setContractorLogins(contractorLoginsFromWorkPackages(wpList));
       if (failures.length > 0) {
         setError(
           `Could not load: ${failures.join(', ')}. `
@@ -1601,9 +1574,6 @@ export default function ProjectConstructionPage() {
           provisionErrors.push(`${String(wp.packageCode ?? wpId)}: ${formatApiError(err)}`);
         }
       }
-      if (newLogins.length) {
-        setContractorLogins((prev) => mergeContractorLogins([...prev, ...newLogins]));
-      }
       if (provisionErrors.length) {
         throw new Error(provisionErrors.join(' '));
       }
@@ -1628,7 +1598,7 @@ export default function ProjectConstructionPage() {
         nextForm.gisAlignmentApproved,
       ].filter(Boolean).length;
       const loginNote = newLogins.length
-        ? ` Contractor login${newLogins.length > 1 ? 's' : ''} created — see highlighted credentials below.`
+        ? ` Contractor login${newLogins.length > 1 ? 's' : ''} created.`
         : '';
       setSuccess(`Work planning saved (${doneCount}/10 items stored).${loginNote}`);
       scrollToTopForFeedback();
@@ -1723,28 +1693,18 @@ export default function ProjectConstructionPage() {
       };
       if (wpEditingId) {
         const { data } = await constructionApi.updateWorkPackage(projectId, wpEditingId, payload);
-        const login = parseContractorLogin(data);
         const saved = data as Record<string, unknown>;
-        if (login) {
-          setContractorLogins((prev) => mergeContractorLogins([...prev, login]));
-        } else if (contractorName && !saved.contractorId) {
+        if (!parseContractorLogin(data) && contractorName && !saved.contractorId) {
           throw new Error('Contractor login was not created — check contractor role and migration 102.');
         }
-        setSuccess(login
-          ? `Work package "${name}" updated. Contractor login highlighted below.`
-          : `Work package "${name}" updated.`);
+        setSuccess(`Work package "${name}" updated.`);
       } else {
         const { data } = await constructionApi.createWorkPackage(projectId, payload);
-        const login = parseContractorLogin(data);
         const saved = data as Record<string, unknown>;
-        if (login) {
-          setContractorLogins((prev) => mergeContractorLogins([...prev, login]));
-        } else if (contractorName && !saved.contractorId) {
+        if (!parseContractorLogin(data) && contractorName && !saved.contractorId) {
           throw new Error('Contractor login was not created — check contractor role and migration 102.');
         }
-        setSuccess(login
-          ? `Work package "${name}" created. Contractor login highlighted below.`
-          : `Work package "${name}" created.`);
+        setSuccess(`Work package "${name}" created.`);
       }
       setWpDialog(false);
       setWpEditingId(null);
@@ -1771,13 +1731,7 @@ export default function ProjectConstructionPage() {
       return;
     }
     if (wp && !needsContractorProvision(wp, contractorName)) {
-      const existingLogin = contractorLoginFromWorkPackage(wp);
-      if (existingLogin) {
-        setContractorLogins((prev) => mergeContractorLogins([...prev, existingLogin]));
-      }
-      setSuccess(existingLogin
-        ? `Contractor "${contractorName}" is already assigned — login credentials shown below.`
-        : `Contractor "${contractorName}" is already assigned.`);
+      setSuccess(`Contractor "${contractorName}" is already assigned.`);
       scrollToTopForFeedback();
       return;
     }
@@ -1789,19 +1743,13 @@ export default function ProjectConstructionPage() {
       const saved = data as Record<string, unknown>;
       const login = parseContractorLogin(data)
         ?? contractorLoginFromWorkPackage(saved);
-      if (login) {
-        setContractorLogins((prev) => mergeContractorLogins([...prev, login]));
-      } else if (!saved.contractorId) {
+      if (!login && !saved.contractorId) {
         throw new Error(
           'Contractor login was not created. Ensure migration 102 is applied (EE needs construction:update) and the contractor role exists.',
         );
       }
       await refresh();
-      setSuccess(login
-        ? (login.passwordIssued
-          ? `Contractor "${contractorName}" saved. Login highlighted below — contractor can submit daily DPR.`
-          : `Contractor "${contractorName}" saved. Existing firm login (${login.email}) highlighted below.`)
-        : `Contractor "${contractorName}" saved.`);
+      setSuccess(`Contractor "${contractorName}" saved.`);
       scrollToTopForFeedback();
     } catch (err) {
       setError(formatApiError(err, 'Failed to assign contractor.'));
@@ -1858,60 +1806,6 @@ export default function ProjectConstructionPage() {
 
       {tab === 'planning' && (
         <Grid container spacing={2}>
-          {contractorLogins.length > 0 && (
-            <Grid item xs={12}>
-              <Alert
-                severity="success"
-                onClose={() => setContractorLogins([])}
-                sx={{
-                  border: 2,
-                  borderColor: 'success.main',
-                  '& .contractor-credential': {
-                    fontFamily: 'monospace',
-                    fontWeight: 700,
-                    fontSize: '0.95rem',
-                    bgcolor: '#fff3cd',
-                    color: '#7a5c00',
-                    px: 1,
-                    py: 0.35,
-                    borderRadius: 0.5,
-                    border: '1px solid #ffc107',
-                    display: 'inline-block',
-                  },
-                }}
-              >
-                <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                  Contractor login credentials
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                  Same firm name reuses one login across all work packages and projects. Share these details with the contractor for daily DPR submission.
-                </Typography>
-                {contractorLogins.map((login) => (
-                  <Box key={`${login.email}-${login.workPackageCode}`} mb={1.5}>
-                    <Typography variant="body2" fontWeight={600}>
-                      {login.contractorName}
-                      {login.workPackageCode ? ` · ${login.workPackageCode}` : ''}
-                    </Typography>
-                    <Typography variant="body2" sx={{ mt: 0.5 }}>
-                      User ID: <span className="contractor-credential">{login.email}</span>
-                    </Typography>
-                    {login.passwordIssued ? (
-                      <Typography variant="body2" sx={{ mt: 0.5 }}>
-                        Password: <span className="contractor-credential">{login.password}</span>
-                      </Typography>
-                    ) : (
-                      <Typography variant="body2" sx={{ mt: 0.5 }} color="text.secondary">
-                        Existing account — contractor uses their current password.
-                      </Typography>
-                    )}
-                  </Box>
-                ))}
-                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                  Contractor → Construction → Daily Progress → New DPR → Submit to JE → AE → EE review.
-                </Typography>
-              </Alert>
-            </Grid>
-          )}
           <Grid item xs={12}>
             <Card variant="outlined">
               <CardContent>
