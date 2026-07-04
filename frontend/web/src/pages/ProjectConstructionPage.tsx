@@ -3,7 +3,7 @@ import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, FormControlLabel, Grid, IconButton, LinearProgress, Link, List, ListItem,
-  ListItemIcon, ListItemText, MenuItem, Stack, Tab, Tabs, TextField, Typography, Table, TableBody,
+  ListItemIcon, ListItemText, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography, Table, TableBody,
   TableCell, TableRow,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -1955,66 +1955,97 @@ export default function ProjectConstructionPage() {
 
           <Grid item xs={12}>
             <Card variant="outlined" sx={{ height: 'auto', overflow: 'visible' }}>
-              <CardContent sx={{ overflow: 'visible' }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                  <Typography variant="subtitle1" fontWeight={700}>6. Work Packages & 7. Contractor Assignment</Typography>
+              <CardContent sx={{ overflow: 'visible', pt: 2 }}>
+                <Box
+                  display="flex"
+                  justifyContent="space-between"
+                  alignItems="center"
+                  mb={1.5}
+                  gap={2}
+                  sx={constructionSectionBarSx('planning')}
+                >
+                  <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('planning').headerColor}>
+                    6. Work Packages & 7. Contractor Assignment
+                  </Typography>
                   {canAdminPlanning && (
                     <Button
-                      startIcon={<AddIcon />} size="small" variant="outlined"
+                      startIcon={<AddIcon />} size="small" variant="contained"
                       onClick={openNewWorkPackageDialog}
                     >
                       New Package
                     </Button>
                   )}
                 </Box>
-                <Table size="small" sx={constructionTableShellSx('planning')}>
+                <Box sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ ...constructionTableShellSx('planning'), minWidth: 920 }}>
                   <ConstructionTableHead
                     stage="planning"
                     columns={[
-                      { label: 'Code' },
-                      { label: 'Name' },
-                      { label: 'Component' },
-                      { label: 'Chainage' },
-                      { label: 'Contractor' },
-                      { label: 'GIS' },
-                      { label: 'Status' },
-                      { label: 'Actions', minWidth: 140 },
+                      { label: 'Code', minWidth: 72 },
+                      { label: 'Name', minWidth: 140 },
+                      { label: 'Component', minWidth: 160 },
+                      { label: 'Chainage', minWidth: 120 },
+                      { label: 'Contractor', minWidth: 260 },
+                      { label: 'GIS', minWidth: 88 },
+                      { label: 'Status', minWidth: 88 },
+                      { label: 'Actions', minWidth: 88, align: 'center' },
                     ]}
                   />
                   <TableBody>
                     {workPackages.map((wp) => {
                       const wpId = String(wp.id);
+                      const contractorDraft = contractorDrafts[wpId] ?? String(wp.contractorName ?? '');
+                      const contractorPending = needsContractorProvision(wp, contractorDraft);
+                      const contractorAssigned = Boolean(wp.contractorId) && !contractorPending;
                       return (
-                        <TableRow key={wpId}>
-                          <TableCell>{String(wp.packageCode)}</TableCell>
+                        <TableRow key={wpId} hover>
+                          <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                            {String(wp.packageCode)}
+                          </TableCell>
                           <TableCell>{String(wp.name ?? '—')}</TableCell>
-                          <TableCell>{COMPONENT_LABELS[wp.component as ProjectComponent] ?? String(wp.component)}</TableCell>
-                          <TableCell>{String(wp.chainageFrom ?? '—')} – {String(wp.chainageTo ?? '—')}</TableCell>
                           <TableCell>
-                            <Box display="flex" flexDirection="column" gap={0.5}>
-                              <Box display="flex" gap={0.5} alignItems="center">
-                                <TextField
-                                  size="small" placeholder="Contractor firm name"
-                                  value={contractorDrafts[wpId] ?? String(wp.contractorName ?? '')}
-                                  onChange={(e) => setContractorDrafts({ ...contractorDrafts, [wpId]: e.target.value })}
-                                  disabled={!canAdminPlanning}
-                                  sx={{ minWidth: 140 }}
-                                />
-                                {canAdminPlanning && (
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    disabled={assigningContractorWpId === wpId}
-                                    onClick={() => { void handleAssignContractor(wpId); }}
-                                  >
-                                    {assigningContractorWpId === wpId ? 'Saving…' : 'Save'}
-                                  </Button>
-                                )}
-                              </Box>
-                              {Boolean(wp.contractorLoginEmail) && (
-                                <Typography variant="caption" color="success.main" fontWeight={600}>
-                                  Login: {String(wp.contractorLoginEmail)}
-                                </Typography>
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={COMPONENT_LABELS[wp.component as ProjectComponent] ?? String(wp.component)}
+                              sx={{ maxWidth: '100%' }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                            {String(wp.chainageFrom ?? '—')} – {String(wp.chainageTo ?? '—')}
+                          </TableCell>
+                          <TableCell>
+                            <Box display="flex" gap={0.75} alignItems="center">
+                              <TextField
+                                size="small"
+                                placeholder="Contractor firm name"
+                                value={contractorDraft}
+                                onChange={(e) => setContractorDrafts({ ...contractorDrafts, [wpId]: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && canAdminPlanning && contractorPending) {
+                                    e.preventDefault();
+                                    void handleAssignContractor(wpId);
+                                  }
+                                }}
+                                disabled={!canAdminPlanning || assigningContractorWpId === wpId}
+                                sx={{ flex: 1, minWidth: 160 }}
+                              />
+                              {canAdminPlanning && contractorPending && contractorDraft.trim() && (
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  disableElevation
+                                  disabled={assigningContractorWpId === wpId}
+                                  onClick={() => { void handleAssignContractor(wpId); }}
+                                  sx={{ minWidth: 64, flexShrink: 0 }}
+                                >
+                                  {assigningContractorWpId === wpId ? '…' : 'Save'}
+                                </Button>
+                              )}
+                              {contractorAssigned && (
+                                <Tooltip title="Contractor assigned">
+                                  <CheckCircleIcon color="success" fontSize="small" sx={{ flexShrink: 0 }} />
+                                </Tooltip>
                               )}
                             </Box>
                           </TableCell>
@@ -2028,27 +2059,28 @@ export default function ProjectConstructionPage() {
                             />
                           </TableCell>
                           <TableCell><StatusChip status={String(wp.status)} /></TableCell>
-                          <TableCell>
+                          <TableCell align="center">
                             {canAdminPlanning && (
-                              <Stack direction="row" spacing={0.5} alignItems="center">
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  startIcon={<EditOutlinedIcon fontSize="small" />}
-                                  onClick={() => openEditWorkPackageDialog(wp)}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  size="small"
-                                  color="error"
-                                  variant="outlined"
-                                  startIcon={<DeleteOutlineIcon fontSize="small" />}
-                                  disabled={deletingWpId === wpId}
-                                  onClick={() => { void handleDeleteWorkPackage(wp); }}
-                                >
-                                  {deletingWpId === wpId ? 'Deleting…' : 'Delete'}
-                                </Button>
+                              <Stack direction="row" spacing={0.25} justifyContent="center">
+                                <Tooltip title="Edit package">
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => openEditWorkPackageDialog(wp)}
+                                  >
+                                    <EditOutlinedIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Delete package">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    disabled={deletingWpId === wpId}
+                                    onClick={() => { void handleDeleteWorkPackage(wp); }}
+                                  >
+                                    <DeleteOutlineIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                               </Stack>
                             )}
                           </TableCell>
@@ -2066,6 +2098,7 @@ export default function ProjectConstructionPage() {
                     )}
                   </TableBody>
                 </Table>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
