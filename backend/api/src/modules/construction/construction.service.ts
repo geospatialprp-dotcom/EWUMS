@@ -1005,6 +1005,7 @@ export class ConstructionService {
       sortOrder,
       itemCode: boqItem.itemCode,
       plannedQty,
+      boqCumulativeQty: Number(boqItem.dprQty ?? 0),
       _synthetic: true,
     };
   }
@@ -1035,6 +1036,7 @@ export class ConstructionService {
           if (!enriched.activityCode) enriched.activityCode = boq.itemCode;
           enriched.itemCode = boq.itemCode;
           enriched.plannedQty = sanctionedBoqQty(Number(boq.contractQty), Number(boq.revisedQty));
+          (enriched as DprActivity & { boqCumulativeQty?: number }).boqCumulativeQty = Number(boq.dprQty ?? 0);
           if (!enriched.unit) enriched.unit = boq.unit;
         }
         return enriched;

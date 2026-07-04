@@ -24,7 +24,7 @@ export default function DprPlannedVsActualPanel({ hint, todayQty, unit }: Props)
           <TableRow sx={{ bgcolor: 'grey.50' }}>
             <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Level</TableCell>
             <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Planned</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Actual</TableCell>
+            <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Previous</TableCell>
             <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Balance</TableCell>
             <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>% Done</TableCell>
           </TableRow>

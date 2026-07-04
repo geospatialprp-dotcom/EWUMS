@@ -60,10 +60,98 @@ export type DprProgressSummary = {
 const WHOLE_JOB_UNIT = /^(job|jobs|ls|l\.s\.|item|lump\s*sum)$/i;
 
 export function isWholeJobMeasurement(mode?: string | null, unit?: string | null): boolean {
+  const normalized = String(unit ?? '').trim();
+  if (WHOLE_JOB_UNIT.test(normalized) || /\bjob\b/i.test(normalized)) return true;
   if (mode === 'whole_job') return true;
   if (mode === 'discrete_qty') return false;
-  const normalized = String(unit ?? '').trim();
-  return WHOLE_JOB_UNIT.test(normalized) || /\bjob\b/i.test(normalized);
+  return false;
+}
+
+/** Max Job qty selectable today for a whole-job BOQ line (scope balance). */
+export function wholeJobScopeBalanceQty(
+  hint: DprProgressSummary | null | undefined,
+  boqRef: Record<string, unknown> | null | undefined,
+  matchingWorkPackageCount = 1,
+): number {
+  if (hint) {
+    const scopeCap = Number(hint.scopeSanctionedQty ?? hint.sanctionedQty ?? 0);
+    const scopeDone = Number(hint.scopeContributionQty ?? 0);
+    return Math.max(0, scopeCap - scopeDone);
+  }
+  const sanctioned = Number(boqRef?.revisedQty ?? boqRef?.contractQty ?? 0);
+  const done = Number(boqRef?.dprQty ?? 0);
+  const matchingWp = Math.max(1, matchingWorkPackageCount);
+  const wholeJob = isWholeJobMeasurement(String(boqRef?.measurementMode ?? ''), String(boqRef?.unit ?? ''));
+  const scopeSanctioned = wholeJob && matchingWp >= 2 && sanctioned >= matchingWp
+    ? sanctioned / matchingWp
+    : sanctioned;
+  const scopeDone = wholeJob ? 0 : done;
+  const scopeBal = Math.max(0, scopeSanctioned - scopeDone);
+  if (wholeJob) return scopeBal;
+  return Math.max(0, sanctioned - done);
+}
+
+/** Client-side planned vs actual when progress API is slow or unavailable. */
+export function fallbackDprProgressSummaryFromBoq(
+  boqRef: Record<string, unknown>,
+  matchingWorkPackageCount = 1,
+): DprProgressSummary {
+  const unit = String(boqRef.unit ?? '');
+  const mode = isWholeJobMeasurement(String(boqRef.measurementMode ?? ''), unit) ? 'whole_job' : 'discrete_qty';
+  const sanctioned = Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0);
+  const cumulativeQty = Number(boqRef.dprQty ?? 0);
+  const cumulativePct = sanctioned > 0 ? pctFromQty(cumulativeQty, sanctioned) : 0;
+  const balanceQty = Math.max(0, sanctioned - cumulativeQty);
+  const wpCount = Math.max(1, matchingWorkPackageCount);
+  const scopeSanctioned = mode === 'whole_job' && wpCount >= 2 && sanctioned >= wpCount
+    ? sanctioned / wpCount
+    : sanctioned;
+  const scopeContributionQty = mode === 'whole_job' ? 0 : cumulativeQty;
+  const scopeBalanceQty = Math.max(0, scopeSanctioned - scopeContributionQty);
+
+  return {
+    cumulativePct,
+    balancePct: Math.max(0, 100 - cumulativePct),
+    cumulativeQty,
+    balanceQty,
+    sanctionedQty: sanctioned,
+    scopeSanctionedQty: mode === 'whole_job' ? scopeSanctioned : undefined,
+    scopeContributionQty: mode === 'whole_job' ? scopeContributionQty : undefined,
+    scopeContributionPct: mode === 'whole_job' && scopeSanctioned > 0
+      ? pctFromQty(scopeContributionQty, scopeSanctioned)
+      : undefined,
+    scopeBalanceQty: mode === 'whole_job' ? scopeBalanceQty : undefined,
+    scopeBalancePct: mode === 'whole_job' && scopeSanctioned > 0
+      ? Math.max(0, 100 - pctFromQty(scopeContributionQty, scopeSanctioned))
+      : undefined,
+    boqSourceLabel: 'L1 Contractor BOQ',
+    itemCode: String(boqRef.itemCode ?? ''),
+    yesterdaysProgress: 0,
+    yesterdaysProgressLabel: 'qty',
+    executionStatus: String(boqRef.dprExecutionStatus ?? 'not_started'),
+    expectedCompletionDate: null,
+    measurementMode: mode,
+  };
+}
+
+export function resolveDprProgressHint(
+  apiHint: DprProgressSummary | undefined,
+  boqRef: Record<string, unknown> | null | undefined,
+  matchingWorkPackageCount = 1,
+): DprProgressSummary | null {
+  if (apiHint) return apiHint;
+  if (boqRef) return fallbackDprProgressSummaryFromBoq(boqRef, matchingWorkPackageCount);
+  return null;
+}
+
+export function matchingWorkPackageCount(
+  workPackages: Array<Record<string, unknown>>,
+  component: string,
+): number {
+  const comp = component.trim();
+  if (!comp) return 1;
+  const count = workPackages.filter((w) => String(w.component ?? '') === comp).length;
+  return count > 0 ? count : 1;
 }
 
 let dprRowCounter = 0;
@@ -231,7 +319,10 @@ export function buildPlannedActualRows(
 /** Billing-focused qty breakdown for list / MB / RA reference. */
 export type DprActivityBilling = {
   unit: string;
+  /** Work done on prior approved DPRs (BOQ cumulative before this report). */
+  previousQty: number;
   todayQty: number;
+  /** previousQty + todayQty */
   cumQty: number;
   plannedQty: number | null;
   remainingQty: number | null;
@@ -242,16 +333,29 @@ export type DprActivityBilling = {
 export function parseDprActivityBilling(
   act: Record<string, unknown> | null | undefined,
   plannedQty?: number | null,
+  boqCumulativeQty?: number | null,
 ): DprActivityBilling {
   if (!act) {
     return {
-      unit: '—', todayQty: 0, cumQty: 0, plannedQty: null, remainingQty: null,
+      unit: '—', previousQty: 0, todayQty: 0, cumQty: 0, plannedQty: null, remainingQty: null,
       todayPct: null, cumPct: null,
     };
   }
   const unit = String(act.unit ?? '').trim() || '—';
   const todayQty = Number(act.quantityDone ?? 0);
-  const cumQty = Number(act.cumulativeQty ?? todayQty);
+  const storedCum = act.cumulativeQty != null ? Number(act.cumulativeQty) : null;
+  const boqApprovedCum = boqCumulativeQty != null
+    ? Number(boqCumulativeQty)
+    : (act.boqCumulativeQty != null ? Number(act.boqCumulativeQty) : null);
+
+  let previousQty = 0;
+  if (storedCum != null && Number.isFinite(storedCum)) {
+    previousQty = Math.max(0, storedCum - todayQty);
+  } else if (boqApprovedCum != null && Number.isFinite(boqApprovedCum)) {
+    previousQty = Math.max(0, boqApprovedCum);
+  }
+
+  const cumQty = previousQty + todayQty;
   const planned = plannedQty != null && plannedQty > 0 ? plannedQty : null;
   const remainingQty = planned != null ? Math.max(0, planned - cumQty) : null;
   const cumPctStored = act.cumulativeProgressPct != null ? Number(act.cumulativeProgressPct) : null;
@@ -263,21 +367,28 @@ export function parseDprActivityBilling(
     ? pctFromQty(todayQty, planned)
     : todayPctStored;
   return {
-    unit, todayQty, cumQty, plannedQty: planned, remainingQty, todayPct, cumPct,
+    unit, previousQty, todayQty, cumQty, plannedQty: planned, remainingQty, todayPct, cumPct,
   };
 }
 
 /** Today + cumulative progress with qty and % (all BOQ items). */
-export function formatDprActivityProgress(act: Record<string, unknown>): string {
-  const b = parseDprActivityBilling(act);
+export function formatDprActivityProgress(
+  act: Record<string, unknown>,
+  plannedQty?: number | null,
+  boqCumulativeQty?: number | null,
+): string {
+  const b = parseDprActivityBilling(act, plannedQty, boqCumulativeQty);
   const qtyLabel = (q: number) => `${formatProgressQty(q)} ${b.unit}`;
+  const prev = b.previousQty > 0
+    ? `Previous ${qtyLabel(b.previousQty)}`
+    : 'Previous 0';
   const today = b.todayPct != null
     ? `Today ${qtyLabel(b.todayQty)} (${formatProgressQty(b.todayPct)}%)`
     : `Today ${qtyLabel(b.todayQty)}`;
   const cum = b.cumPct != null
-    ? `Cum ${qtyLabel(b.cumQty)} (${formatProgressQty(b.cumPct)}%)`
-    : `Cum ${qtyLabel(b.cumQty)}`;
-  return `${today} · ${cum}`;
+    ? `Total ${qtyLabel(b.cumQty)} (${formatProgressQty(b.cumPct)}%)`
+    : `Total ${qtyLabel(b.cumQty)}`;
+  return `${prev} · ${today} · ${cum}`;
 }
 
 export function findL1BoqForComponent(
@@ -425,6 +536,7 @@ export function dprActivitySummaryForActivity(
   dpr: Record<string, unknown>,
   act: Record<string, unknown> | null | undefined,
   plannedQty?: number | null,
+  boqCumulativeQty?: number | null,
 ): {
   workItem: string;
   billing: DprActivityBilling;
@@ -443,8 +555,8 @@ export function dprActivitySummaryForActivity(
     };
   }
   const workItem = String(act.workDoneToday ?? act.description ?? '—').trim() || '—';
-  const billing = parseDprActivityBilling(act, plannedQty);
-  const progress = formatDprActivityProgress(act);
+  const billing = parseDprActivityBilling(act, plannedQty, boqCumulativeQty);
+  const progress = formatDprActivityProgress(act, plannedQty, boqCumulativeQty);
   const chainage = [act.chainageFrom, act.chainageTo].filter(Boolean).join(' → ') || '—';
   const location = String(act.siteDetail ?? dpr.workSite ?? '—');
   return { workItem, billing, chainage, location, progress };

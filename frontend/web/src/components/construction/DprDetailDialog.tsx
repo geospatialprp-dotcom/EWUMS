@@ -175,7 +175,9 @@ export default function DprDetailDialog({
                   <Typography variant="body2" color="text.secondary">No work items recorded.</Typography>
                 )}
                 {activities.map((act, idx) => {
-                  const billing = parseDprActivityBilling(act);
+                  const plannedQty = act.plannedQty != null ? Number(act.plannedQty) : null;
+                  const boqCum = act.boqCumulativeQty != null ? Number(act.boqCumulativeQty) : null;
+                  const billing = parseDprActivityBilling(act, plannedQty, boqCum);
                   return (
                   <Paper
                     key={String(act.id ?? idx)}
@@ -194,19 +196,23 @@ export default function DprDetailDialog({
                         L1 Contractor BOQ — planned vs actual
                       </Typography>
                       <Grid container spacing={2} alignItems="flex-end">
-                        <Grid item xs={4} sm={1.5}>
+                        <Grid item xs={4} sm={1.2}>
+                          <Typography variant="caption" color="text.secondary" display="block">Planned</Typography>
+                          <DprTableQtyCell value={billing.plannedQty} />
+                        </Grid>
+                        <Grid item xs={4} sm={1.2}>
                           <Typography variant="caption" color="text.secondary" display="block">Unit</Typography>
                           <Typography variant="body2" fontWeight={700}>{billing.unit}</Typography>
                         </Grid>
-                        <Grid item xs={4} sm={1.5}>
+                        <Grid item xs={4} sm={1.2}>
+                          <Typography variant="caption" color="text.secondary" display="block">Previous</Typography>
+                          <DprTableQtyCell value={billing.previousQty} />
+                        </Grid>
+                        <Grid item xs={4} sm={1.2}>
                           <Typography variant="caption" color="text.secondary" display="block">Today</Typography>
                           <DprTableQtyCell value={billing.todayQty} variant="today" />
                         </Grid>
-                        <Grid item xs={4} sm={1.5}>
-                          <Typography variant="caption" color="text.secondary" display="block">Actual</Typography>
-                          <DprTableQtyCell value={billing.cumQty} />
-                        </Grid>
-                        <Grid item xs={4} sm={1.5}>
+                        <Grid item xs={4} sm={1.2}>
                           <Typography variant="caption" color="text.secondary" display="block">Balance</Typography>
                           <DprTableQtyCell value={billing.remainingQty} variant="balance" />
                         </Grid>

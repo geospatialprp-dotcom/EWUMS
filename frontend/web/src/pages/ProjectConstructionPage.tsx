@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent,
@@ -33,7 +33,8 @@ import {
   activityRowFromBoqAndWp, buildDprPayload, defaultDprHeader, dprActivitySummaryForActivity,
   emptyDprActivityRow, findL1BoqForComponent, flattenDprsForTable, formatProgressQty,
   frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillAllDprActivitiesFromWp,
-  prefillDprActivitiesFromWp, resolveL1BoqItem, wholeJobQtySelectOptions,
+  prefillDprActivitiesFromWp, resolveDprProgressHint, resolveL1BoqItem, wholeJobQtySelectOptions,
+  wholeJobScopeBalanceQty, matchingWorkPackageCount,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
@@ -583,6 +584,8 @@ export default function ProjectConstructionPage() {
   const [success, setSuccess] = useState('');
   const [dprTabError, setDprTabError] = useState('');
   const [dprFormError, setDprFormError] = useState('');
+  const [dprSaving, setDprSaving] = useState(false);
+  const dprDialogContentRef = useRef<HTMLDivElement>(null);
   const [boqImporting, setBoqImporting] = useState(false);
   const [boqFileName, setBoqFileName] = useState('');
   const [l1BoqImporting, setL1BoqImporting] = useState(false);
@@ -1224,13 +1227,24 @@ export default function ProjectConstructionPage() {
       const schemeType = (d.schemeType as SchemeType) ?? 'gravity';
       let activityRows: DprActivityRow[];
       if (acts.length) {
-        activityRows = acts.map((act) => ({
+        activityRows = acts.map((act) => {
+          const unit = String(act.unit ?? 'cum');
+          const wholeJob = isWholeJobMeasurement(String(act.progressMode ?? ''), unit);
+          let quantityDone = Number(act.quantityDone ?? 0);
+          if (wholeJob && quantityDone > 0) {
+            const boqLine = dprBoq.find((b) => String(b.id) === String(act.boqItemId ?? ''));
+            const maxBal = wholeJobScopeBalanceQty(null, boqLine);
+            const opts = wholeJobQtySelectOptions(maxBal);
+            if (!opts.some((q) => Math.abs(q - quantityDone) < 0.0005)) {
+              quantityDone = 0;
+            }
+          }
+          return {
           key: emptyDprActivityRow().key,
           description: String(act.description ?? ''),
-          unit: String(act.unit ?? 'cum'),
-          quantityDone: Number(act.quantityDone ?? 0),
-          progressMode: (String(act.progressMode ?? '') as DprActivityRow['progressMode'])
-            || (isWholeJobMeasurement(String(act.progressMode ?? ''), String(act.unit ?? '')) ? 'whole_job' : 'discrete_qty'),
+          unit,
+          quantityDone,
+          progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
           progressPctToday: Number(act.progressPctToday ?? 0),
           workDoneToday: String(act.workDoneToday ?? act.description ?? ''),
           boqItemId: String(act.boqItemId ?? ''),
@@ -1243,7 +1257,8 @@ export default function ProjectConstructionPage() {
           materialConsumption: String(act.materialConsumption ?? ''),
           labourCount: Number(act.labourCount ?? 0),
           equipmentDetails: String(act.equipmentDetails ?? ''),
-        }));
+        };
+        });
       } else if (wp && dprBoq.length) {
         activityRows = prefillAllDprActivitiesFromWp(wp, dprBoq, schemeType);
       } else {
@@ -1331,26 +1346,40 @@ export default function ProjectConstructionPage() {
     }
   };
 
+  useEffect(() => {
+    if (!dprDialog) return;
+    dprActivityRows.forEach((row) => {
+      if (row.boqItemId) void refreshDprProgressHint(row);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when dialog context changes
+  }, [dprDialog, dprHeaderForm.workPackageId, dprHeaderForm.reportDate,
+    dprActivityRows.map((r) => `${r.key}:${r.boqItemId}:${r.chainageFrom}:${r.chainageTo}`).join('|')]);
+
+  const reportDprFormError = (msg: string) => {
+    setDprFormError(msg);
+    dprDialogContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleSaveDpr = async () => {
     const payload = buildDprPayload(dprHeaderForm, dprActivityRows, dprBoq);
     if (!payload.dprNumber.trim()) {
-      setError('DPR number is required.');
+      reportDprFormError('DPR number is required.');
+      return;
+    }
+    if (!payload.supervisorName?.trim()) {
+      reportDprFormError('Supervisor name is required.');
       return;
     }
     if (!payload.activities.length) {
-      setError('Add at least one work item with a description.');
+      reportDprFormError('Add at least one work item and select an L1 BOQ line.');
       return;
     }
     if (payload.activities.some((a) => !a.boqItemId)) {
-      const msg = 'Select an L1 BOQ item for each work line.';
-      if (isContractorUser) {
-        setDprFormError(msg);
-      } else {
-        setError(msg);
-      }
+      reportDprFormError('Select an L1 BOQ item for each work line.');
       return;
     }
     try {
+      setDprSaving(true);
       setDprFormError('');
       setDprTabError('');
       setError('');
@@ -1362,7 +1391,9 @@ export default function ProjectConstructionPage() {
         try {
           await uploadDprPhotos(dprId);
         } catch (photoErr) {
-          setError(formatApiError(photoErr, 'DPR saved but photo upload failed.'));
+          reportDprFormError(formatApiError(photoErr, 'DPR saved but photo upload failed.'));
+          await refresh();
+          return;
         }
       }
       setDprDialog(false);
@@ -1372,13 +1403,9 @@ export default function ProjectConstructionPage() {
       }
       await refresh();
     } catch (err) {
-      const msg = formatApiError(err, 'Failed to save DPR.');
-      if (isContractorUser) {
-        setDprFormError(msg);
-      } else {
-        setSuccess('');
-        setError(msg);
-      }
+      reportDprFormError(formatApiError(err, 'Failed to save DPR.'));
+    } finally {
+      setDprSaving(false);
     }
   };
 
@@ -2245,8 +2272,8 @@ export default function ProjectConstructionPage() {
                 { label: 'BOQ Item (L1)', minWidth: 200 },
                 { label: 'Unit', align: 'center' as const, minWidth: 48 },
                 { label: 'Planned', align: 'right' as const, minWidth: 72 },
+                { label: 'Previous', align: 'right' as const, minWidth: 72 },
                 { label: 'Today', align: 'right' as const, minWidth: 64 },
-                { label: 'Actual', align: 'right' as const, minWidth: 72 },
                 { label: 'Balance', align: 'right' as const, minWidth: 72 },
                 { label: '% Done', align: 'right' as const, minWidth: 88 },
                 { label: 'Contractor' },
@@ -2280,7 +2307,10 @@ export default function ProjectConstructionPage() {
                 const plannedQty = boqRef
                   ? Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0) || null
                   : (act?.plannedQty != null ? Number(act.plannedQty) : null);
-                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty);
+                const boqCumulativeQty = boqRef != null
+                  ? Number(boqRef.dprQty ?? 0)
+                  : (act?.boqCumulativeQty != null ? Number(act.boqCumulativeQty) : null);
+                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty, boqCumulativeQty);
                 const status = String(dpr.status);
                 const isEditable = canEditDpr(dpr);
                 const dprId = String(dpr.id);
@@ -2311,10 +2341,10 @@ export default function ProjectConstructionPage() {
                       <DprTableQtyCell value={summary.billing.plannedQty} />
                     </TableCell>
                     <TableCell align="right">
-                      <DprTableQtyCell value={summary.billing.todayQty} variant="today" />
+                      <DprTableQtyCell value={summary.billing.previousQty} />
                     </TableCell>
                     <TableCell align="right">
-                      <DprTableQtyCell value={summary.billing.cumQty} />
+                      <DprTableQtyCell value={summary.billing.todayQty} variant="today" />
                     </TableCell>
                     <TableCell align="right">
                       <DprTableQtyCell value={summary.billing.remainingQty} variant="balance" />
@@ -2526,6 +2556,7 @@ export default function ProjectConstructionPage() {
           {editingDprId ? 'Edit Daily Progress Report' : 'New Daily Progress Report — Contractor'}
         </DialogTitle>
         <DialogContent
+          ref={dprDialogContentRef}
           dividers
           sx={{
             display: 'flex',
@@ -2668,7 +2699,17 @@ export default function ProjectConstructionPage() {
           </Box>
 
           <Box display="flex" flexDirection="column" gap={2} sx={{ flexShrink: 0 }}>
-          {dprActivityRows.map((row, idx) => (
+          {dprActivityRows.map((row, idx) => {
+            const boqRef = row.boqItemId
+              ? dprBoq.find((b) => String(b.id) === row.boqItemId)
+              : undefined;
+            const wpCount = matchingWorkPackageCount(workPackages, String(row.component));
+            const progressHint = resolveDprProgressHint(dprProgressHints[row.key], boqRef, wpCount);
+            const wholeJobRow = isWholeJobMeasurement(row.progressMode, row.unit)
+              || (boqRef
+                ? isWholeJobMeasurement(String(boqRef.measurementMode ?? ''), String(boqRef.unit ?? ''))
+                : false);
+            return (
             <Box
               key={row.key}
               sx={{
@@ -2748,10 +2789,7 @@ export default function ProjectConstructionPage() {
                     ))}
                   </TextField>
                 </Box>
-                {row.boqItemId && (() => {
-                  const boqRef = dprBoq.find((b) => String(b.id) === row.boqItemId);
-                  if (!boqRef) return null;
-                  return (
+                {row.boqItemId && boqRef && (
                     <Typography variant="caption" color="text.secondary" display="block">
                       As per L1 Contractor BOQ: <strong>{String(boqRef.itemCode)}</strong>
                       {' · sanctioned '}{String(boqRef.contractQty)} {String(boqRef.unit)}
@@ -2759,8 +2797,14 @@ export default function ProjectConstructionPage() {
                         ? ` · ${COMPONENT_LABELS[boqRef.component as ProjectComponent] ?? boqRef.component}`
                         : ''}
                     </Typography>
-                  );
-                })()}
+                )}
+                {progressHint && (
+                  <DprPlannedVsActualPanel
+                    hint={progressHint}
+                    todayQty={row.quantityDone}
+                    unit={row.unit}
+                  />
+                )}
                 <Box display="flex" gap={1} flexWrap="wrap">
                   <TextField
                     label="Chainage From" placeholder="0+000" sx={{ flex: 1, minWidth: 120 }}
@@ -2778,60 +2822,65 @@ export default function ProjectConstructionPage() {
                       void refreshDprProgressHint({ ...row, chainageTo: e.target.value });
                     }}
                   />
-                  {isWholeJobMeasurement(row.progressMode, row.unit) && row.boqItemId && dprProgressHints[row.key] ? (
+                  {wholeJobRow && row.boqItemId ? (
+                    (() => {
+                      const scopeBal = wholeJobScopeBalanceQty(progressHint, boqRef, wpCount);
+                      const qtyOptions = wholeJobQtySelectOptions(scopeBal);
+                      const safeQty = qtyOptions.some((q) => Math.abs(q - row.quantityDone) < 0.0005)
+                        ? row.quantityDone
+                        : 0;
+                      return (
                     <>
                       <TextField
                         select
                         required
-                        label="Qty executed today"
+                        label="Job progress today"
                         sx={{ flex: 1, minWidth: 160 }}
-                        value={row.quantityDone}
+                        value={safeQty}
                         onChange={(e) => {
                           const qty = Number(e.target.value);
-                          const hint = dprProgressHints[row.key];
-                          const frozen = frozenProgressFromRow(qty, hint);
+                          const frozen = frozenProgressFromRow(qty, progressHint);
                           updateDprActivityRow(row.key, {
                             quantityDone: qty,
                             progressPctToday: frozen.boqPctToday,
+                            progressMode: 'whole_job',
                           });
                         }}
-                        helperText={(() => {
-                          const hint = dprProgressHints[row.key];
-                          const scopeCap = Number(hint.scopeSanctionedQty ?? hint.sanctionedQty ?? 0);
-                          const scopeDone = Number(hint.scopeContributionQty ?? 0);
-                          const scopeBal = Math.max(0, scopeCap - scopeDone);
-                          return `Select qty (max ${formatProgressQty(scopeBal)} ${row.unit}) — % freezes automatically`;
-                        })()}
+                        helperText={`Select Job qty (max ${formatProgressQty(scopeBal)} ${row.unit}) — % freezes automatically`}
                       >
-                        {wholeJobQtySelectOptions(
-                          Math.max(0, Number(dprProgressHints[row.key].scopeSanctionedQty ?? dprProgressHints[row.key].sanctionedQty ?? 0)
-                            - Number(dprProgressHints[row.key].scopeContributionQty ?? 0)),
-                        ).map((q) => (
+                        {qtyOptions.map((q) => (
                           <MenuItem key={q} value={q}>
                             {formatProgressQty(q)} {row.unit}
-                            {q === 1 ? ' — full Job' : ''}
+                            {q === scopeBal && scopeBal > 0 ? ' — complete this location' : ''}
+                            {q === 1 && scopeBal >= 1 ? ' — full Job' : ''}
                           </MenuItem>
                         ))}
                       </TextField>
+                      {progressHint ? (
+                        <>
                       <TextField
                         label="Scheme % (frozen)"
                         sx={{ flex: 1, minWidth: 120 }}
-                        value={`${frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).boqPctToday}%`}
+                        value={`${frozenProgressFromRow(safeQty, progressHint).boqPctToday}%`}
                         InputProps={{ readOnly: true }}
                         disabled
                         helperText="of full BOQ line"
                       />
-                      {frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).jobPctToday != null && (
+                      {frozenProgressFromRow(safeQty, progressHint).jobPctToday != null && (
                         <TextField
                           label="% of this Job (frozen)"
                           sx={{ flex: 1, minWidth: 140 }}
-                          value={`${frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).jobPctToday}%`}
+                          value={`${frozenProgressFromRow(safeQty, progressHint).jobPctToday}%`}
                           InputProps={{ readOnly: true }}
                           disabled
                           helperText="physical progress on this Job"
                         />
                       )}
+                        </>
+                      ) : null}
                     </>
+                      );
+                    })()
                   ) : (
                     <>
                       <TextField
@@ -2843,18 +2892,16 @@ export default function ProjectConstructionPage() {
                         value={row.quantityDone}
                         onChange={(e) => {
                           const qty = Number(e.target.value);
-                          const hint = dprProgressHints[row.key];
-                          const boqSanctioned = Number(hint?.sanctionedQty ?? 0);
+                          const boqSanctioned = Number(progressHint?.sanctionedQty ?? boqRef?.contractQty ?? 0);
                           updateDprActivityRow(row.key, {
                             quantityDone: qty,
                             progressPctToday: boqSanctioned > 0 ? pctFromQty(qty, boqSanctioned) : 0,
                           });
                         }}
-                        helperText={row.boqItemId && dprProgressHints[row.key]
+                        helperText={progressHint
                           ? (() => {
-                            const hint = dprProgressHints[row.key];
-                            const scopeCap = Number(hint.scopeSanctionedQty ?? hint.sanctionedQty ?? 0);
-                            const scopeDone = Number(hint.scopeContributionQty ?? hint.cumulativeQty ?? 0);
+                            const scopeCap = Number(progressHint.scopeSanctionedQty ?? progressHint.sanctionedQty ?? 0);
+                            const scopeDone = Number(progressHint.scopeContributionQty ?? progressHint.cumulativeQty ?? 0);
                             const scopeBal = Math.max(0, scopeCap - scopeDone);
                             return scopeCap > 0
                               ? `Max today: ${formatProgressQty(scopeBal)} ${row.unit || ''}`
@@ -2862,11 +2909,11 @@ export default function ProjectConstructionPage() {
                           })()
                           : undefined}
                       />
-                      {row.boqItemId && dprProgressHints[row.key] && Number(dprProgressHints[row.key].sanctionedQty) > 0 && (
+                      {progressHint && Number(progressHint.sanctionedQty) > 0 && (
                         <TextField
                           label="% of BOQ line (frozen)"
                           sx={{ flex: 1, minWidth: 140 }}
-                          value={`${pctFromQty(row.quantityDone, Number(dprProgressHints[row.key].sanctionedQty))}%`}
+                          value={`${pctFromQty(row.quantityDone, Number(progressHint.sanctionedQty))}%`}
                           InputProps={{ readOnly: true }}
                           disabled
                           helperText="remaining = planned − actual"
@@ -2874,10 +2921,10 @@ export default function ProjectConstructionPage() {
                       )}
                     </>
                   )}
-                  {isWholeJobMeasurement(row.progressMode, row.unit)
+                  {wholeJobRow
                     && row.quantityDone > 0
-                    && dprProgressHints[row.key]
-                    && frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).locationComplete && (
+                    && progressHint
+                    && frozenProgressFromRow(row.quantityDone, progressHint).locationComplete && (
                     <Chip
                       size="small"
                       color="success"
@@ -2890,7 +2937,10 @@ export default function ProjectConstructionPage() {
                     select label="Unit" sx={{ flex: 1, minWidth: 100 }}
                     value={row.unit}
                     onChange={(e) => updateDprActivityRow(row.key, { unit: e.target.value })}
-                    helperText={dprBoqUnits.length === 0 ? 'Upload L1 Contractor BOQ in Work Planning' : undefined}
+                    InputProps={{ readOnly: Boolean(row.boqItemId) }}
+                    helperText={row.boqItemId
+                      ? 'From L1 BOQ item'
+                      : (dprBoqUnits.length === 0 ? 'Upload L1 Contractor BOQ in Work Planning' : undefined)}
                   >
                     <MenuItem value="">— Select —</MenuItem>
                     {boqUnitOptions(dprBoqUnits, row.unit).map((u) => (
@@ -2898,13 +2948,6 @@ export default function ProjectConstructionPage() {
                     ))}
                   </TextField>
                 </Box>
-                {row.boqItemId && dprProgressHints[row.key] && (
-                  <DprPlannedVsActualPanel
-                    hint={dprProgressHints[row.key]}
-                    todayQty={row.quantityDone}
-                    unit={row.unit}
-                  />
-                )}
                 <TextField
                   fullWidth
                   label="Work done today"
@@ -2958,7 +3001,7 @@ export default function ProjectConstructionPage() {
                 </Box>
               </Box>
             </Box>
-          ))}
+          );})}
           </Box>
 
           <Divider />
@@ -2976,9 +3019,16 @@ export default function ProjectConstructionPage() {
             minRows={2}
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setDprDialog(false); resetDprForm(); }}>Cancel</Button>
-          <Button variant="contained" onClick={() => { void handleSaveDpr(); }}>Save DPR</Button>
+        <DialogActions sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 1, px: 3, py: 2 }}>
+          {dprFormError && (
+            <Alert severity="error" onClose={() => setDprFormError('')}>{dprFormError}</Alert>
+          )}
+          <Box display="flex" justifyContent="flex-end" gap={1} width="100%">
+          <Button onClick={() => { setDprDialog(false); resetDprForm(); }} disabled={dprSaving}>Cancel</Button>
+          <Button variant="contained" disabled={dprSaving} onClick={() => { void handleSaveDpr(); }}>
+            {dprSaving ? 'Saving…' : 'Save DPR'}
+          </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
