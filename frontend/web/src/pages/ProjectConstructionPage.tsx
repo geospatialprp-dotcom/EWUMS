@@ -30,8 +30,9 @@ import {
   constructionWorkflowChipSx,
 } from '../utils/constructionTableStyles';
 import {
-  buildDprPayload, defaultDprHeader, dprActivitySummary, formatProgressQty,
-  emptyDprActivityRow, isWholeJobMeasurement,
+  buildDprPayload, defaultDprHeader, dprActivitySummary, emptyDprActivityRow,
+  formatProgressQty, frozenProgressFromRow, isWholeJobMeasurement, pctFromQty,
+  wholeJobQtySelectOptions,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
@@ -2681,26 +2682,111 @@ export default function ProjectConstructionPage() {
                       void refreshDprProgressHint({ ...row, chainageTo: e.target.value });
                     }}
                   />
-                  <TextField
-                    type="number"
-                    required
-                    label="Quantity executed today"
-                    sx={{ flex: 1, minWidth: 140 }}
-                    inputProps={{ min: 0, step: 0.001 }}
-                    value={row.quantityDone}
-                    onChange={(e) => updateDprActivityRow(row.key, { quantityDone: Number(e.target.value) })}
-                    helperText={row.boqItemId && dprProgressHints[row.key]
-                      ? (() => {
-                        const hint = dprProgressHints[row.key];
-                        const scopeCap = Number(hint.scopeSanctionedQty ?? hint.sanctionedQty ?? 0);
-                        const scopeDone = Number(hint.scopeContributionQty ?? hint.cumulativeQty ?? 0);
-                        const scopeBal = Math.max(0, scopeCap - scopeDone);
-                        return scopeCap > 0
-                          ? `Max today: ${formatProgressQty(scopeBal)} ${row.unit || ''} · % calculated from BOQ qty`
-                          : '% calculated from BOQ qty';
-                      })()
-                      : '% calculated from BOQ qty'}
-                  />
+                  {isWholeJobMeasurement(row.progressMode, row.unit) && row.boqItemId && dprProgressHints[row.key] ? (
+                    <>
+                      <TextField
+                        select
+                        required
+                        label="Qty executed today"
+                        sx={{ flex: 1, minWidth: 160 }}
+                        value={row.quantityDone}
+                        onChange={(e) => {
+                          const qty = Number(e.target.value);
+                          const hint = dprProgressHints[row.key];
+                          const frozen = frozenProgressFromRow(qty, hint);
+                          updateDprActivityRow(row.key, {
+                            quantityDone: qty,
+                            progressPctToday: frozen.boqPctToday,
+                          });
+                        }}
+                        helperText={(() => {
+                          const hint = dprProgressHints[row.key];
+                          const scopeCap = Number(hint.scopeSanctionedQty ?? hint.sanctionedQty ?? 0);
+                          const scopeDone = Number(hint.scopeContributionQty ?? 0);
+                          const scopeBal = Math.max(0, scopeCap - scopeDone);
+                          return `Select qty (max ${formatProgressQty(scopeBal)} ${row.unit}) — % freezes automatically`;
+                        })()}
+                      >
+                        {wholeJobQtySelectOptions(
+                          Math.max(0, Number(dprProgressHints[row.key].scopeSanctionedQty ?? dprProgressHints[row.key].sanctionedQty ?? 0)
+                            - Number(dprProgressHints[row.key].scopeContributionQty ?? 0)),
+                        ).map((q) => (
+                          <MenuItem key={q} value={q}>
+                            {formatProgressQty(q)} {row.unit}
+                            {q === 1 ? ' — full Job' : ''}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                      <TextField
+                        label="BOQ % (frozen)"
+                        sx={{ flex: 1, minWidth: 120 }}
+                        value={`${frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).boqPctToday}%`}
+                        InputProps={{ readOnly: true }}
+                        disabled
+                      />
+                      {frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).locationPctToday != null && (
+                        <TextField
+                          label="Location % (frozen)"
+                          sx={{ flex: 1, minWidth: 120 }}
+                          value={`${frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).locationPctToday}%`}
+                          InputProps={{ readOnly: true }}
+                          disabled
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <TextField
+                        type="number"
+                        required
+                        label="Quantity executed today"
+                        sx={{ flex: 1, minWidth: 140 }}
+                        inputProps={{ min: 0, step: 0.001 }}
+                        value={row.quantityDone}
+                        onChange={(e) => {
+                          const qty = Number(e.target.value);
+                          const hint = dprProgressHints[row.key];
+                          const boqSanctioned = Number(hint?.sanctionedQty ?? 0);
+                          updateDprActivityRow(row.key, {
+                            quantityDone: qty,
+                            progressPctToday: boqSanctioned > 0 ? pctFromQty(qty, boqSanctioned) : 0,
+                          });
+                        }}
+                        helperText={row.boqItemId && dprProgressHints[row.key]
+                          ? (() => {
+                            const hint = dprProgressHints[row.key];
+                            const scopeCap = Number(hint.scopeSanctionedQty ?? hint.sanctionedQty ?? 0);
+                            const scopeDone = Number(hint.scopeContributionQty ?? hint.cumulativeQty ?? 0);
+                            const scopeBal = Math.max(0, scopeCap - scopeDone);
+                            return scopeCap > 0
+                              ? `Max today: ${formatProgressQty(scopeBal)} ${row.unit || ''}`
+                              : undefined;
+                          })()
+                          : undefined}
+                      />
+                      {row.boqItemId && dprProgressHints[row.key] && Number(dprProgressHints[row.key].sanctionedQty) > 0 && (
+                        <TextField
+                          label="BOQ % (frozen)"
+                          sx={{ flex: 1, minWidth: 120 }}
+                          value={`${pctFromQty(row.quantityDone, Number(dprProgressHints[row.key].sanctionedQty))}%`}
+                          InputProps={{ readOnly: true }}
+                          disabled
+                        />
+                      )}
+                    </>
+                  )}
+                  {isWholeJobMeasurement(row.progressMode, row.unit)
+                    && row.quantityDone > 0
+                    && dprProgressHints[row.key]
+                    && frozenProgressFromRow(row.quantityDone, dprProgressHints[row.key]).locationComplete && (
+                    <Chip
+                      size="small"
+                      color="success"
+                      icon={<CheckCircleIcon />}
+                      label={`${formatProgressQty(row.quantityDone)} ${row.unit} — location 100% frozen`}
+                      sx={{ alignSelf: 'flex-start' }}
+                    />
+                  )}
                   <TextField
                     select label="Unit" sx={{ flex: 1, minWidth: 100 }}
                     value={row.unit}
@@ -2727,12 +2813,11 @@ export default function ProjectConstructionPage() {
                       {splitAcrossLocations ? (
                         <>
                           {' '}This work package: up to <strong>{scopeQty} {unit}</strong>.
-                          {' '}Enter qty executed today for this location — billing is qty-wise.
+                          {' '}Select qty — when you pick <strong>1 {unit}</strong>, location % freezes at <strong>100%</strong>.
                         </>
                       ) : (
                         <>
-                          {' '}Enter qty executed today as per BOQ unit ({unit}).
-                          {' '}% is calculated automatically.
+                          {' '}Select qty executed today — % freezes automatically from BOQ qty.
                         </>
                       )}
                     </Typography>

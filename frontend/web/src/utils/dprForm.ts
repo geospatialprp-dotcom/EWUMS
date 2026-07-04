@@ -109,6 +109,46 @@ export function formatProgressQty(value: number): string {
   return String(rounded);
 }
 
+/** % of sanctioned BOQ qty — read-only after qty is selected. */
+export function pctFromQty(qty: number, sanctionedQty: number): number {
+  if (sanctionedQty <= 0) return 0;
+  return Math.min(100, Math.round((qty / sanctionedQty) * 10000) / 100);
+}
+
+/** Qty choices for Job / whole-job items (e.g. 0, 0.1 … 1 Job up to location balance). */
+export function wholeJobQtySelectOptions(maxQty: number): number[] {
+  const cap = Math.round(Math.max(0, maxQty) * 1000) / 1000;
+  if (cap <= 0) return [0];
+  if (cap <= 1) {
+    const opts = new Set<number>([0]);
+    for (let i = 1; i <= 10; i += 1) {
+      opts.add(Math.round((cap * i / 10) * 1000) / 1000);
+    }
+    return [...opts].sort((a, b) => a - b);
+  }
+  const opts = new Set<number>([0, cap]);
+  const step = Math.max(0.1, Math.round((cap / 10) * 1000) / 1000);
+  for (let q = step; q < cap; q += step) {
+    opts.add(Math.round(q * 1000) / 1000);
+  }
+  return [...opts].sort((a, b) => a - b);
+}
+
+export function frozenProgressFromRow(
+  qty: number,
+  hint?: DprProgressSummary | null,
+): { boqPctToday: number; locationPctToday: number | null; locationComplete: boolean } {
+  const boqSanctioned = Number(hint?.sanctionedQty ?? 0);
+  const scopeSanctioned = Number(hint?.scopeSanctionedQty ?? boqSanctioned);
+  const scopeDone = Number(hint?.scopeContributionQty ?? 0);
+  const scopeBalance = Math.max(0, scopeSanctioned - scopeDone);
+  const boqPctToday = pctFromQty(qty, boqSanctioned);
+  const split = scopeSanctioned > 0 && scopeSanctioned < boqSanctioned - 0.0005;
+  const locationPctToday = split ? pctFromQty(qty, scopeSanctioned) : null;
+  const locationComplete = scopeSanctioned > 0 && qty >= scopeBalance - 0.0005 && qty > 0;
+  return { boqPctToday, locationPctToday, locationComplete };
+}
+
 /** Today + cumulative progress with qty and % (all BOQ items). */
 export function formatDprActivityProgress(act: Record<string, unknown>): string {
   const unit = String(act.unit ?? '').trim();
@@ -155,6 +195,7 @@ export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRo
           progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
           workDoneToday: row.workDoneToday.trim() || row.description.trim(),
           quantityDone: Number(row.quantityDone) || 0,
+          progressPctToday: row.progressPctToday > 0 ? row.progressPctToday : undefined,
           boqItemId: row.boqItemId || undefined,
           component: row.component || undefined,
           chainageFrom: row.chainageFrom || undefined,
