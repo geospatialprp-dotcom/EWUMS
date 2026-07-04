@@ -16,6 +16,32 @@ export function sanctionedBoqQty(contractQty: number, revisedQty: number): numbe
   return Number(contractQty) || 0;
 }
 
+function normalizeComponent(component: string | null | undefined): string {
+  return component?.trim().toLowerCase() ?? '';
+}
+
+export function countMatchingWorkPackages(
+  boqComponent: string | null | undefined,
+  workPackages: { component: string }[],
+): number {
+  const comp = normalizeComponent(boqComponent);
+  if (!comp) return 0;
+  return workPackages.filter((wp) => normalizeComponent(wp.component) === comp).length;
+}
+
+/** Per work-package cap when BOQ qty is split across matching locations (e.g. 2 Job / 2 WPs → 1 Job each). */
+export function scopeSanctionedQty(
+  boqSanctioned: number,
+  boqComponent: string | null | undefined,
+  workPackages: { component: string }[],
+): number {
+  const count = countMatchingWorkPackages(boqComponent, workPackages);
+  if (count >= 2 && boqSanctioned >= count) {
+    return boqSanctioned / count;
+  }
+  return boqSanctioned;
+}
+
 export function buildExecutionScopeKey(parts: {
   projectId: string;
   boqItemId: string;

@@ -79,6 +79,7 @@ import {
   executionStatusFromCumulative,
   progressIncrementQty,
   sanctionedBoqQty,
+  scopeSanctionedQty,
   type BoqMeasurementMode,
 } from './utils/dpr-progress.util';
 
@@ -1090,6 +1091,10 @@ export class ConstructionService {
 
     const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
     const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+    const workPackages = await this.wpRepo.find({ where: { tenantId, projectId } });
+    const scopeSanctioned = mode === 'whole_job'
+      ? scopeSanctionedQty(sanctioned, item.component, workPackages)
+      : sanctioned;
     const scopeKey = buildExecutionScopeKey({
       projectId, boqItemId, workPackageId, chainageFrom, chainageTo,
     });
@@ -1102,6 +1107,9 @@ export class ConstructionService {
     const cumulativePct = mode === 'whole_job' ? boqCumulativePct : cumulativePctFromQty(cumulativeQty, sanctioned);
     const balanceQty = Math.max(0, sanctioned - boqCumulativeQty);
     const balancePct = Math.max(0, 100 - boqCumulativePct);
+    const scopeBalancePct = mode === 'whole_job' && scopeSanctioned > 0
+      ? Math.max(0, 100 - cumulativePctFromQty(scopeContributionQty, scopeSanctioned))
+      : undefined;
 
     const yesterdayRows = await this.dprActivityRepo.query(
       `SELECT a.progress_pct_today AS "progressPctToday", a.quantity_done AS "quantityDone",
@@ -1144,14 +1152,16 @@ export class ConstructionService {
       scopeKey,
       measurementMode: mode,
       sanctionedQty: sanctioned,
+      scopeSanctionedQty: mode === 'whole_job' ? scopeSanctioned : undefined,
       cumulativeQty,
       cumulativePct,
       balanceQty,
       balancePct,
       scopeContributionQty: mode === 'whole_job' ? scopeContributionQty : undefined,
       scopeContributionPct: mode === 'whole_job'
-        ? cumulativePctFromQty(scopeContributionQty, sanctioned)
+        ? cumulativePctFromQty(scopeContributionQty, scopeSanctioned)
         : undefined,
+      scopeBalancePct,
       chainageFrom: chainageFrom ?? execution?.chainageFrom ?? null,
       chainageTo: chainageTo ?? execution?.chainageTo ?? null,
       executionStatus: item.dprExecutionStatus ?? execution?.status ?? 'not_started',
@@ -1183,6 +1193,8 @@ export class ConstructionService {
       quantityDone: number;
     }> = [];
 
+    const workPackages = await this.wpRepo.find({ where: { tenantId, projectId } });
+
     for (const act of activities) {
       if (!act.boqItemId) {
         prepared.push({
@@ -1202,7 +1214,11 @@ export class ConstructionService {
       if (!item) throw new BadRequestException(`BOQ item not found for activity "${act.description}"`);
 
       const mode = (act.progressMode ?? item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
-      const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+      const boqSanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+      const scopeSanctioned = mode === 'whole_job'
+        ? scopeSanctionedQty(boqSanctioned, item.component, workPackages)
+        : boqSanctioned;
+      const pctBase = mode === 'whole_job' ? scopeSanctioned : boqSanctioned;
       const scopeKey = buildExecutionScopeKey({
         projectId,
         boqItemId: act.boqItemId,
@@ -1212,27 +1228,31 @@ export class ConstructionService {
       });
 
       let execution = await this.dprExecutionRepo.findOne({ where: { projectId, scopeKey } });
-      // Whole-job BOQ (e.g. 1 Job BFG): one sanctioned qty shared across all locations/chainages.
       const boqCumulativeBefore = Number(item.dprQty ?? 0);
       const scopeCumulativeBefore = Number(execution?.cumulativeQty ?? 0);
 
-      const { deltaQty, deltaPct } = progressIncrementQty(
+      const { deltaQty } = progressIncrementQty(
         mode,
-        sanctioned,
+        pctBase,
         act.progressPctToday,
         act.quantityDone,
       );
 
       try {
-        const validateFrom = mode === 'whole_job' ? boqCumulativeBefore : scopeCumulativeBefore;
-        assertProgressWithinSanction(mode, sanctioned, validateFrom, deltaQty);
+        if (mode === 'whole_job') {
+          assertProgressWithinSanction(mode, boqSanctioned, boqCumulativeBefore, deltaQty);
+          if (scopeSanctioned < boqSanctioned) {
+            assertProgressWithinSanction(mode, scopeSanctioned, scopeCumulativeBefore, deltaQty);
+          }
+        } else {
+          assertProgressWithinSanction(mode, boqSanctioned, scopeCumulativeBefore, deltaQty);
+        }
       } catch (err) {
         throw new BadRequestException((err as Error).message);
       }
 
       const boqCumulativeAfter = boqCumulativeBefore + deltaQty;
-      const scopeCumulativeAfter = scopeCumulativeBefore + deltaQty;
-      const cumulativePct = cumulativePctFromQty(boqCumulativeAfter, sanctioned);
+      const cumulativePct = cumulativePctFromQty(boqCumulativeAfter, boqSanctioned);
 
       if (!execution && deltaQty > 0) {
         execution = this.dprExecutionRepo.create({
@@ -1244,12 +1264,15 @@ export class ConstructionService {
           chainageFrom: act.chainageFrom ?? null,
           chainageTo: act.chainageTo ?? null,
           measurementMode: mode,
-          sanctionedQty: sanctioned,
+          sanctionedQty: scopeSanctioned,
           cumulativeQty: 0,
           cumulativePct: 0,
           status: 'in_progress',
           startedOn: reportDate,
         });
+        await this.dprExecutionRepo.save(execution);
+      } else if (execution && mode === 'whole_job' && Number(execution.sanctionedQty) !== scopeSanctioned) {
+        execution.sanctionedQty = scopeSanctioned;
         await this.dprExecutionRepo.save(execution);
       }
 
@@ -1281,6 +1304,8 @@ export class ConstructionService {
     });
     if (existing > 0) return;
 
+    const workPackages = await this.wpRepo.find({ where: { tenantId, projectId: dpr.projectId } });
+
     for (const act of dpr.activities) {
       if (!act.boqItemId || !act.executionScopeKey) continue;
 
@@ -1293,11 +1318,14 @@ export class ConstructionService {
       const execution = await this.dprExecutionRepo.findOne({
         where: { projectId: dpr.projectId, scopeKey: act.executionScopeKey },
       });
-      const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
+      const boqSanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
       const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
+      const scopeSanctioned = mode === 'whole_job'
+        ? scopeSanctionedQty(boqSanctioned, item.component, workPackages)
+        : boqSanctioned;
       const boqCumulativeBefore = Number(item.dprQty ?? 0);
       const cumulativeAfter = boqCumulativeBefore + deltaQty;
-      const cumulativePct = cumulativePctFromQty(cumulativeAfter, sanctioned);
+      const cumulativePct = cumulativePctFromQty(cumulativeAfter, boqSanctioned);
 
       await this.dprLedgerRepo.save(this.dprLedgerRepo.create({
         tenantId,
@@ -1311,7 +1339,7 @@ export class ConstructionService {
       }));
 
       item.dprQty = cumulativeAfter;
-      item.dprExecutionStatus = executionStatusFromCumulative(cumulativeAfter, sanctioned);
+      item.dprExecutionStatus = executionStatusFromCumulative(cumulativeAfter, boqSanctioned);
       await this.boqRepo.save(item);
       await this.mirrorDprQtyToFinancialBoq(tenantId, dpr.projectId, item, deltaQty);
 
@@ -1319,12 +1347,17 @@ export class ConstructionService {
         const scopeAfter = Number(execution.cumulativeQty) + deltaQty;
         execution.cumulativeQty = scopeAfter;
         execution.cumulativePct = mode === 'whole_job'
-          ? cumulativePctFromQty(scopeAfter, sanctioned)
+          ? cumulativePctFromQty(scopeAfter, scopeSanctioned)
           : cumulativePct;
-        execution.status = executionStatusFromCumulative(cumulativeAfter, sanctioned);
+        execution.status = mode === 'whole_job'
+          ? executionStatusFromCumulative(scopeAfter, scopeSanctioned)
+          : executionStatusFromCumulative(cumulativeAfter, boqSanctioned);
+        if (mode === 'whole_job' && Number(execution.sanctionedQty) !== scopeSanctioned) {
+          execution.sanctionedQty = scopeSanctioned;
+        }
         execution.updatedAt = new Date();
         if (!execution.startedOn) execution.startedOn = dpr.reportDate;
-        if (executionStatusFromCumulative(cumulativeAfter, sanctioned) === 'completed') {
+        if (execution.status === 'completed') {
           execution.completedOn = dpr.reportDate;
         }
         execution.expectedCompletionDate = execution.status === 'completed'

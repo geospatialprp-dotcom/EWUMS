@@ -39,6 +39,9 @@ export type DprProgressSummary = {
   balancePct: number;
   cumulativeQty: number;
   balanceQty: number;
+  sanctionedQty?: number;
+  scopeSanctionedQty?: number;
+  scopeBalancePct?: number;
   yesterdaysProgress: number;
   yesterdaysProgressLabel: 'pct' | 'qty';
   executionStatus: string;

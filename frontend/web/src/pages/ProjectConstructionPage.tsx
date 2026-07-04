@@ -2503,6 +2503,13 @@ export default function ProjectConstructionPage() {
                     chainageTo: String(wp.chainageTo ?? r.chainageTo),
                   })));
                 }
+                dprActivityRows.forEach((r) => {
+                  if (r.boqItemId) void refreshDprProgressHint({ ...r, ...(wp ? {
+                    component: String(wp.component ?? r.component) as ProjectComponent,
+                    chainageFrom: String(wp.chainageFrom ?? r.chainageFrom),
+                    chainageTo: String(wp.chainageTo ?? r.chainageTo),
+                  } : {}) });
+                });
               }}
             >
               <MenuItem value="">— None —</MenuItem>
@@ -2706,13 +2713,31 @@ export default function ProjectConstructionPage() {
                     ))}
                   </TextField>
                 </Box>
-                {isWholeJobMeasurement(row.progressMode, row.unit) && row.boqItemId && (
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    As per BOQ this item is <strong>1 Job total</strong>.
-                    Select the <strong>Work Package</strong> for today&apos;s location (chainage comes from EE work planning).
-                    Today&apos;s % updates the BOQ line — not a separate Job per location.
-                  </Typography>
-                )}
+                {isWholeJobMeasurement(row.progressMode, row.unit) && row.boqItemId && (() => {
+                  const boqRef = billingBoq.find((b) => String(b.id) === row.boqItemId);
+                  if (!boqRef) return null;
+                  const hint = dprProgressHints[row.key];
+                  const boqQty = Number(hint?.sanctionedQty ?? boqRef.contractQty);
+                  const unit = String(boqRef.unit);
+                  const scopeQty = Number(hint?.scopeSanctionedQty ?? boqQty);
+                  const splitAcrossLocations = scopeQty < boqQty - 0.0005;
+                  return (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      BOQ: <strong>{boqQty} {unit}</strong> total.
+                      {splitAcrossLocations ? (
+                        <>
+                          {' '}This work package: up to <strong>{scopeQty} {unit}</strong>.
+                          {' '}Today&apos;s % is progress for this location&apos;s Job — not the full BOQ line.
+                        </>
+                      ) : (
+                        <>
+                          {' '}Select the <strong>Work Package</strong> for today&apos;s location
+                          (chainage comes from EE work planning). Today&apos;s % updates the BOQ line.
+                        </>
+                      )}
+                    </Typography>
+                  );
+                })()}
                 {dprProgressHints[row.key] && (
                   <Alert severity="info" sx={{ py: 0.5 }}>
                     {isWholeJobMeasurement(row.progressMode, row.unit) && (row.chainageFrom || row.chainageTo)
@@ -2726,14 +2751,32 @@ export default function ProjectConstructionPage() {
                     Balance: {dprProgressHints[row.key].balancePct}%
                     {dprProgressHints[row.key].scopeContributionPct != null
                       && dprProgressHints[row.key].scopeContributionPct! > 0
-                      ? ` · This location contributed: ${dprProgressHints[row.key].scopeContributionPct}%`
+                      ? ` · This location: ${dprProgressHints[row.key].scopeContributionPct}%`
+                      : ''}
+                    {dprProgressHints[row.key].scopeBalancePct != null
+                      && dprProgressHints[row.key].scopeSanctionedQty != null
+                      && Number(dprProgressHints[row.key].scopeSanctionedQty) < Number(dprProgressHints[row.key].sanctionedQty ?? 0)
+                      ? ` · Location balance: ${dprProgressHints[row.key].scopeBalancePct}%`
                       : ''}
                     {dprProgressHints[row.key].expectedCompletionDate
                       ? ` · ETC: ${dprProgressHints[row.key].expectedCompletionDate}`
                       : ''}
-                    {isWholeJobMeasurement(row.progressMode, row.unit) && row.progressPctToday > 0
-                      ? ` · After today: ${Math.min(100, dprProgressHints[row.key].cumulativePct + row.progressPctToday).toFixed(1)}%`
-                      : ''}
+                    {isWholeJobMeasurement(row.progressMode, row.unit) && row.progressPctToday > 0 && (() => {
+                      const hint = dprProgressHints[row.key];
+                      const boqSanctioned = Number(hint.sanctionedQty ?? hint.cumulativeQty ?? 0) || 1;
+                      const scopeSanctioned = Number(hint.scopeSanctionedQty ?? boqSanctioned);
+                      const deltaQty = (row.progressPctToday / 100) * scopeSanctioned;
+                      const afterBoqPct = Math.min(
+                        100,
+                        Math.round(((Number(hint.cumulativeQty) + deltaQty) / boqSanctioned) * 10000) / 100,
+                      );
+                      const afterScopePct = hint.scopeSanctionedQty != null
+                        ? Math.min(100, Math.round(((hint.scopeContributionPct ?? 0) + row.progressPctToday) * 10) / 10)
+                        : null;
+                      return afterScopePct != null && scopeSanctioned < boqSanctioned
+                        ? ` · After today: BOQ ${afterBoqPct}%, this location ${afterScopePct}%`
+                        : ` · After today: ${afterBoqPct}%`;
+                    })()}
                   </Alert>
                 )}
                 <TextField
