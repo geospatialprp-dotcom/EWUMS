@@ -898,18 +898,26 @@ export default function ProjectConstructionPage() {
         wpList.map((wp) => [String(wp.id), String(wp.contractorName ?? '')]),
       ));
       if (failures.length > 0) {
-        setError(
-          `Could not load: ${failures.join(', ')}. `
-          + 'If DPR list failed, run migration 104 on VPS and restart API: '
-          + 'bash /opt/egip/database/scripts/vps-migrate-104-dpr-progress.sh',
-        );
+        const essentials = isContractorUser
+          ? ['DPR list', 'work packages', 'L1 BOQ']
+          : failures;
+        const blocking = failures.filter((f) => essentials.includes(f));
+        if (blocking.length > 0) {
+          setSuccess('');
+          setError(
+            `Could not load: ${blocking.join(', ')}. `
+            + 'If DPR list failed, run migration 104 on VPS: '
+            + 'bash /opt/egip/database/scripts/vps-migrate-104-dpr-progress.sh',
+          );
+        }
       }
     } catch (err) {
+      setSuccess('');
       setError(formatApiError(err, 'Failed to load project. Check API is running.'));
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, isContractorUser]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -1235,10 +1243,10 @@ export default function ProjectConstructionPage() {
         )));
         setGpsCapturingKey(null);
         setError('');
-        setSuccess('GPS coordinates captured.');
       },
       (err) => {
         setGpsCapturingKey(null);
+        setSuccess('');
         setError(err.message || 'Failed to capture GPS coordinates.');
       },
       { enableHighAccuracy: true, timeout: 15000 },
@@ -1308,6 +1316,7 @@ export default function ProjectConstructionPage() {
       setSuccess(editingDprId ? 'DPR updated.' : 'Daily progress report saved.');
       await refresh();
     } catch (err) {
+      setSuccess('');
       setError(formatApiError(err, 'Failed to save DPR.'));
     }
   };
@@ -2118,11 +2127,6 @@ export default function ProjectConstructionPage() {
 
       {tab === 'dpr' && (
         <Box>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            {isContractorUser
-              ? 'Log in as contractor, fill today\'s work items, save, then Submit — JE reviews, then AE, then EE.'
-              : 'Contractor submits daily progress from their login. JE → AE → EE review and approve each DPR.'}
-          </Alert>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5} gap={2} sx={constructionSectionBarSx('dpr')}>
             <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('dpr').headerColor}>
               Stage 2: Daily Construction Activity

@@ -29,6 +29,33 @@ JOIN users keeper
  AND keeper.id <> l.id
 WHERE wp.contractor_id = l.id;
 
+UPDATE dpr_reports dr
+SET submitted_by = keeper.id
+FROM legacy_contractor_users l
+JOIN users keeper
+  ON keeper.tenant_id = l.tenant_id
+ AND lower(keeper.email) = lower(l.target_email)
+ AND keeper.id <> l.id
+WHERE dr.submitted_by = l.id;
+
+UPDATE ra_bills rb
+SET submitted_by = keeper.id
+FROM legacy_contractor_users l
+JOIN users keeper
+  ON keeper.tenant_id = l.tenant_id
+ AND lower(keeper.email) = lower(l.target_email)
+ AND keeper.id <> l.id
+WHERE rb.submitted_by = l.id;
+
+UPDATE contractor_invoices ci
+SET submitted_by = keeper.id
+FROM legacy_contractor_users l
+JOIN users keeper
+  ON keeper.tenant_id = l.tenant_id
+ AND lower(keeper.email) = lower(l.target_email)
+ AND keeper.id <> l.id
+WHERE ci.submitted_by = l.id;
+
 -- Rename legacy users when the short email is free.
 UPDATE users u
 SET email = l.target_email,

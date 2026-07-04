@@ -305,11 +305,30 @@ export class DivisionStaffProvisionerService {
     return first.slice(0, 10) || 'firm';
   }
 
-  private async repointWorkPackageContractor(tenantId: string, fromUserId: string, toUserId: string): Promise<void> {
+  private async repointContractorUserReferences(
+    tenantId: string,
+    fromUserId: string,
+    toUserId: string,
+  ): Promise<void> {
     if (fromUserId === toUserId) return;
     await this.userRepo.query(
       `UPDATE work_packages SET contractor_id = $1, updated_at = NOW()
        WHERE tenant_id = $2 AND contractor_id = $3`,
+      [toUserId, tenantId, fromUserId],
+    );
+    await this.userRepo.query(
+      `UPDATE dpr_reports SET submitted_by = $1
+       WHERE tenant_id = $2 AND submitted_by = $3`,
+      [toUserId, tenantId, fromUserId],
+    );
+    await this.userRepo.query(
+      `UPDATE ra_bills SET submitted_by = $1
+       WHERE tenant_id = $2 AND submitted_by = $3`,
+      [toUserId, tenantId, fromUserId],
+    );
+    await this.userRepo.query(
+      `UPDATE contractor_invoices SET submitted_by = $1
+       WHERE tenant_id = $2 AND submitted_by = $3`,
       [toUserId, tenantId, fromUserId],
     );
   }
@@ -335,7 +354,7 @@ export class DivisionStaffProvisionerService {
         [tenantId, firmKey, user.id],
       ) as Array<{ id: string }>;
       if (firmRows[0]?.id) {
-        await this.repointWorkPackageContractor(tenantId, user.id, firmRows[0].id);
+        await this.repointContractorUserReferences(tenantId, user.id, firmRows[0].id);
         await this.userRepo.remove(user);
         return;
       }
@@ -364,7 +383,13 @@ export class DivisionStaffProvisionerService {
     ) as Array<{ id: string }>;
 
     for (const row of legacyRows) {
-      await this.migrateOneLegacyContractorUser(tenantId, row.id);
+      try {
+        await this.migrateOneLegacyContractorUser(tenantId, row.id);
+      } catch (err) {
+        this.logger.warn(
+          `Legacy contractor login migration skipped for ${row.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
   }
 
