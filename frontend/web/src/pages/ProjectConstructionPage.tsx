@@ -2686,7 +2686,9 @@ export default function ProjectConstructionPage() {
                     onChange={(e) => updateDprActivityRow(row.key, { component: e.target.value as ProjectComponent })}
                   >
                     <MenuItem value="">— Select —</MenuItem>
-                    {Object.entries(COMPONENT_LABELS).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
+                    {PROJECT_COMPONENT_ORDER.map((k) => (
+                      <MenuItem key={k} value={k}>{COMPONENT_LABELS[k]}</MenuItem>
+                    ))}
                   </TextField>
                   <TextField
                     select label="BOQ Item (L1 Contractor)" sx={{ flex: 1, minWidth: 160 }}
@@ -3250,7 +3252,9 @@ export default function ProjectConstructionPage() {
           <TextField label="Package Code" value={wpForm.packageCode} onChange={(e) => setWpForm({ ...wpForm, packageCode: e.target.value })} placeholder="WP-GM-02" required disabled={wpSaving} />
           <TextField label="Package Name" value={wpForm.name} onChange={(e) => setWpForm({ ...wpForm, name: e.target.value })} required disabled={wpSaving} />
           <TextField select label="Component" value={wpForm.component} onChange={(e) => setWpForm({ ...wpForm, component: e.target.value as ProjectComponent })} disabled={wpSaving}>
-            {Object.entries(COMPONENT_LABELS).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
+            {PROJECT_COMPONENT_ORDER.map((k) => (
+              <MenuItem key={k} value={k}>{COMPONENT_LABELS[k]}</MenuItem>
+            ))}
           </TextField>
           <TextField select label="Scheme Type" value={wpForm.schemeType} onChange={(e) => setWpForm({ ...wpForm, schemeType: e.target.value as SchemeType })} disabled={wpSaving}>
             <MenuItem value="gravity">Gravity</MenuItem>

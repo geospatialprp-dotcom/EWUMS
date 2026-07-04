@@ -40,7 +40,9 @@ export type ProjectComponent =
   | 'pumping_main'
   | 'reservoir'
   | 'distribution'
-  | 'fhtc';
+  | 'fhtc'
+  | 'mechanical_work'
+  | 'electrical_work';
 
 export const COMPONENT_LABELS: Record<ProjectComponent, string> = {
   source_development: 'Source Development',
@@ -49,6 +51,8 @@ export const COMPONENT_LABELS: Record<ProjectComponent, string> = {
   reservoir: 'Reservoir Construction',
   distribution: 'Distribution Network',
   fhtc: 'FHTC Connections',
+  mechanical_work: 'Mechanical Work',
+  electrical_work: 'Electrical Work',
 };
 
 /** Main BOQ headings from uploaded Excel (Badhangarhi / standard template) */
@@ -76,6 +80,8 @@ export const PROJECT_COMPONENT_ORDER: ProjectComponent[] = [
   'reservoir',
   'distribution',
   'fhtc',
+  'mechanical_work',
+  'electrical_work',
 ];
 
 /** BOQ table columns — matches typical Excel BOQ sheet */

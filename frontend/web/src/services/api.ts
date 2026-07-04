@@ -539,7 +539,7 @@ export const auditApi = {
 };
 
 export type SchemeType = 'gravity' | 'pumping';
-export type ProjectComponent = 'source_development' | 'gravity_main' | 'pumping_main' | 'reservoir' | 'distribution' | 'fhtc';
+export type ProjectComponent = 'source_development' | 'gravity_main' | 'pumping_main' | 'reservoir' | 'distribution' | 'fhtc' | 'mechanical_work' | 'electrical_work';
 
 export const constructionApi = {
   overview: (projectId: string) => api.get(`/projects/${projectId}/construction/overview`),

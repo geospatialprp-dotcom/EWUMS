@@ -5,6 +5,8 @@ export const PROJECT_COMPONENTS = [
   'reservoir',
   'distribution',
   'fhtc',
+  'mechanical_work',
+  'electrical_work',
 ] as const;
 
 export type ProjectComponent = typeof PROJECT_COMPONENTS[number];
@@ -16,6 +18,8 @@ export const COMPONENT_LABELS: Record<ProjectComponent, string> = {
   reservoir: 'Reservoir Construction',
   distribution: 'Distribution Network',
   fhtc: 'FHTC Connections',
+  mechanical_work: 'Mechanical Work',
+  electrical_work: 'Electrical Work',
 };
 
 export const GIS_ASSET_TYPES = [
