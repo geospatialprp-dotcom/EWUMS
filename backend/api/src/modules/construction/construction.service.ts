@@ -1276,10 +1276,14 @@ export class ConstructionService {
         await this.dprExecutionRepo.save(execution);
       }
 
+      const todayPct = mode === 'whole_job'
+        ? Number(act.progressPctToday ?? 0)
+        : (boqSanctioned > 0 ? cumulativePctFromQty(deltaQty, boqSanctioned) : null);
+
       prepared.push({
         ...act,
         progressMode: mode,
-        progressPctToday: mode === 'whole_job' ? Number(act.progressPctToday ?? 0) : undefined,
+        progressPctToday: todayPct ?? undefined,
         cumulativeProgressPct: cumulativePct,
         cumulativeQty: boqCumulativeAfter,
         executionScopeKey: scopeKey,

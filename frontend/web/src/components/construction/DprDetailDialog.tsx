@@ -13,6 +13,7 @@ import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import type { ReactNode } from 'react';
 import DprPhotoGallery from './DprPhotoGallery';
 import { dprWorkflowStepLabel, STATUS_COLORS } from '../../constants/construction';
+import { formatDprActivityProgress } from '../../utils/dprForm';
 import { constructionTableTheme } from '../../utils/constructionTableStyles';
 
 type InfoTileProps = {
@@ -185,10 +186,10 @@ export default function DprDetailDialog({
                       {idx + 1}. {String(act.description)}
                     </Typography>
                     <Grid container spacing={2}>
-                      <Grid item xs={6} sm={3}>
+                      <Grid item xs={12} sm={6}>
                         <WorkItemMeta
-                          label="Quantity"
-                          value={`${String(act.quantityDone)} ${String(act.unit ?? '')}`.trim()}
+                          label="Progress"
+                          value={formatDprActivityProgress(act)}
                         />
                       </Grid>
                       <Grid item xs={6} sm={3}>

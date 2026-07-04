@@ -102,6 +102,37 @@ export function defaultDprHeader(): DprHeaderForm {
   };
 }
 
+export function formatProgressQty(value: number): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0';
+  const rounded = Math.round(n * 1000) / 1000;
+  return String(rounded);
+}
+
+/** Today + cumulative progress with qty and % (all BOQ items). */
+export function formatDprActivityProgress(act: Record<string, unknown>): string {
+  const unit = String(act.unit ?? '').trim();
+  const todayQty = Number(act.quantityDone ?? 0);
+  const cumQty = Number(act.cumulativeQty ?? todayQty);
+  const todayPct = act.progressPctToday != null ? Number(act.progressPctToday) : null;
+  const cumPct = act.cumulativeProgressPct != null ? Number(act.cumulativeProgressPct) : null;
+
+  const qtyLabel = (q: number) => `${formatProgressQty(q)}${unit ? ` ${unit}` : ''}`;
+  const pctLabel = (p: number | null) => (p != null && Number.isFinite(p) ? `${formatProgressQty(p)}%` : null);
+
+  const todayPctStr = pctLabel(todayPct);
+  const today = todayPctStr != null
+    ? `Today ${qtyLabel(todayQty)} (${todayPctStr})`
+    : `Today ${qtyLabel(todayQty)}`;
+
+  const cumPctStr = pctLabel(cumPct);
+  const cum = cumPctStr != null
+    ? `Cum ${qtyLabel(cumQty)} (${cumPctStr})`
+    : `Cum ${qtyLabel(cumQty)}`;
+
+  return `${today} · ${cum}`;
+}
+
 export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRow[]) {
   return {
     dprNumber: header.dprNumber,
@@ -152,20 +183,10 @@ export function dprActivitySummary(dpr: Record<string, unknown>): {
   const workItem = first
     ? String(first.description ?? '—')
     : '—';
-  const wholeJob = first
-    ? isWholeJobMeasurement(String(first.progressMode ?? ''), String(first.unit ?? ''))
-    : false;
-  const qty = first
-    ? wholeJob
-      ? `Today ${first.progressPctToday ?? 0}% · Cum ${first.cumulativeProgressPct ?? 0}%`
-      : `${first.quantityDone ?? 0} ${first.unit ?? ''}`.trim()
-    : '—';
+  const progress = first ? formatDprActivityProgress(first) : '—';
   const chainage = first
     ? [first.chainageFrom, first.chainageTo].filter(Boolean).join(' → ') || '—'
     : '—';
   const location = String(dpr.workSite ?? first?.siteDetail ?? '—');
-  const progress = first?.cumulativeProgressPct != null
-    ? `${first.cumulativeProgressPct}%`
-    : '—';
-  return { workItem, qty, chainage, location, progress };
+  return { workItem, qty: progress, chainage, location, progress };
 }

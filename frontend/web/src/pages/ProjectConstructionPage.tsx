@@ -30,7 +30,7 @@ import {
   constructionWorkflowChipSx,
 } from '../utils/constructionTableStyles';
 import {
-  buildDprPayload, defaultDprHeader, dprActivitySummary,
+  buildDprPayload, defaultDprHeader, dprActivitySummary, formatProgressQty,
   emptyDprActivityRow, isWholeJobMeasurement,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
@@ -2738,47 +2738,64 @@ export default function ProjectConstructionPage() {
                     </Typography>
                   );
                 })()}
-                {dprProgressHints[row.key] && (
+                {dprProgressHints[row.key] && (() => {
+                  const hint = dprProgressHints[row.key];
+                  const unit = row.unit || '';
+                  const boqSanctioned = Number(hint.sanctionedQty ?? 0);
+                  const cumQty = Number(hint.cumulativeQty ?? 0);
+                  const balQty = Number(hint.balanceQty ?? 0);
+                  return (
                   <Alert severity="info" sx={{ py: 0.5 }}>
                     {isWholeJobMeasurement(row.progressMode, row.unit) && (row.chainageFrom || row.chainageTo)
                       ? `Location ${row.chainageFrom || '0'}–${row.chainageTo || '0'} · `
                       : ''}
-                    Yesterday at this location: {dprProgressHints[row.key].yesterdaysProgress}
-                    {dprProgressHints[row.key].yesterdaysProgressLabel === 'pct' ? '%' : ` ${row.unit}`}
+                    Yesterday: {formatProgressQty(hint.yesterdaysProgress)}
+                    {hint.yesterdaysProgressLabel === 'pct' ? '%' : unit ? ` ${unit}` : ''}
                     {' · '}
-                    <strong>BOQ cumulative: {dprProgressHints[row.key].cumulativePct}%</strong>
+                    <strong>
+                      BOQ cumulative: {formatProgressQty(cumQty)}{unit ? ` ${unit}` : ''} ({hint.cumulativePct}%)
+                    </strong>
                     {' · '}
-                    Balance: {dprProgressHints[row.key].balancePct}%
-                    {dprProgressHints[row.key].scopeContributionPct != null
-                      && dprProgressHints[row.key].scopeContributionPct! > 0
-                      ? ` · This location: ${dprProgressHints[row.key].scopeContributionPct}%`
+                    Balance: {formatProgressQty(balQty)}{unit ? ` ${unit}` : ''} ({hint.balancePct}%)
+                    {hint.scopeContributionQty != null && hint.scopeContributionQty > 0
+                      ? ` · This location: ${formatProgressQty(hint.scopeContributionQty)}${unit ? ` ${unit}` : ''}`
+                        + (hint.scopeContributionPct != null ? ` (${hint.scopeContributionPct}%)` : '')
                       : ''}
-                    {dprProgressHints[row.key].scopeBalancePct != null
-                      && dprProgressHints[row.key].scopeSanctionedQty != null
-                      && Number(dprProgressHints[row.key].scopeSanctionedQty) < Number(dprProgressHints[row.key].sanctionedQty ?? 0)
-                      ? ` · Location balance: ${dprProgressHints[row.key].scopeBalancePct}%`
+                    {hint.scopeBalancePct != null
+                      && hint.scopeSanctionedQty != null
+                      && Number(hint.scopeSanctionedQty) < boqSanctioned
+                      ? ` · Location balance: ${formatProgressQty(Math.max(0, Number(hint.scopeSanctionedQty) - Number(hint.scopeContributionQty ?? 0)))}${unit ? ` ${unit}` : ''} (${hint.scopeBalancePct}%)`
                       : ''}
-                    {dprProgressHints[row.key].expectedCompletionDate
-                      ? ` · ETC: ${dprProgressHints[row.key].expectedCompletionDate}`
+                    {hint.expectedCompletionDate
+                      ? ` · ETC: ${hint.expectedCompletionDate}`
                       : ''}
-                    {isWholeJobMeasurement(row.progressMode, row.unit) && row.progressPctToday > 0 && (() => {
-                      const hint = dprProgressHints[row.key];
-                      const boqSanctioned = Number(hint.sanctionedQty ?? hint.cumulativeQty ?? 0) || 1;
-                      const scopeSanctioned = Number(hint.scopeSanctionedQty ?? boqSanctioned);
-                      const deltaQty = (row.progressPctToday / 100) * scopeSanctioned;
-                      const afterBoqPct = Math.min(
-                        100,
-                        Math.round(((Number(hint.cumulativeQty) + deltaQty) / boqSanctioned) * 10000) / 100,
-                      );
-                      const afterScopePct = hint.scopeSanctionedQty != null
-                        ? Math.min(100, Math.round(((hint.scopeContributionPct ?? 0) + row.progressPctToday) * 10) / 10)
-                        : null;
-                      return afterScopePct != null && scopeSanctioned < boqSanctioned
-                        ? ` · After today: BOQ ${afterBoqPct}%, this location ${afterScopePct}%`
-                        : ` · After today: ${afterBoqPct}%`;
+                    {(() => {
+                      if (isWholeJobMeasurement(row.progressMode, row.unit) && row.progressPctToday > 0) {
+                        const scopeSanctioned = Number(hint.scopeSanctionedQty ?? boqSanctioned) || 1;
+                        const deltaQty = (row.progressPctToday / 100) * scopeSanctioned;
+                        const afterBoqQty = cumQty + deltaQty;
+                        const afterBoqPct = boqSanctioned > 0
+                          ? Math.min(100, Math.round((afterBoqQty / boqSanctioned) * 10000) / 100)
+                          : 0;
+                        const afterScopePct = hint.scopeSanctionedQty != null
+                          ? Math.min(100, Math.round(((hint.scopeContributionPct ?? 0) + row.progressPctToday) * 10) / 10)
+                          : null;
+                        const afterScopeQty = Number(hint.scopeContributionQty ?? 0) + deltaQty;
+                        return afterScopePct != null && scopeSanctioned < boqSanctioned
+                          ? ` · After today: BOQ ${formatProgressQty(afterBoqQty)} ${unit} (${afterBoqPct}%), this location ${formatProgressQty(afterScopeQty)} ${unit} (${afterScopePct}%)`
+                          : ` · After today: ${formatProgressQty(afterBoqQty)} ${unit} (${afterBoqPct}%)`;
+                      }
+                      if (!isWholeJobMeasurement(row.progressMode, row.unit) && row.quantityDone > 0 && boqSanctioned > 0) {
+                        const afterQty = cumQty + row.quantityDone;
+                        const todayPct = Math.round((row.quantityDone / boqSanctioned) * 10000) / 100;
+                        const afterPct = Math.min(100, Math.round((afterQty / boqSanctioned) * 10000) / 100);
+                        return ` · After today: ${formatProgressQty(afterQty)} ${unit} (${afterPct}%) — today ${formatProgressQty(row.quantityDone)} ${unit} (${todayPct}%)`;
+                      }
+                      return null;
                     })()}
                   </Alert>
-                )}
+                  );
+                })()}
                 <TextField
                   fullWidth
                   label="Work done today"
