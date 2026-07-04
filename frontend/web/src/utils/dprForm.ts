@@ -254,8 +254,14 @@ export function parseDprActivityBilling(
   const cumQty = Number(act.cumulativeQty ?? todayQty);
   const planned = plannedQty != null && plannedQty > 0 ? plannedQty : null;
   const remainingQty = planned != null ? Math.max(0, planned - cumQty) : null;
-  const todayPct = act.progressPctToday != null ? Number(act.progressPctToday) : null;
-  const cumPct = act.cumulativeProgressPct != null ? Number(act.cumulativeProgressPct) : null;
+  const cumPctStored = act.cumulativeProgressPct != null ? Number(act.cumulativeProgressPct) : null;
+  const cumPct = planned != null && planned > 0
+    ? pctFromQty(cumQty, planned)
+    : cumPctStored;
+  const todayPctStored = act.progressPctToday != null ? Number(act.progressPctToday) : null;
+  const todayPct = planned != null && planned > 0 && todayQty > 0
+    ? pctFromQty(todayQty, planned)
+    : todayPctStored;
   return {
     unit, todayQty, cumQty, plannedQty: planned, remainingQty, todayPct, cumPct,
   };

@@ -3,13 +3,15 @@ import { formatProgressQty, type DprActivityBilling } from '../../utils/dprForm'
 
 type Props = {
   billing: DprActivityBilling;
-  /** 'today' | 'cumulative' */
   variant: 'today' | 'cumulative';
-  /** Show small BOQ % footnote (detail view only) */
   showPct?: boolean;
+  /** List table shows unit in its own column */
+  showUnit?: boolean;
 };
 
-export default function DprExecutionQtyDisplay({ billing, variant, showPct = false }: Props) {
+export default function DprExecutionQtyDisplay({
+  billing, variant, showPct = false, showUnit = true,
+}: Props) {
   const qty = variant === 'today' ? billing.todayQty : billing.cumQty;
   const pct = variant === 'today' ? billing.todayPct : billing.cumPct;
 
@@ -19,12 +21,14 @@ export default function DprExecutionQtyDisplay({ billing, variant, showPct = fal
 
   return (
     <Box textAlign="right">
-      <Typography variant="body2" fontWeight={700} fontFamily="monospace">
+      <Typography variant="body2" fontWeight={700} fontFamily="monospace" sx={{ fontVariantNumeric: 'tabular-nums' }}>
         {formatProgressQty(qty)}
       </Typography>
-      <Typography variant="caption" color="text.secondary" fontWeight={600}>
-        {billing.unit}
-      </Typography>
+      {showUnit && (
+        <Typography variant="caption" color="text.secondary" fontWeight={600}>
+          {billing.unit}
+        </Typography>
+      )}
       {showPct && pct != null && Number.isFinite(pct) && (
         <Typography variant="caption" color="text.disabled" display="block" sx={{ fontSize: '0.65rem' }}>
           {formatProgressQty(pct)}% BOQ

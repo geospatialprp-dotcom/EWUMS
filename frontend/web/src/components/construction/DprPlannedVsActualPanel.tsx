@@ -21,12 +21,12 @@ export default function DprPlannedVsActualPanel({ hint, todayQty, unit }: Props)
       </Box>
       <Table size="small">
         <TableHead>
-          <TableRow>
-            <TableCell sx={{ fontWeight: 700 }}>Level</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>Planned</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>Actual</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>Remaining</TableCell>
-            <TableCell align="right" sx={{ fontWeight: 700 }}>% done</TableCell>
+          <TableRow sx={{ bgcolor: 'grey.50' }}>
+            <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Level</TableCell>
+            <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Planned</TableCell>
+            <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Actual</TableCell>
+            <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Balance</TableCell>
+            <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>% Done</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -46,13 +46,13 @@ export default function DprPlannedVsActualPanel({ hint, todayQty, unit }: Props)
                 </Typography>
               </TableCell>
               <TableCell align="right">
-                <Typography variant="body2" fontWeight={700} fontFamily="monospace">
-                  {formatProgressQty(row.actual)} {row.unit}
+                <Typography variant="body2" fontFamily="monospace" fontWeight={row.label.startsWith('After') ? 700 : 500}>
+                  {formatProgressQty(row.actual)} <Typography component="span" variant="caption" color="text.secondary">{row.unit}</Typography>
                 </Typography>
               </TableCell>
               <TableCell align="right">
-                <Typography variant="body2" fontFamily="monospace" color="warning.dark">
-                  {formatProgressQty(row.remaining)} {row.unit}
+                <Typography variant="body2" fontFamily="monospace" color="warning.dark" fontWeight={600}>
+                  {formatProgressQty(row.remaining)} <Typography component="span" variant="caption" color="text.secondary">{row.unit}</Typography>
                 </Typography>
               </TableCell>
               <TableCell align="right">

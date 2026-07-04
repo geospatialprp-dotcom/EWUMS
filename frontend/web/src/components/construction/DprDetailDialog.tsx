@@ -12,7 +12,8 @@ import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import type { ReactNode } from 'react';
 import DprPhotoGallery from './DprPhotoGallery';
-import DprExecutionQtyDisplay from './DprExecutionQtyDisplay';
+import DprBoqProgressCell from './DprBoqProgressCell';
+import DprTableQtyCell from './DprTableQtyCell';
 import { dprWorkflowStepLabel, STATUS_COLORS } from '../../constants/construction';
 import { parseDprActivityBilling } from '../../utils/dprForm';
 import { constructionTableTheme } from '../../utils/constructionTableStyles';
@@ -190,23 +191,32 @@ export default function DprDetailDialog({
                     </Typography>
                     <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, bgcolor: 'grey.50' }}>
                       <Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" letterSpacing={0.5} display="block" mb={1}>
-                        Execution quantity (billing basis)
+                        L1 Contractor BOQ — planned vs actual
                       </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={4} sm={2}>
-                          <WorkItemMeta label="Unit" value={billing.unit} />
+                      <Grid container spacing={2} alignItems="flex-end">
+                        <Grid item xs={4} sm={1.5}>
+                          <Typography variant="caption" color="text.secondary" display="block">Unit</Typography>
+                          <Typography variant="body2" fontWeight={700}>{billing.unit}</Typography>
+                        </Grid>
+                        <Grid item xs={4} sm={1.5}>
+                          <Typography variant="caption" color="text.secondary" display="block">Today</Typography>
+                          <DprTableQtyCell value={billing.todayQty} variant="today" />
+                        </Grid>
+                        <Grid item xs={4} sm={1.5}>
+                          <Typography variant="caption" color="text.secondary" display="block">Actual</Typography>
+                          <DprTableQtyCell value={billing.cumQty} />
+                        </Grid>
+                        <Grid item xs={4} sm={1.5}>
+                          <Typography variant="caption" color="text.secondary" display="block">Balance</Typography>
+                          <DprTableQtyCell value={billing.remainingQty} variant="balance" />
                         </Grid>
                         <Grid item xs={4} sm={2}>
-                          <Box textAlign="left">
-                            <Typography variant="caption" color="text.secondary" display="block">Qty today</Typography>
-                            <DprExecutionQtyDisplay billing={billing} variant="today" showPct />
-                          </Box>
-                        </Grid>
-                        <Grid item xs={4} sm={2}>
-                          <Box textAlign="left">
-                            <Typography variant="caption" color="text.secondary" display="block">Cumulative qty</Typography>
-                            <DprExecutionQtyDisplay billing={billing} variant="cumulative" showPct />
-                          </Box>
+                          <Typography variant="caption" color="text.secondary" display="block">% Done</Typography>
+                          <DprBoqProgressCell
+                            plannedQty={billing.plannedQty}
+                            cumQty={billing.cumQty}
+                            cumPct={billing.cumPct}
+                          />
                         </Grid>
                       </Grid>
                     </Paper>
