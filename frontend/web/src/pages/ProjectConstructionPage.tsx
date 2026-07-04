@@ -36,9 +36,12 @@ import {
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
+import DprBoqProgressCell from '../components/construction/DprBoqProgressCell';
 import DprDetailDialog from '../components/construction/DprDetailDialog';
-import DprPlannedVsActualPanel from '../components/construction/DprPlannedVsActualPanel';
 import DprExecutionQtyDisplay from '../components/construction/DprExecutionQtyDisplay';
+import DprPlannedVsActualPanel from '../components/construction/DprPlannedVsActualPanel';
+import DprTableQtyCell from '../components/construction/DprTableQtyCell';
+import DprWorkItemCell from '../components/construction/DprWorkItemCell';
 import BoqReconciliationPanel from '../components/construction/BoqReconciliationPanel';
 import RaBillPanel from '../components/construction/RaBillPanel';
 import FinalBillPanel from '../components/construction/FinalBillPanel';
@@ -2221,6 +2224,9 @@ export default function ProjectConstructionPage() {
               </TextField>
             </Box>
           </Box>
+          <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+            L1 Contractor BOQ — planned vs actual (qty in unit column; balance = planned − cumulative)
+          </Typography>
           <Table size="small" sx={constructionTableShellSx('dpr')}>
             <ConstructionTableHead
               stage="dpr"
@@ -2229,22 +2235,24 @@ export default function ProjectConstructionPage() {
                 { label: 'Date' },
                 { label: 'Location' },
                 { label: 'Chainage' },
-                { label: 'Work Item', minWidth: 180 },
-                { label: 'Unit', align: 'center' as const, minWidth: 56 },
-                { label: 'Qty Today', align: 'right' as const, minWidth: 88 },
-                { label: 'Cumulative Qty', align: 'right' as const, minWidth: 100 },
-                { label: 'Remaining', align: 'right' as const, minWidth: 88 },
+                { label: 'BOQ Item (L1)', minWidth: 200 },
+                { label: 'Unit', align: 'center' as const, minWidth: 48 },
+                { label: 'Planned', align: 'right' as const, minWidth: 72 },
+                { label: 'Today', align: 'right' as const, minWidth: 64 },
+                { label: 'Actual', align: 'right' as const, minWidth: 72 },
+                { label: 'Balance', align: 'right' as const, minWidth: 72 },
+                { label: '% Done', align: 'right' as const, minWidth: 88 },
                 { label: 'Contractor' },
                 { label: 'Supervisor' },
-                { label: 'Weather', minWidth: 90 },
-                { label: 'Workflow Step', minWidth: 130 },
-                { label: 'Actions', minWidth: 320 },
+                { label: 'Weather', minWidth: 80 },
+                { label: 'Workflow', minWidth: 120 },
+                { label: 'Actions', minWidth: 280 },
               ]}
             />
             <TableBody>
               {filteredDprs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={14}>
+                  <TableCell colSpan={16}>
                     <Typography variant="body2" color="text.secondary">
                       {dprWeatherFilter
                         ? 'No daily progress reports match the selected weather filter.'
@@ -2273,27 +2281,35 @@ export default function ProjectConstructionPage() {
                     <TableCell>{String(dpr.reportDate)}</TableCell>
                     <TableCell>{summary.location}</TableCell>
                     <TableCell>{summary.chainage}</TableCell>
-                    <TableCell>{summary.workItem}</TableCell>
+                    <TableCell>
+                      <DprWorkItemCell
+                        itemCode={boqRef ? String(boqRef.itemCode ?? '') : undefined}
+                        description={summary.workItem}
+                      />
+                    </TableCell>
                     <TableCell align="center">
-                      <Typography variant="body2" fontWeight={600}>
+                      <Typography variant="body2" fontWeight={700} color="text.secondary">
                         {summary.billing.unit}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <DprExecutionQtyDisplay billing={summary.billing} variant="today" />
+                      <DprTableQtyCell value={summary.billing.plannedQty} />
                     </TableCell>
                     <TableCell align="right">
-                      <DprExecutionQtyDisplay billing={summary.billing} variant="cumulative" />
+                      <DprTableQtyCell value={summary.billing.todayQty} variant="today" />
                     </TableCell>
                     <TableCell align="right">
-                      {summary.billing.remainingQty != null ? (
-                        <Box>
-                          <Typography variant="body2" fontWeight={700} fontFamily="monospace" color="warning.dark">
-                            {formatProgressQty(summary.billing.remainingQty)}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">{summary.billing.unit}</Typography>
-                        </Box>
-                      ) : '—'}
+                      <DprTableQtyCell value={summary.billing.cumQty} />
+                    </TableCell>
+                    <TableCell align="right">
+                      <DprTableQtyCell value={summary.billing.remainingQty} variant="balance" />
+                    </TableCell>
+                    <TableCell align="right">
+                      <DprBoqProgressCell
+                        plannedQty={summary.billing.plannedQty}
+                        cumQty={summary.billing.cumQty}
+                        cumPct={summary.billing.cumPct}
+                      />
                     </TableCell>
                     <TableCell>{String(dpr.contractorName ?? '—')}</TableCell>
                     <TableCell>{String(dpr.supervisorName ?? '—')}</TableCell>
