@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Alert, Box, Typography } from '@mui/material';
+import { Alert, Box, Drawer, Fab, Typography } from '@mui/material';
+import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import MapViewer from '../components/map/MapViewer';
 import type { MapFlyTarget } from '../components/map/MapViewer';
 import MapLocationSearch from '../components/map/MapLocationSearch';
@@ -19,6 +20,7 @@ import {
   type FeatureClassRecord, type LayerJurisdictionMeta, type MapAccessContext, type ProjectFeatureRecord,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
 import { coordinateValueForField, findCoordinateFields } from '../utils/coordinateFields';
 import type { BasemapConfig } from '../utils/basemapLayers';
@@ -174,6 +176,7 @@ async function loadLayerFeatures(layerId: string): Promise<{
 export default function MapPage() {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
+  const { isMobile } = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
   const focusLayerId = searchParams.get('layer') ?? '';
   const shouldFit = searchParams.get('fit') === '1';
@@ -1716,6 +1719,10 @@ export default function MapPage() {
   }, []);
 
   useEffect(() => {
+    if (isMobile) setExplorerOpen(false);
+  }, [isMobile]);
+
+  useEffect(() => {
     setMapLayoutRevision((value) => value + 1);
   }, [attributeDockVisible, activeTool]);
 
@@ -1791,23 +1798,58 @@ export default function MapPage() {
       )}
 
       <Box display="flex" flex={1} minHeight={0}>
-        {explorerOpen && (
-          <MapLayerPanel
-            groups={explorerLayers}
-            layerVisibility={layerVisibility}
-            activeBasemapId={activeBasemapId}
-            activeBasemapName={activeBasemapName}
-            activeEditLayerId={activeEditLayerId}
-            featureCount={totalFeatures}
-            visibleLayerCount={visibleLayerCount}
-            jurisdictionLabel={mapAccess?.jurisdictionLabel}
-            onToggleLayer={toggleLayer}
-            onToggleGroupLayers={toggleGroupLayers}
-            onToggleAllLayers={toggleAllLayers}
-            onSelectEditLayer={selectEditLayer}
-            onHide={() => handleToggleExplorer(false)}
-            onConfigureOrthomosaic={() => setOrthoDialogOpen(true)}
-          />
+        {isMobile ? (
+          <Drawer
+            variant="temporary"
+            anchor="left"
+            open={explorerOpen}
+            onClose={() => handleToggleExplorer(false)}
+            ModalProps={{ keepMounted: true }}
+            sx={{
+              display: { xs: 'block', md: 'none' },
+              '& .MuiDrawer-paper': {
+                width: 'min(100vw - 48px, 300px)',
+                boxSizing: 'border-box',
+              },
+            }}
+          >
+            <MapLayerPanel
+              groups={explorerLayers}
+              layerVisibility={layerVisibility}
+              activeBasemapId={activeBasemapId}
+              activeBasemapName={activeBasemapName}
+              activeEditLayerId={activeEditLayerId}
+              featureCount={totalFeatures}
+              visibleLayerCount={visibleLayerCount}
+              jurisdictionLabel={mapAccess?.jurisdictionLabel}
+              onToggleLayer={toggleLayer}
+              onToggleGroupLayers={toggleGroupLayers}
+              onToggleAllLayers={toggleAllLayers}
+              onSelectEditLayer={selectEditLayer}
+              onHide={() => handleToggleExplorer(false)}
+              onConfigureOrthomosaic={() => setOrthoDialogOpen(true)}
+              mobileOverlay
+            />
+          </Drawer>
+        ) : (
+          explorerOpen && (
+            <MapLayerPanel
+              groups={explorerLayers}
+              layerVisibility={layerVisibility}
+              activeBasemapId={activeBasemapId}
+              activeBasemapName={activeBasemapName}
+              activeEditLayerId={activeEditLayerId}
+              featureCount={totalFeatures}
+              visibleLayerCount={visibleLayerCount}
+              jurisdictionLabel={mapAccess?.jurisdictionLabel}
+              onToggleLayer={toggleLayer}
+              onToggleGroupLayers={toggleGroupLayers}
+              onToggleAllLayers={toggleAllLayers}
+              onSelectEditLayer={selectEditLayer}
+              onHide={() => handleToggleExplorer(false)}
+              onConfigureOrthomosaic={() => setOrthoDialogOpen(true)}
+            />
+          )
         )}
 
         <OrthomosaicBasemapDialog
@@ -1896,6 +1938,16 @@ export default function MapPage() {
                 layoutRevision={mapLayoutRevision + (mapReady ? 1 : 0)}
                 onSnapshot={handleMapSnapshot}
               />
+              {isMobile && !explorerOpen && (
+                <Fab
+                  color="primary"
+                  aria-label="Open layer list"
+                  onClick={() => handleToggleExplorer(true)}
+                  sx={{ position: 'absolute', bottom: 16, left: 16, zIndex: 25 }}
+                >
+                  <LayersOutlinedIcon />
+                </Fab>
+              )}
               <MapInfoDialog
                 open={infoDialogOpen && Boolean(infoSelectedFeatureId)}
                 loading={!identifiedFeature && tableLoading}

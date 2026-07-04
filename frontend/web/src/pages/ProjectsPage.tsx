@@ -797,10 +797,10 @@ export default function ProjectsPage() {
         <Typography variant="overline" sx={{ letterSpacing: '0.14em', fontWeight: 700, color: 'rgba(248,250,252,0.75)' }}>
           Construction lifecycle
         </Typography>
-        <Typography variant="h6" fontWeight={800} sx={{ mb: 0.5, letterSpacing: '-0.02em' }}>
+        <Typography variant="h6" fontWeight={800} sx={{ mb: 0.5, letterSpacing: '-0.02em', fontSize: { xs: '1rem', sm: '1.125rem', md: '1.25rem' } }}>
           DPR → Tender → Project Setup → GIS → Construction → Milestones → O&M Handover
         </Typography>
-        <Typography variant="body2" sx={{ color: 'rgba(248,250,252,0.85)', mb: 2, maxWidth: 760 }}>
+        <Typography variant="body2" sx={{ color: 'rgba(248,250,252,0.85)', mb: 2, maxWidth: 760, fontSize: { xs: '0.8125rem', sm: '0.875rem' } }}>
           Division EE registers schemes after tender; division office staff execute GIS, construction, and billing.
         </Typography>
         <ProjectLifecycleTracker activeStep={lifecycleStep} onStepSelect={handleLifecycleStep} />

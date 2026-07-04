@@ -33,8 +33,9 @@ import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import WaterDropOutlinedIcon from '@mui/icons-material/WaterDropOutlined';
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
-  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Pie, PieChart, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import ResponsiveChart from '../components/layout/ResponsiveChart';
 import { dashboardApi } from '../services/api';
 import { formatApiError } from '../utils/apiError';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
@@ -488,7 +489,7 @@ export default function DashboardPage() {
                 />
               );
               return (
-                <Grid item xs={12} sm={6} md={2.4} key={kpi.id}>
+                <Grid item xs={12} sm={6} md={4} lg={2.4} key={kpi.id}>
                   {kpi.id === 'open_complaints' ? (
                     <Box
                       component={RouterLink}
@@ -536,7 +537,7 @@ export default function DashboardPage() {
           <Grid container spacing={2} mb={3}>
             <Grid item xs={12} md={4}>
               <SurfaceCard title={t('commandCenter.charts.projectStatus')} darkHeader>
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveChart height={240}>
                   <PieChart>
                     <Pie
                       data={data.charts.projectStatus.length ? data.charts.projectStatus : [{ status: noDataLabel, count: 1 }]}
@@ -555,12 +556,12 @@ export default function DashboardPage() {
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                   </PieChart>
-                </ResponsiveContainer>
+                </ResponsiveChart>
               </SurfaceCard>
             </Grid>
             <Grid item xs={12} md={4}>
               <SurfaceCard title={t('commandCenter.charts.assetsByStatus')} darkHeader>
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveChart height={240}>
                   <PieChart>
                     <Pie
                       data={data.charts.assetByStatus.length ? data.charts.assetByStatus : [{ status: noDataLabel, count: 1 }]}
@@ -577,12 +578,12 @@ export default function DashboardPage() {
                     </Pie>
                     <Tooltip />
                   </PieChart>
-                </ResponsiveContainer>
+                </ResponsiveChart>
               </SurfaceCard>
             </Grid>
             <Grid item xs={12} md={4}>
               <SurfaceCard title={t('commandCenter.charts.collectionTrend')} darkHeader>
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveChart height={240}>
                   <LineChart data={data.charts.collectionTrend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} />
@@ -590,7 +591,7 @@ export default function DashboardPage() {
                     <Tooltip formatter={(v: number) => formatInrCompact(v)} />
                     <Line type="monotone" dataKey="collection" name={t('commandCenter.charts.collection')} stroke="#f97316" strokeWidth={2.5} dot={{ fill: '#f97316', r: 4 }} />
                   </LineChart>
-                </ResponsiveContainer>
+                </ResponsiveChart>
               </SurfaceCard>
             </Grid>
           </Grid>
@@ -598,7 +599,7 @@ export default function DashboardPage() {
           <Grid container spacing={2} mb={3}>
             <Grid item xs={12} md={8}>
               <SurfaceCard title={t('commandCenter.charts.projectProgress')}>
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveChart height={260}>
                   <BarChart data={data.charts.projectProgress.length ? data.charts.projectProgress : [{ name: '—', physical_progress: 0, financial_progress: 0 }]}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} interval={0} angle={-12} textAnchor="end" height={60} />
@@ -608,7 +609,7 @@ export default function DashboardPage() {
                     <Bar dataKey="physical_progress" name={t('commandCenter.charts.physical')} fill="#2563eb" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="financial_progress" name={t('commandCenter.charts.financial')} fill="#0d9488" radius={[4, 4, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveChart>
               </SurfaceCard>
             </Grid>
             <Grid item xs={12} md={4}>

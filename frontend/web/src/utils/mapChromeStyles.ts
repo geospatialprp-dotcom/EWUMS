@@ -43,11 +43,11 @@ export function mapDarkHeaderSx() {
   };
 }
 
-export function mapLayerPanelSx() {
+export function mapLayerPanelSx(mobileOverlay = false) {
   return {
     width: { xs: 'min(100vw - 48px, 300px)', md: 288 },
     flexShrink: 0,
-    display: { xs: 'none', md: 'flex' },
+    display: mobileOverlay ? 'flex' : { xs: 'none', md: 'flex' },
     flexDirection: 'column',
     borderRight: `1px solid ${ARCMAP.toolbarBorder}`,
     bgcolor: ARCMAP.tocBg,

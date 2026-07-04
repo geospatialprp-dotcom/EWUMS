@@ -76,6 +76,8 @@ interface MapLayerPanelProps {
   onSelectEditLayer: (layerId: string) => void;
   onHide?: () => void;
   onConfigureOrthomosaic?: () => void;
+  /** When true, panel is shown inside a mobile drawer (always flex display). */
+  mobileOverlay?: boolean;
 }
 
 export default function MapLayerPanel({
@@ -93,6 +95,7 @@ export default function MapLayerPanel({
   onSelectEditLayer,
   onHide,
   onConfigureOrthomosaic,
+  mobileOverlay = false,
 }: MapLayerPanelProps) {
   const visibleCount = visibleLayerCount ?? Object.values(layerVisibility).filter(Boolean).length;
   const allFeatureLayers = groups
@@ -101,7 +104,7 @@ export default function MapLayerPanel({
   const rootVisibility = getGroupVisibilityState(allFeatureLayers, layerVisibility);
 
   return (
-    <Box sx={mapLayerPanelSx()}>
+    <Box sx={mapLayerPanelSx(mobileOverlay)}>
       <Box sx={mapDarkHeaderSx()} display="flex" alignItems="center" justifyContent="space-between">
         <Box display="flex" alignItems="center" gap={0.5} flex={1} minWidth={0}>
           {onToggleAllLayers && allFeatureLayers.length > 0 ? (

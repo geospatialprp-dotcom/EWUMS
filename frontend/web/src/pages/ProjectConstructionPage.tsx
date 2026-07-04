@@ -23,6 +23,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { constructionApi, projectsApi, type SchemeType } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import ConstructionTableHead from '../components/construction/ConstructionTableHead';
+import ResponsiveDataView from '../components/layout/ResponsiveDataView';
 import ConstructionStyledTableHead from '../components/construction/ConstructionStyledTableHead';
 import {
   constructionSectionBarSx,
@@ -40,6 +41,7 @@ import {
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
 import DprBoqProgressCell from '../components/construction/DprBoqProgressCell';
+import DprMobileCard from '../components/construction/DprMobileCard';
 import DprDetailDialog from '../components/construction/DprDetailDialog';
 import DprExecutionQtyDisplay from '../components/construction/DprExecutionQtyDisplay';
 import DprPlannedVsActualPanel from '../components/construction/DprPlannedVsActualPanel';
@@ -2236,7 +2238,15 @@ export default function ProjectConstructionPage() {
               {dprTabError}
             </Typography>
           )}
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5} gap={2} sx={constructionSectionBarSx('dpr')}>
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems={{ xs: 'stretch', sm: 'center' }}
+            flexDirection={{ xs: 'column', sm: 'row' }}
+            mb={1.5}
+            gap={2}
+            sx={constructionSectionBarSx('dpr')}
+          >
             <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('dpr').headerColor}>
               Stage 2: Daily Construction Activity
             </Typography>
@@ -2260,10 +2270,11 @@ export default function ProjectConstructionPage() {
                 />
               );
             })}
-            <Box sx={{ ml: 'auto', minWidth: 160 }}>
+            <Box sx={{ ml: { xs: 0, sm: 'auto' }, width: { xs: '100%', sm: 'auto' }, minWidth: { sm: 160 } }}>
               <TextField
                 select
                 size="small"
+                fullWidth
                 label="Filter by weather"
                 value={dprWeatherFilter}
                 onChange={(e) => setDprWeatherFilter(e.target.value)}
@@ -2276,7 +2287,66 @@ export default function ProjectConstructionPage() {
               </TextField>
             </Box>
           </Box>
-          <Box sx={{ overflowX: 'auto' }}>
+          <ResponsiveDataView
+            mobileCards={dprTableRows.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>
+                {dprWeatherFilter
+                  ? 'No daily progress reports match the selected weather filter.'
+                  : isContractorUser
+                    ? 'No daily progress reports yet — click New DPR to submit today\'s work.'
+                    : 'No daily progress reports yet.'}
+              </Typography>
+            ) : (
+              dprTableRows.map(({ dpr, act }) => {
+                const boqRef = resolveL1BoqItem(
+                  act ? String(act.boqItemId ?? '') : '',
+                  act ? String(act.activityCode ?? '') : '',
+                  dprBoq,
+                  boq,
+                );
+                const plannedQty = boqRef
+                  ? Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0) || null
+                  : (act?.plannedQty != null ? Number(act.plannedQty) : null);
+                const boqCumulativeQty = boqRef != null
+                  ? Number(boqRef.dprQty ?? 0)
+                  : (act?.boqCumulativeQty != null ? Number(act.boqCumulativeQty) : null);
+                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty, boqCumulativeQty);
+                const status = String(dpr.status);
+                const isEditable = canEditDpr(dpr);
+                const dprId = String(dpr.id);
+                return (
+                  <DprMobileCard
+                    key={dprId}
+                    dprNumber={String(dpr.dprNumber)}
+                    reportDate={String(dpr.reportDate)}
+                    location={summary.location}
+                    chainage={summary.chainage}
+                    itemCode={boqRef ? String(boqRef.itemCode ?? '') : undefined}
+                    workItem={summary.workItem}
+                    unit={summary.billing.unit}
+                    plannedQty={summary.billing.plannedQty}
+                    previousQty={summary.billing.previousQty}
+                    todayQty={summary.billing.todayQty}
+                    balanceQty={summary.billing.remainingQty}
+                    cumQty={summary.billing.cumQty}
+                    cumPct={summary.billing.cumPct}
+                    contractor={String(dpr.contractorName ?? '')}
+                    supervisor={String(dpr.supervisorName ?? '')}
+                    weather={dpr.weather ? String(dpr.weather) : undefined}
+                    status={status}
+                    statusLabel={dprWorkflowStepLabel(status)}
+                    statusColor={STATUS_COLORS[status] ?? 'default'}
+                    isEditable={isEditable}
+                    canSubmit={canSubmitDpr}
+                    onView={() => { void viewDprDetail(dprId); }}
+                    onEdit={isEditable ? () => { void loadDprForEdit(dprId); } : undefined}
+                    onSubmit={isEditable ? () => { void submitWorkflow(() => constructionApi.submitDpr(projectId, dprId), 'submit DPR'); } : undefined}
+                    approvalSlot={!isEditable ? <ApprovalButtons type="dpr" id={dprId} status={status} /> : undefined}
+                  />
+                );
+              })
+            )}
+            table={(
           <Table size="small" sx={{ ...constructionTableShellSx('dpr'), minWidth: 1572, tableLayout: 'fixed', width: 'max-content' }}>
             <colgroup>
               <col style={{ width: 52 }} />
@@ -2444,7 +2514,8 @@ export default function ProjectConstructionPage() {
               })}
             </TableBody>
           </Table>
-          </Box>
+            )}
+          />
         </Box>
       )}
 
