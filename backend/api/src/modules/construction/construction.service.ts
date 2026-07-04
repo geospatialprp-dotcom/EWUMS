@@ -1389,11 +1389,11 @@ export class ConstructionService {
     ).catch(() => [] as Array<{ quantityDone: string | null }>);
 
     const dailyPcts = recentQtyRows
-      .map((r) => {
+      .map((r: { quantityDone: string | null }) => {
         const qty = Number(r.quantityDone ?? 0);
         return sanctioned > 0 ? (qty / sanctioned) * 100 : 0;
       })
-      .filter((p) => p > 0);
+      .filter((p: number) => p > 0);
 
     return {
       boqItemId: item.id,

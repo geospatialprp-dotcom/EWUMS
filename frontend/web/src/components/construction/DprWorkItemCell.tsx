@@ -9,7 +9,7 @@ export default function DprWorkItemCell({ itemCode, description }: Props) {
   const code = itemCode?.trim();
   const desc = description.trim() || '—';
   return (
-    <Box maxWidth={220}>
+    <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
       {code && (
         <Typography variant="caption" color="primary.main" fontWeight={700} display="block">
           {code}

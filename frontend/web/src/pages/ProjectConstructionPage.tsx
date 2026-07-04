@@ -2274,26 +2274,44 @@ export default function ProjectConstructionPage() {
             </Box>
           </Box>
           <Box sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ ...constructionTableShellSx('dpr'), minWidth: 1100 }}>
+          <Table size="small" sx={{ ...constructionTableShellSx('dpr'), minWidth: 1524, tableLayout: 'fixed', width: 'max-content' }}>
+            <colgroup>
+              <col style={{ width: 52 }} />
+              <col style={{ width: 92 }} />
+              <col style={{ width: 108 }} />
+              <col style={{ width: 108 }} />
+              <col style={{ width: 168 }} />
+              <col style={{ width: 52 }} />
+              <col style={{ width: 68 }} />
+              <col style={{ width: 68 }} />
+              <col style={{ width: 60 }} />
+              <col style={{ width: 68 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 108 }} />
+              <col style={{ width: 200 }} />
+            </colgroup>
             <ConstructionTableHead
               stage="dpr"
               columns={[
-                { label: 'DPR #' },
-                { label: 'Date' },
-                { label: 'Location' },
-                { label: 'Chainage' },
-                { label: 'BOQ Item (L1)', minWidth: 200 },
-                { label: 'Unit', align: 'center' as const, minWidth: 48 },
-                { label: 'Planned', align: 'right' as const, minWidth: 72 },
-                { label: 'Previous', align: 'right' as const, minWidth: 72 },
-                { label: 'Today', align: 'right' as const, minWidth: 64 },
-                { label: 'Balance', align: 'right' as const, minWidth: 72 },
-                { label: '% Done', align: 'right' as const, minWidth: 88 },
-                { label: 'Contractor' },
-                { label: 'Supervisor' },
-                { label: 'Weather', minWidth: 80 },
-                { label: 'Workflow', minWidth: 120 },
-                { label: 'Actions', minWidth: 280 },
+                { label: 'DPR #', width: 52 },
+                { label: 'Date', width: 92 },
+                { label: 'Location', width: 108 },
+                { label: 'Chainage', width: 108 },
+                { label: 'BOQ Item (L1)', width: 168 },
+                { label: 'Unit', align: 'center' as const, width: 52 },
+                { label: 'Planned', align: 'right' as const, width: 68 },
+                { label: 'Previous', align: 'right' as const, width: 68 },
+                { label: 'Today', align: 'right' as const, width: 60 },
+                { label: 'Balance', align: 'right' as const, width: 68 },
+                { label: '% Done', align: 'right' as const, width: 80 },
+                { label: 'Contractor', width: 120 },
+                { label: 'Supervisor', width: 100 },
+                { label: 'Weather', width: 72 },
+                { label: 'Workflow', width: 108 },
+                { label: 'Actions', width: 200 },
               ]}
             />
             <TableBody>
@@ -2339,30 +2357,30 @@ export default function ProjectConstructionPage() {
                     )}
                     <TableCell>{summary.location}</TableCell>
                     <TableCell>{summary.chainage}</TableCell>
-                    <TableCell>
+                    <TableCell sx={{ width: 168, maxWidth: 168, overflow: 'hidden' }}>
                       <DprWorkItemCell
                         itemCode={boqRef ? String(boqRef.itemCode ?? '') : undefined}
                         description={summary.workItem}
                       />
                     </TableCell>
-                    <TableCell align="center">
-                      <Typography variant="body2" fontWeight={700} color="text.secondary">
+                    <TableCell align="center" sx={{ width: 52, maxWidth: 52, overflow: 'hidden' }}>
+                      <Typography variant="body2" fontWeight={700} color="text.secondary" noWrap>
                         {summary.billing.unit}
                       </Typography>
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ width: 68, maxWidth: 68, overflow: 'hidden' }}>
                       <DprTableQtyCell value={summary.billing.plannedQty} />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ width: 68, maxWidth: 68, overflow: 'hidden' }}>
                       <DprTableQtyCell value={summary.billing.previousQty} />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ width: 60, maxWidth: 60, overflow: 'hidden' }}>
                       <DprTableQtyCell value={summary.billing.todayQty} variant="today" />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ width: 68, maxWidth: 68, overflow: 'hidden' }}>
                       <DprTableQtyCell value={summary.billing.remainingQty} variant="balance" />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ width: 80, maxWidth: 80, overflow: 'hidden' }}>
                       <DprBoqProgressCell
                         plannedQty={summary.billing.plannedQty}
                         cumQty={summary.billing.cumQty}

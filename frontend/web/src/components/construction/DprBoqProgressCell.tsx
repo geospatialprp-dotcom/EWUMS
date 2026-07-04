@@ -16,7 +16,7 @@ export default function DprBoqProgressCell({ plannedQty, cumQty, cumPct }: Props
     : pctFromQty(cumQty, plannedQty);
 
   return (
-    <Box minWidth={72}>
+    <Box sx={{ minWidth: 0, maxWidth: '100%' }}>
       <Typography
         variant="body2"
         align="right"

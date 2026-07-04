@@ -6,6 +6,7 @@ export type ConstructionTableColumn = {
   label: string;
   align?: 'left' | 'right' | 'center';
   minWidth?: number;
+  width?: number;
   sx?: Record<string, unknown>;
 };
 
@@ -23,7 +24,11 @@ export default function ConstructionTableHead({ stage, columns }: ConstructionTa
             key={column.label}
             align={column.align ?? 'left'}
             sx={constructionHeaderCellSx(stage, {
-              ...(column.minWidth ? { minWidth: column.minWidth } : {}),
+              ...(column.width
+                ? { width: column.width, minWidth: column.width, maxWidth: column.width }
+                : column.minWidth
+                  ? { minWidth: column.minWidth }
+                  : {}),
               ...column.sx,
             })}
           >
