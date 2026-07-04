@@ -280,6 +280,73 @@ export function formatDprActivityProgress(act: Record<string, unknown>): string 
   return `${today} · ${cum}`;
 }
 
+export function findL1BoqForComponent(
+  l1Boq: Array<Record<string, unknown>>,
+  component: string,
+  schemeType?: string,
+): Array<Record<string, unknown>> {
+  let items = l1Boq;
+  if (schemeType) {
+    items = items.filter((b) => !b.schemeType || String(b.schemeType) === schemeType);
+  }
+  const comp = component.trim();
+  if (comp) {
+    items = items.filter((b) => !b.component || String(b.component) === comp);
+  }
+  return items;
+}
+
+export function activityRowFromBoqAndWp(
+  boq: Record<string, unknown>,
+  wp: Record<string, unknown>,
+): DprActivityRow {
+  const wholeJob = isWholeJobMeasurement(
+    String(boq.measurementMode ?? ''),
+    String(boq.unit ?? ''),
+  );
+  return {
+    ...emptyDprActivityRow(),
+    boqItemId: String(boq.id),
+    description: String(boq.description ?? ''),
+    unit: String(boq.unit ?? ''),
+    component: (String(wp.component ?? '') as ProjectComponent),
+    chainageFrom: String(wp.chainageFrom ?? ''),
+    chainageTo: String(wp.chainageTo ?? ''),
+    progressMode: wholeJob ? 'whole_job' : 'discrete_qty',
+    workDoneToday: String(boq.description ?? ''),
+    quantityDone: 0,
+    progressPctToday: 0,
+  };
+}
+
+/** Prefill with first matching L1 BOQ line (new DPR / WP change). */
+export function prefillDprActivitiesFromWp(
+  wp: Record<string, unknown>,
+  l1Boq: Array<Record<string, unknown>>,
+  schemeType: string,
+): DprActivityRow[] {
+  const matches = findL1BoqForComponent(l1Boq, String(wp.component ?? ''), schemeType);
+  const items = matches.length
+    ? matches
+    : l1Boq.filter((b) => !b.schemeType || String(b.schemeType) === schemeType);
+  if (!items.length) return [emptyDprActivityRow()];
+  return [activityRowFromBoqAndWp(items[0], wp)];
+}
+
+/** Prefill all matching L1 BOQ lines (edit / list enrichment mirror). */
+export function prefillAllDprActivitiesFromWp(
+  wp: Record<string, unknown>,
+  l1Boq: Array<Record<string, unknown>>,
+  schemeType: string,
+): DprActivityRow[] {
+  const matches = findL1BoqForComponent(l1Boq, String(wp.component ?? ''), schemeType);
+  const items = matches.length
+    ? matches
+    : l1Boq.filter((b) => !b.schemeType || String(b.schemeType) === schemeType);
+  if (!items.length) return [emptyDprActivityRow()];
+  return items.map((boq) => activityRowFromBoqAndWp(boq, wp));
+}
+
 export function buildDprPayload(
   header: DprHeaderForm,
   activities: DprActivityRow[],
@@ -297,18 +364,20 @@ export function buildDprPayload(
     workPackageId: header.workPackageId || undefined,
     remarks: header.remarks || undefined,
     activities: activities
-      .filter((row) => row.description.trim())
+      .filter((row) => row.description.trim() || row.boqItemId)
       .map((row) => {
         const wholeJob = isWholeJobMeasurement(row.progressMode, row.unit);
         const boqLine = row.boqItemId
           ? l1Boq.find((b) => String(b.id) === row.boqItemId)
           : undefined;
+        const description = row.description.trim()
+          || (boqLine ? String(boqLine.description ?? '') : '');
         return {
-          description: row.description.trim(),
+          description,
           activityCode: boqLine ? String(boqLine.itemCode ?? '') || undefined : undefined,
-          unit: row.unit,
+          unit: row.unit || (boqLine ? String(boqLine.unit ?? '') : ''),
           progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
-          workDoneToday: row.workDoneToday.trim() || row.description.trim(),
+          workDoneToday: row.workDoneToday.trim() || description,
           quantityDone: Number(row.quantityDone) || 0,
           progressPctToday: row.progressPctToday > 0 ? row.progressPctToday : undefined,
           boqItemId: row.boqItemId || undefined,

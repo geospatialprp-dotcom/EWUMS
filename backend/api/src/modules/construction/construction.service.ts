@@ -942,16 +942,151 @@ export class ConstructionService {
     });
   }
 
+  private async loadProjectFinancialBoqItems(tenantId: string, projectId: string): Promise<BoqItem[]> {
+    const financialSource = await resolveFinancialBoqSource(this.boqRepo, tenantId, projectId);
+    return this.boqRepo.find({
+      where: {
+        tenantId,
+        projectId,
+        isActive: true,
+        boqSource: financialSource,
+      },
+      order: { sortOrder: 'ASC', itemCode: 'ASC' },
+    });
+  }
+
+  private findBoqItemsForComponent(
+    items: BoqItem[],
+    component: string | null | undefined,
+    schemeType?: string | null,
+  ): BoqItem[] {
+    let filtered = items;
+    if (schemeType) {
+      filtered = filtered.filter((i) => !i.schemeType || i.schemeType === schemeType);
+    }
+    const comp = (component ?? '').trim();
+    if (!comp) return filtered;
+    return filtered.filter((i) => !i.component || i.component === comp);
+  }
+
+  private resolveDprWorkPackage(
+    dpr: Pick<DprReport, 'workPackageId' | 'workSite'>,
+    workPackages: WorkPackage[],
+  ): WorkPackage | undefined {
+    if (dpr.workPackageId) {
+      return workPackages.find((wp) => wp.id === dpr.workPackageId);
+    }
+    const site = (dpr.workSite ?? '').trim().toLowerCase();
+    if (!site) return undefined;
+    return workPackages.find((wp) => {
+      const name = (wp.name ?? '').trim().toLowerCase();
+      return name === site || name.includes(site) || site.includes(name);
+    });
+  }
+
+  private buildSyntheticDprActivity(boqItem: BoqItem, wp: WorkPackage, sortOrder: number) {
+    const mode = (boqItem.measurementMode ?? detectMeasurementMode(boqItem.unit)) as BoqMeasurementMode;
+    const plannedQty = sanctionedBoqQty(Number(boqItem.contractQty), Number(boqItem.revisedQty));
+    return {
+      id: null,
+      activityCode: boqItem.itemCode,
+      description: boqItem.description,
+      unit: boqItem.unit,
+      quantityDone: 0,
+      boqItemId: boqItem.id,
+      component: wp.component,
+      chainageFrom: wp.chainageFrom,
+      chainageTo: wp.chainageTo,
+      progressMode: mode,
+      progressPctToday: null,
+      cumulativeProgressPct: null,
+      cumulativeQty: null,
+      workDoneToday: boqItem.description,
+      sortOrder,
+      itemCode: boqItem.itemCode,
+      plannedQty,
+      _synthetic: true,
+    };
+  }
+
+  private enrichDprActivitiesForResponse(
+    dpr: DprReport,
+    workPackages: WorkPackage[],
+    boqItems: BoqItem[],
+  ) {
+    const wp = this.resolveDprWorkPackage(dpr, workPackages);
+    let activities = [...(dpr.activities ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+
+    if (!activities.length && wp) {
+      const matches = this.findBoqItemsForComponent(boqItems, wp.component, dpr.schemeType);
+      const items = matches.length
+        ? matches
+        : this.findBoqItemsForComponent(boqItems, null, dpr.schemeType);
+      activities = items.map((item, idx) => this.buildSyntheticDprActivity(item, wp, idx)) as unknown as DprActivity[];
+    } else {
+      activities = activities.map((act) => {
+        const enriched = { ...act } as DprActivity & { itemCode?: string; plannedQty?: number };
+        const boq = act.boqItemId
+          ? boqItems.find((b) => b.id === act.boqItemId)
+          : (act.activityCode
+            ? boqItems.find((b) => b.itemCode === act.activityCode)
+            : undefined);
+        if (boq) {
+          if (!enriched.activityCode) enriched.activityCode = boq.itemCode;
+          enriched.itemCode = boq.itemCode;
+          enriched.plannedQty = sanctionedBoqQty(Number(boq.contractQty), Number(boq.revisedQty));
+          if (!enriched.unit) enriched.unit = boq.unit;
+        }
+        return enriched;
+      });
+    }
+
+    return { ...dpr, activities };
+  }
+
+  private async enrichDprsForResponse(tenantId: string, projectId: string, dprs: DprReport[]) {
+    if (!dprs.length) return dprs;
+    const [workPackages, boqItems] = await Promise.all([
+      this.wpRepo.find({ where: { tenantId, projectId } }),
+      this.loadProjectFinancialBoqItems(tenantId, projectId),
+    ]);
+    return dprs.map((dpr) => this.enrichDprActivitiesForResponse(dpr, workPackages, boqItems));
+  }
+
+  private buildAutoFillDprActivities(
+    wp: WorkPackage,
+    boqItems: BoqItem[],
+    schemeType: string,
+  ): CreateDprDto['activities'] {
+    const matches = this.findBoqItemsForComponent(boqItems, wp.component, schemeType);
+    const items = matches.length
+      ? matches
+      : this.findBoqItemsForComponent(boqItems, null, schemeType);
+    if (!items.length) return [];
+    return items.map((item) => {
+      const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
+      return {
+        description: item.description,
+        activityCode: item.itemCode,
+        unit: item.unit,
+        quantityDone: 0,
+        progressMode: mode,
+        boqItemId: item.id,
+        component: wp.component,
+        chainageFrom: wp.chainageFrom ?? undefined,
+        chainageTo: wp.chainageTo ?? undefined,
+        workDoneToday: item.description,
+      };
+    });
+  }
+
   async listDprs(tenantId: string, projectId: string, user?: JwtPayload) {
     const rows = await this.dprRepo.find({
       where: { tenantId, projectId },
       relations: ['activities'],
       order: { reportDate: 'DESC' },
     });
-    const normalized = rows.map((dpr) => ({
-      ...dpr,
-      activities: [...(dpr.activities ?? [])].sort((a, b) => a.sortOrder - b.sortOrder),
-    }));
+    let normalized = await this.enrichDprsForResponse(tenantId, projectId, rows);
     if (!this.isContractor(user) || !user) return normalized;
 
     const myPackageIds = new Set(
@@ -972,11 +1107,14 @@ export class ConstructionService {
     });
     if (!dpr) throw new NotFoundException('DPR not found');
     await this.assertContractorOwnsDpr(dpr, user, tenantId);
-    const documents = await this.docRepo.find({
-      where: { tenantId, resourceType: 'dpr', resourceId: id },
-      order: { uploadedAt: 'DESC' },
-    });
-    return { ...dpr, documents };
+    const [documents, enriched] = await Promise.all([
+      this.docRepo.find({
+        where: { tenantId, resourceType: 'dpr', resourceId: id },
+        order: { uploadedAt: 'DESC' },
+      }),
+      this.enrichDprsForResponse(tenantId, projectId, [dpr]),
+    ]);
+    return { ...enriched[0], documents };
   }
 
   async createDpr(tenantId: string, projectId: string, user: JwtPayload, dto: CreateDprDto) {
@@ -1007,7 +1145,7 @@ export class ConstructionService {
     });
     const saved = await this.dprRepo.save(dpr);
     const prepared = await this.validateAndPrepareDprActivities(
-      tenantId, projectId, dto.reportDate, dto.workPackageId ?? null, dto.activities,
+      tenantId, projectId, dto.reportDate, dto.schemeType, dto.workPackageId ?? null, dto.activities,
     );
     await this.saveDprActivities(saved.id, prepared);
     await this.refreshProjectProgress(tenantId, projectId, 'milestones');
@@ -1046,7 +1184,7 @@ export class ConstructionService {
     });
     await this.dprRepo.save(dpr);
     const prepared = await this.validateAndPrepareDprActivities(
-      tenantId, projectId, dto.reportDate, dto.workPackageId ?? null, dto.activities,
+      tenantId, projectId, dto.reportDate, dto.schemeType, dto.workPackageId ?? null, dto.activities,
     );
     await this.saveDprActivities(dpr.id, prepared);
     await this.refreshProjectProgress(tenantId, projectId, 'milestones');
@@ -1214,6 +1352,7 @@ export class ConstructionService {
     tenantId: string,
     projectId: string,
     reportDate: string,
+    schemeType: string,
     workPackageId: string | null,
     activities: CreateDprDto['activities'],
   ) {
@@ -1228,8 +1367,19 @@ export class ConstructionService {
     }> = [];
 
     const workPackages = await this.wpRepo.find({ where: { tenantId, projectId } });
+    let inputActivities = activities ?? [];
+    const needsAutoFill = !inputActivities.length || inputActivities.every((a) => !a.boqItemId);
+    if (needsAutoFill && workPackageId) {
+      const wp = workPackages.find((w) => w.id === workPackageId)
+        ?? await this.wpRepo.findOne({ where: { id: workPackageId, tenantId, projectId } });
+      if (wp) {
+        const boqItems = await this.loadProjectFinancialBoqItems(tenantId, projectId);
+        const autoFilled = this.buildAutoFillDprActivities(wp, boqItems, schemeType);
+        if (autoFilled.length) inputActivities = autoFilled;
+      }
+    }
 
-    for (const act of activities) {
+    for (const act of inputActivities) {
       if (!act.boqItemId) {
         prepared.push({
           ...act,

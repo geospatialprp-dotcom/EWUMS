@@ -30,9 +30,10 @@ import {
   constructionWorkflowChipSx,
 } from '../utils/constructionTableStyles';
 import {
-  buildDprPayload, defaultDprHeader, dprActivitySummaryForActivity, emptyDprActivityRow,
-  flattenDprsForTable, formatProgressQty, frozenProgressFromRow, isWholeJobMeasurement,
-  pctFromQty, resolveL1BoqItem, wholeJobQtySelectOptions,
+  activityRowFromBoqAndWp, buildDprPayload, defaultDprHeader, dprActivitySummaryForActivity,
+  emptyDprActivityRow, findL1BoqForComponent, flattenDprsForTable, formatProgressQty,
+  frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillAllDprActivitiesFromWp,
+  prefillDprActivitiesFromWp, resolveL1BoqItem, wholeJobQtySelectOptions,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
@@ -1170,6 +1171,7 @@ export default function ProjectConstructionPage() {
   const openNewDprDialog = () => {
     resetDprForm();
     const header = defaultDprHeader();
+    let activityRows = [emptyDprActivityRow()];
     if (isContractorUser && user) {
       const wpContractor = workPackages.length === 1
         ? String(workPackages[0].contractorName ?? '').trim()
@@ -1178,7 +1180,17 @@ export default function ProjectConstructionPage() {
         || `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
         || user.email;
     }
+    if (workPackages.length === 1) {
+      const wp = workPackages[0];
+      header.workPackageId = String(wp.id);
+      if (!header.workLocation) header.workLocation = String(wp.name ?? '');
+      if (dprBoq.length) {
+        const prefilled = prefillDprActivitiesFromWp(wp, dprBoq, header.schemeType);
+        if (prefilled.length) activityRows = prefilled;
+      }
+    }
     setDprHeaderForm(header);
+    setDprActivityRows(activityRows);
     setDprDialog(true);
   };
 
@@ -1207,26 +1219,37 @@ export default function ProjectConstructionPage() {
         remarks: String(d.remarks ?? ''),
       });
       const acts = (d.activities as Array<Record<string, unknown>>) ?? [];
-      setDprActivityRows(acts.length ? acts.map((act) => ({
-        key: emptyDprActivityRow().key,
-        description: String(act.description ?? ''),
-        unit: String(act.unit ?? 'cum'),
-        quantityDone: Number(act.quantityDone ?? 0),
-        progressMode: (String(act.progressMode ?? '') as DprActivityRow['progressMode'])
-          || (isWholeJobMeasurement(String(act.progressMode ?? ''), String(act.unit ?? '')) ? 'whole_job' : 'discrete_qty'),
-        progressPctToday: Number(act.progressPctToday ?? 0),
-        workDoneToday: String(act.workDoneToday ?? act.description ?? ''),
-        boqItemId: String(act.boqItemId ?? ''),
-        component: (act.component as ProjectComponent) ?? '',
-        chainageFrom: String(act.chainageFrom ?? ''),
-        chainageTo: String(act.chainageTo ?? ''),
-        latitude: act.latitude != null ? String(act.latitude) : '',
-        longitude: act.longitude != null ? String(act.longitude) : '',
-        locationDetail: String(act.siteDetail ?? ''),
-        materialConsumption: String(act.materialConsumption ?? ''),
-        labourCount: Number(act.labourCount ?? 0),
-        equipmentDetails: String(act.equipmentDetails ?? ''),
-      })) : [emptyDprActivityRow()]);
+      const wpId = String(d.workPackageId ?? '');
+      const wp = workPackages.find((w) => String(w.id) === wpId);
+      const schemeType = (d.schemeType as SchemeType) ?? 'gravity';
+      let activityRows: DprActivityRow[];
+      if (acts.length) {
+        activityRows = acts.map((act) => ({
+          key: emptyDprActivityRow().key,
+          description: String(act.description ?? ''),
+          unit: String(act.unit ?? 'cum'),
+          quantityDone: Number(act.quantityDone ?? 0),
+          progressMode: (String(act.progressMode ?? '') as DprActivityRow['progressMode'])
+            || (isWholeJobMeasurement(String(act.progressMode ?? ''), String(act.unit ?? '')) ? 'whole_job' : 'discrete_qty'),
+          progressPctToday: Number(act.progressPctToday ?? 0),
+          workDoneToday: String(act.workDoneToday ?? act.description ?? ''),
+          boqItemId: String(act.boqItemId ?? ''),
+          component: (act.component as ProjectComponent) ?? '',
+          chainageFrom: String(act.chainageFrom ?? ''),
+          chainageTo: String(act.chainageTo ?? ''),
+          latitude: act.latitude != null ? String(act.latitude) : '',
+          longitude: act.longitude != null ? String(act.longitude) : '',
+          locationDetail: String(act.siteDetail ?? ''),
+          materialConsumption: String(act.materialConsumption ?? ''),
+          labourCount: Number(act.labourCount ?? 0),
+          equipmentDetails: String(act.equipmentDetails ?? ''),
+        }));
+      } else if (wp && dprBoq.length) {
+        activityRows = prefillAllDprActivitiesFromWp(wp, dprBoq, schemeType);
+      } else {
+        activityRows = [emptyDprActivityRow()];
+      }
+      setDprActivityRows(activityRows);
       setDprPhotos([]);
       setDprDialog(true);
     } catch (err) {
@@ -2210,9 +2233,6 @@ export default function ProjectConstructionPage() {
               </TextField>
             </Box>
           </Box>
-          <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-            L1 Contractor BOQ — planned vs actual (qty in unit column; balance = planned − cumulative)
-          </Typography>
           <Box sx={{ overflowX: 'auto' }}>
           <Table size="small" sx={{ ...constructionTableShellSx('dpr'), minWidth: 1100 }}>
             <ConstructionTableHead
@@ -2259,7 +2279,7 @@ export default function ProjectConstructionPage() {
                 );
                 const plannedQty = boqRef
                   ? Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0) || null
-                  : null;
+                  : (act?.plannedQty != null ? Number(act.plannedQty) : null);
                 const summary = dprActivitySummaryForActivity(dpr, act, plannedQty);
                 const status = String(dpr.status);
                 const isEditable = canEditDpr(dpr);
@@ -2559,12 +2579,24 @@ export default function ProjectConstructionPage() {
                     : dprHeaderForm.workLocation,
                 });
                 if (wp) {
-                  setDprActivityRows((rows) => rows.map((r) => ({
-                    ...r,
-                    component: (String(wp.component ?? r.component) as ProjectComponent),
-                    chainageFrom: String(wp.chainageFrom ?? r.chainageFrom),
-                    chainageTo: String(wp.chainageTo ?? r.chainageTo),
-                  })));
+                  setDprActivityRows((rows) => rows.map((r) => {
+                    const next = {
+                      ...r,
+                      component: (String(wp.component ?? r.component) as ProjectComponent),
+                      chainageFrom: String(wp.chainageFrom ?? r.chainageFrom),
+                      chainageTo: String(wp.chainageTo ?? r.chainageTo),
+                    };
+                    if (!r.boqItemId && dprBoq.length) {
+                      const matches = findL1BoqForComponent(
+                        dprBoq,
+                        String(wp.component ?? ''),
+                        dprHeaderForm.schemeType,
+                      );
+                      const first = matches[0];
+                      if (first) return activityRowFromBoqAndWp(first, wp);
+                    }
+                    return next;
+                  }));
                 }
                 dprActivityRows.forEach((r) => {
                   if (r.boqItemId) void refreshDprProgressHint({ ...r, ...(wp ? {
