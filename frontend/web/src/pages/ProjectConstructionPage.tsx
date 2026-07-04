@@ -580,6 +580,8 @@ export default function ProjectConstructionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [dprTabError, setDprTabError] = useState('');
+  const [dprFormError, setDprFormError] = useState('');
   const [boqImporting, setBoqImporting] = useState(false);
   const [boqFileName, setBoqFileName] = useState('');
   const [l1BoqImporting, setL1BoqImporting] = useState(false);
@@ -903,12 +905,15 @@ export default function ProjectConstructionPage() {
           : failures;
         const blocking = failures.filter((f) => essentials.includes(f));
         if (blocking.length > 0) {
-          setSuccess('');
-          setError(
-            `Could not load: ${blocking.join(', ')}. `
+          const loadMsg = `Could not load: ${blocking.join(', ')}. `
             + 'If DPR list failed, run migration 104 on VPS: '
-            + 'bash /opt/egip/database/scripts/vps-migrate-104-dpr-progress.sh',
-          );
+            + 'bash /opt/egip/database/scripts/vps-migrate-104-dpr-progress.sh';
+          if (isContractorUser) {
+            setDprTabError(loadMsg);
+          } else {
+            setSuccess('');
+            setError(loadMsg);
+          }
         }
       }
     } catch (err) {
@@ -972,10 +977,19 @@ export default function ProjectConstructionPage() {
 
   const submitWorkflow = async (fn: () => Promise<unknown>, label: string) => {
     try {
+      setDprTabError('');
+      setError('');
+      setSuccess('');
       await fn();
       await refresh();
     } catch (err) {
-      setError(formatApiError(err, `Failed to ${label}. Ensure migration 012 is applied and API is restarted.`));
+      const msg = formatApiError(err, `Failed to ${label}.`);
+      if (isContractorUser) {
+        setDprTabError(msg);
+      } else {
+        setSuccess('');
+        setError(msg);
+      }
     }
   };
 
@@ -1145,6 +1159,7 @@ export default function ProjectConstructionPage() {
     setDprProgressHints({});
     setDprPhotos([]);
     setGpsCapturingKey(null);
+    setDprFormError('');
   };
 
   const openNewDprDialog = () => {
@@ -1299,6 +1314,8 @@ export default function ProjectConstructionPage() {
       return;
     }
     try {
+      setDprFormError('');
+      setDprTabError('');
       setError('');
       const { data } = editingDprId
         ? await constructionApi.updateDpr(projectId, editingDprId, payload)
@@ -1313,11 +1330,18 @@ export default function ProjectConstructionPage() {
       }
       setDprDialog(false);
       resetDprForm();
-      setSuccess(editingDprId ? 'DPR updated.' : 'Daily progress report saved.');
+      if (!isContractorUser) {
+        setSuccess(editingDprId ? 'DPR updated.' : 'Daily progress report saved.');
+      }
       await refresh();
     } catch (err) {
-      setSuccess('');
-      setError(formatApiError(err, 'Failed to save DPR.'));
+      const msg = formatApiError(err, 'Failed to save DPR.');
+      if (isContractorUser) {
+        setDprFormError(msg);
+      } else {
+        setSuccess('');
+        setError(msg);
+      }
     }
   };
 
@@ -1793,8 +1817,8 @@ export default function ProjectConstructionPage() {
         )}
       />
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+      {error && !isContractorUser && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && !isContractorUser && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={styledTabsSx()}>
@@ -2127,6 +2151,11 @@ export default function ProjectConstructionPage() {
 
       {tab === 'dpr' && (
         <Box>
+          {dprTabError && (
+            <Typography variant="body2" color="error" sx={{ mb: 1 }}>
+              {dprTabError}
+            </Typography>
+          )}
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5} gap={2} sx={constructionSectionBarSx('dpr')}>
             <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('dpr').headerColor}>
               Stage 2: Daily Construction Activity
@@ -2461,6 +2490,7 @@ export default function ProjectConstructionPage() {
             '& > *': { flexShrink: 0 },
           }}
         >
+          {dprFormError && <Alert severity="error" sx={{ mb: 0 }}>{dprFormError}</Alert>}
           <Typography variant="subtitle2" fontWeight={700}>Contractor — Daily Progress</Typography>
           {dprBoq.length === 0 && (
             <Alert severity="warning">

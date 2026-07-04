@@ -540,7 +540,6 @@ export class ConstructionService {
   }
 
   async listWorkPackages(tenantId: string, projectId: string, user?: JwtPayload) {
-    await this.staffProvisioner.migrateLegacyContractorEmails(tenantId);
     let wps = await this.wpRepo.find({ where: { tenantId, projectId }, order: { packageCode: 'ASC' } });
     if (this.isContractor(user) && user) {
       wps = wps.filter((wp) => wp.contractorId === user.sub);
@@ -1456,14 +1455,31 @@ export class ConstructionService {
     if (dpr.status !== 'draft' && dpr.status !== 'rejected') {
       throw new BadRequestException('DPR already submitted');
     }
-    const wf = await this.workflowsService.submit(tenantId, user, {
-      definitionCode: 'dpr_submit',
-      resourceId: id,
-      title: `DPR ${dpr.dprNumber} — ${dpr.schemeType} (${dpr.reportDate})`,
-      payload: { projectId, dprNumber: dpr.dprNumber, schemeType: dpr.schemeType },
+
+    await this.workflowsService.ensureDefinition(tenantId, 'dpr_submit', {
+      name: 'DPR Approval',
+      resourceType: 'dpr',
+      description: 'Contractor DPR: JE review → AE review → EE approval.',
+      steps: [
+        { order: 1, name: 'JE Review', role: 'je', action: 'review' },
+        { order: 2, name: 'AE Review', role: 'ae', action: 'review' },
+        { order: 3, name: 'EE Approval', role: 'ee', action: 'approve' },
+      ],
     });
+
+    let workflowInstanceId = dpr.workflowInstanceId;
+    if (!workflowInstanceId) {
+      const wf = await this.workflowsService.submit(tenantId, user, {
+        definitionCode: 'dpr_submit',
+        resourceId: id,
+        title: `DPR ${dpr.dprNumber} — ${dpr.schemeType} (${dpr.reportDate})`,
+        payload: { projectId, dprNumber: dpr.dprNumber, schemeType: dpr.schemeType },
+      });
+      workflowInstanceId = wf.id;
+    }
+
     dpr.status = 'je_review';
-    dpr.workflowInstanceId = wf.id;
+    dpr.workflowInstanceId = workflowInstanceId;
     dpr.submittedBy = user.sub;
     dpr.submittedAt = new Date();
     await this.dprRepo.save(dpr);

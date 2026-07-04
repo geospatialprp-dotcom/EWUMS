@@ -153,11 +153,16 @@ export class WorkflowsService {
     if (isSuperAdmin(user.roles)) {
       throw new ForbiddenException('Super Admin cannot submit workflow requests. Use an HQ or division account.');
     }
+    if (!(await this.workflowTablesExist())) {
+      throw new BadRequestException(
+        'Workflow tables are not installed on this server. Run database migration 012 and restart the API.',
+      );
+    }
     const userId = user.sub;
     const def = await this.defsRepo.findOne({
       where: { tenantId, code: dto.definitionCode, isActive: true },
     });
-    if (!def) throw new NotFoundException('Workflow definition not found');
+    if (!def) throw new NotFoundException(`Workflow definition not found: ${dto.definitionCode}`);
 
     const instance = this.instancesRepo.create({
       tenantId,
@@ -173,7 +178,8 @@ export class WorkflowsService {
     });
     const saved = await this.instancesRepo.save(instance);
 
-    const firstStep = def.steps.find((s) => s.order === 1);
+    const steps = Array.isArray(def.steps) ? def.steps : [];
+    const firstStep = steps.find((s) => s.order === 1);
     if (firstStep) {
       const task = await this.tasksRepo.save(
         this.tasksRepo.create({
@@ -187,12 +193,53 @@ export class WorkflowsService {
       this.notifyPendingTask(tenantId, saved, firstStep.name, firstStep.role, task.id).catch(() => undefined);
     }
 
-    await this.auditService.log(tenantId, userId, 'workflow.submit', 'workflow', saved.id, {
-      definitionCode: dto.definitionCode,
-      title: dto.title,
-    }, auditContext);
+    try {
+      await this.auditService.log(tenantId, userId, 'workflow.submit', 'workflow', saved.id, {
+        definitionCode: dto.definitionCode,
+        title: dto.title,
+      }, auditContext);
+    } catch (err) {
+      this.logger.warn(
+        `Workflow submit audit log skipped: ${err instanceof Error ? err.message : err}`,
+      );
+    }
 
     return { id: saved.id, status: 'pending' };
+  }
+
+  async ensureDefinition(
+    tenantId: string,
+    code: string,
+    seed: {
+      name: string;
+      resourceType: string;
+      description: string;
+      steps: Array<{ order: number; name: string; role: string; action: string }>;
+    },
+  ): Promise<WorkflowDefinition> {
+    let def = await this.defsRepo.findOne({ where: { tenantId, code } });
+    if (!def) {
+      def = await this.defsRepo.save(this.defsRepo.create({
+        tenantId,
+        code,
+        name: seed.name,
+        resourceType: seed.resourceType,
+        description: seed.description,
+        steps: seed.steps,
+        isActive: true,
+      }));
+      return def;
+    }
+    const steps = Array.isArray(def.steps) ? def.steps : [];
+    if (!def.isActive || steps.length === 0) {
+      def.isActive = true;
+      def.name = seed.name;
+      def.resourceType = seed.resourceType;
+      def.description = seed.description;
+      def.steps = seed.steps;
+      await this.defsRepo.save(def);
+    }
+    return def;
   }
 
   async actOnTask(
