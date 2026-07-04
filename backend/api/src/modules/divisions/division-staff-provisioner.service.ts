@@ -249,24 +249,8 @@ export class DivisionStaffProvisionerService {
     return (first || 'firm').slice(0, 10);
   }
 
-  /** Legacy long slug — kept for looking up accounts created before short-login rollout. */
-  private contractorFirmSlugLegacy(firmName: string): string {
-    const raw = firmName
-      .trim()
-      .toLowerCase()
-      .replace(/&/g, 'and')
-      .replace(/[^a-z0-9]+/g, '.')
-      .replace(/\.+/g, '.')
-      .replace(/^\.|\.$/g, '');
-    return raw.slice(0, 48) || 'firm';
-  }
-
   private contractorEmailFromSlug(slug: string): string {
     return `c.${slug}@egip.local`;
-  }
-
-  private legacyContractorEmail(firmName: string): string {
-    return `contractor.${this.contractorFirmSlugLegacy(firmName)}@egip.local`;
   }
 
   normalizeFirmName(firmName: string): string {
@@ -308,19 +292,80 @@ export class DivisionStaffProvisionerService {
       });
     }
 
-    const legacyEmail = this.legacyContractorEmail(firmName);
-    let user = await this.userRepo.findOne({
-      where: { tenantId, email: legacyEmail },
-      relations: ['roles'],
-    });
-    if (user) return user;
-
     const shortEmail = this.contractorEmailFromSlug(this.contractorFirmSlug(firmName));
-    user = await this.userRepo.findOne({
+    return this.userRepo.findOne({
       where: { tenantId, email: shortEmail },
       relations: ['roles'],
     });
-    return user;
+  }
+
+  private shortSlugFromLegacyEmail(email: string): string {
+    const local = email.split('@')[0]?.toLowerCase().replace(/^contractor\./, '') ?? '';
+    const first = local.split('.').filter(Boolean)[0] ?? 'firm';
+    return first.slice(0, 10) || 'firm';
+  }
+
+  private async repointWorkPackageContractor(tenantId: string, fromUserId: string, toUserId: string): Promise<void> {
+    if (fromUserId === toUserId) return;
+    await this.userRepo.query(
+      `UPDATE work_packages SET contractor_id = $1, updated_at = NOW()
+       WHERE tenant_id = $2 AND contractor_id = $3`,
+      [toUserId, tenantId, fromUserId],
+    );
+  }
+
+  private async migrateOneLegacyContractorUser(tenantId: string, userId: string): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId, tenantId }, relations: ['roles'] });
+    if (!user || !user.email.toLowerCase().startsWith('contractor.')) return;
+
+    const firmName = String(user.department ?? '').trim();
+    const firmKey = firmName ? this.normalizeFirmName(firmName) : '';
+
+    if (firmKey) {
+      const firmRows = await this.userRepo.query(
+        `SELECT u.id
+         FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+         JOIN roles r ON r.id = ur.role_id AND r.code = 'contractor'
+         WHERE u.tenant_id = $1
+           AND lower(trim(coalesce(u.department, ''))) = $2
+           AND u.id <> $3
+           AND lower(u.email) LIKE 'c.%@egip.local'
+         LIMIT 1`,
+        [tenantId, firmKey, user.id],
+      ) as Array<{ id: string }>;
+      if (firmRows[0]?.id) {
+        await this.repointWorkPackageContractor(tenantId, user.id, firmRows[0].id);
+        await this.userRepo.remove(user);
+        return;
+      }
+    }
+
+    const shortEmail = await this.allocateContractorEmail(
+      tenantId,
+      firmName || this.shortSlugFromLegacyEmail(user.email),
+      user.id,
+    );
+    if (user.email !== shortEmail) {
+      user.email = shortEmail;
+      await this.userRepo.save(user);
+    }
+  }
+
+  /** contractor.name.firm@egip.local → c.name@egip.local; merges duplicate firm logins. */
+  async migrateLegacyContractorEmails(tenantId: string): Promise<void> {
+    const legacyRows = await this.userRepo.query(
+      `SELECT u.id
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.id
+       JOIN roles r ON r.id = ur.role_id AND r.code = 'contractor'
+       WHERE u.tenant_id = $1 AND lower(u.email) LIKE 'contractor.%@egip.local'`,
+      [tenantId],
+    ) as Array<{ id: string }>;
+
+    for (const row of legacyRows) {
+      await this.migrateOneLegacyContractorUser(tenantId, row.id);
+    }
   }
 
   /** One login per contractor firm; reused across work packages and projects. */

@@ -540,6 +540,7 @@ export class ConstructionService {
   }
 
   async listWorkPackages(tenantId: string, projectId: string, user?: JwtPayload) {
+    await this.staffProvisioner.migrateLegacyContractorEmails(tenantId);
     let wps = await this.wpRepo.find({ where: { tenantId, projectId }, order: { packageCode: 'ASC' } });
     if (this.isContractor(user) && user) {
       wps = wps.filter((wp) => wp.contractorId === user.sub);
