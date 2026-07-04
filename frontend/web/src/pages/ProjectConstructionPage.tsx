@@ -2669,14 +2669,28 @@ export default function ProjectConstructionPage() {
                     ))}
                   </TextField>
                 </Box>
+                {isWholeJobMeasurement(row.progressMode, row.unit) && row.boqItemId && (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    <strong>1 Job total</strong> for this BOQ item — use <strong>Chainage</strong> and <strong>Site location</strong> to record
+                    which stretch was worked today (e.g. Location 1: 0–50, Location 2: 50–100).
+                    Today&apos;s % counts toward the single Job, not separately per location.
+                  </Typography>
+                )}
                 {dprProgressHints[row.key] && (
                   <Alert severity="info" sx={{ py: 0.5 }}>
-                    Yesterday: {dprProgressHints[row.key].yesterdaysProgress}
+                    {isWholeJobMeasurement(row.progressMode, row.unit) && (row.chainageFrom || row.chainageTo)
+                      ? `Location ${row.chainageFrom || '0'}–${row.chainageTo || '0'} · `
+                      : ''}
+                    Yesterday at this location: {dprProgressHints[row.key].yesterdaysProgress}
                     {dprProgressHints[row.key].yesterdaysProgressLabel === 'pct' ? '%' : ` ${row.unit}`}
                     {' · '}
-                    Cumulative: {dprProgressHints[row.key].cumulativePct}%
+                    <strong>BOQ cumulative: {dprProgressHints[row.key].cumulativePct}%</strong>
                     {' · '}
                     Balance: {dprProgressHints[row.key].balancePct}%
+                    {dprProgressHints[row.key].scopeContributionPct != null
+                      && dprProgressHints[row.key].scopeContributionPct! > 0
+                      ? ` · This location contributed: ${dprProgressHints[row.key].scopeContributionPct}%`
+                      : ''}
                     {dprProgressHints[row.key].expectedCompletionDate
                       ? ` · ETC: ${dprProgressHints[row.key].expectedCompletionDate}`
                       : ''}

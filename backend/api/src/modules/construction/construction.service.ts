@@ -1095,10 +1095,13 @@ export class ConstructionService {
     });
 
     const execution = await this.dprExecutionRepo.findOne({ where: { projectId, scopeKey } });
-    const cumulativeQty = Number(execution?.cumulativeQty ?? item.dprQty ?? 0);
-    const cumulativePct = Number(execution?.cumulativePct ?? cumulativePctFromQty(cumulativeQty, sanctioned));
-    const balanceQty = Math.max(0, sanctioned - cumulativeQty);
-    const balancePct = Math.max(0, 100 - cumulativePct);
+    const boqCumulativeQty = Number(item.dprQty ?? 0);
+    const boqCumulativePct = cumulativePctFromQty(boqCumulativeQty, sanctioned);
+    const scopeContributionQty = Number(execution?.cumulativeQty ?? 0);
+    const cumulativeQty = mode === 'whole_job' ? boqCumulativeQty : scopeContributionQty;
+    const cumulativePct = mode === 'whole_job' ? boqCumulativePct : cumulativePctFromQty(cumulativeQty, sanctioned);
+    const balanceQty = Math.max(0, sanctioned - boqCumulativeQty);
+    const balancePct = Math.max(0, 100 - boqCumulativePct);
 
     const yesterdayRows = await this.dprActivityRepo.query(
       `SELECT a.progress_pct_today AS "progressPctToday", a.quantity_done AS "quantityDone",
@@ -1145,7 +1148,13 @@ export class ConstructionService {
       cumulativePct,
       balanceQty,
       balancePct,
-      executionStatus: execution?.status ?? item.dprExecutionStatus ?? 'not_started',
+      scopeContributionQty: mode === 'whole_job' ? scopeContributionQty : undefined,
+      scopeContributionPct: mode === 'whole_job'
+        ? cumulativePctFromQty(scopeContributionQty, sanctioned)
+        : undefined,
+      chainageFrom: chainageFrom ?? execution?.chainageFrom ?? null,
+      chainageTo: chainageTo ?? execution?.chainageTo ?? null,
+      executionStatus: item.dprExecutionStatus ?? execution?.status ?? 'not_started',
       yesterdaysProgress: yesterday
         ? (yesterday.progressMode === 'whole_job'
           ? Number(yesterday.progressPctToday ?? 0)
@@ -1203,7 +1212,9 @@ export class ConstructionService {
       });
 
       let execution = await this.dprExecutionRepo.findOne({ where: { projectId, scopeKey } });
-      const cumulativeBefore = Number(execution?.cumulativeQty ?? item.dprQty ?? 0);
+      // Whole-job BOQ (e.g. 1 Job BFG): one sanctioned qty shared across all locations/chainages.
+      const boqCumulativeBefore = Number(item.dprQty ?? 0);
+      const scopeCumulativeBefore = Number(execution?.cumulativeQty ?? 0);
 
       const { deltaQty, deltaPct } = progressIncrementQty(
         mode,
@@ -1213,13 +1224,15 @@ export class ConstructionService {
       );
 
       try {
-        assertProgressWithinSanction(mode, sanctioned, cumulativeBefore, deltaQty);
+        const validateFrom = mode === 'whole_job' ? boqCumulativeBefore : scopeCumulativeBefore;
+        assertProgressWithinSanction(mode, sanctioned, validateFrom, deltaQty);
       } catch (err) {
         throw new BadRequestException((err as Error).message);
       }
 
-      const cumulativeAfter = cumulativeBefore + deltaQty;
-      const cumulativePct = cumulativePctFromQty(cumulativeAfter, sanctioned);
+      const boqCumulativeAfter = boqCumulativeBefore + deltaQty;
+      const scopeCumulativeAfter = scopeCumulativeBefore + deltaQty;
+      const cumulativePct = cumulativePctFromQty(boqCumulativeAfter, sanctioned);
 
       if (!execution && deltaQty > 0) {
         execution = this.dprExecutionRepo.create({
@@ -1232,10 +1245,10 @@ export class ConstructionService {
           chainageTo: act.chainageTo ?? null,
           measurementMode: mode,
           sanctionedQty: sanctioned,
-          cumulativeQty: cumulativeBefore,
-          cumulativePct: cumulativePctFromQty(cumulativeBefore, sanctioned),
-          status: executionStatusFromCumulative(cumulativeBefore, sanctioned),
-          startedOn: cumulativeBefore > 0 ? null : reportDate,
+          cumulativeQty: 0,
+          cumulativePct: 0,
+          status: 'in_progress',
+          startedOn: reportDate,
         });
         await this.dprExecutionRepo.save(execution);
       }
@@ -1245,7 +1258,7 @@ export class ConstructionService {
         progressMode: mode,
         progressPctToday: mode === 'whole_job' ? Number(act.progressPctToday ?? 0) : undefined,
         cumulativeProgressPct: cumulativePct,
-        cumulativeQty: cumulativeAfter,
+        cumulativeQty: boqCumulativeAfter,
         executionScopeKey: scopeKey,
         workDoneToday: act.workDoneToday ?? act.description,
         quantityDone: deltaQty,
@@ -1281,8 +1294,9 @@ export class ConstructionService {
         where: { projectId: dpr.projectId, scopeKey: act.executionScopeKey },
       });
       const sanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
-      const cumulativeBefore = Number(execution?.cumulativeQty ?? item.dprQty ?? 0);
-      const cumulativeAfter = cumulativeBefore + deltaQty;
+      const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
+      const boqCumulativeBefore = Number(item.dprQty ?? 0);
+      const cumulativeAfter = boqCumulativeBefore + deltaQty;
       const cumulativePct = cumulativePctFromQty(cumulativeAfter, sanctioned);
 
       await this.dprLedgerRepo.save(this.dprLedgerRepo.create({
@@ -1302,12 +1316,17 @@ export class ConstructionService {
       await this.mirrorDprQtyToFinancialBoq(tenantId, dpr.projectId, item, deltaQty);
 
       if (execution) {
-        execution.cumulativeQty = cumulativeAfter;
-        execution.cumulativePct = cumulativePct;
+        const scopeAfter = Number(execution.cumulativeQty) + deltaQty;
+        execution.cumulativeQty = scopeAfter;
+        execution.cumulativePct = mode === 'whole_job'
+          ? cumulativePctFromQty(scopeAfter, sanctioned)
+          : cumulativePct;
         execution.status = executionStatusFromCumulative(cumulativeAfter, sanctioned);
         execution.updatedAt = new Date();
         if (!execution.startedOn) execution.startedOn = dpr.reportDate;
-        if (execution.status === 'completed') execution.completedOn = dpr.reportDate;
+        if (executionStatusFromCumulative(cumulativeAfter, sanctioned) === 'completed') {
+          execution.completedOn = dpr.reportDate;
+        }
         execution.expectedCompletionDate = execution.status === 'completed'
           ? dpr.reportDate
           : estimateExpectedCompletion(dpr.reportDate, cumulativePct, [Number(act.progressPctToday ?? 0)]);

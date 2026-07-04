@@ -44,6 +44,10 @@ export type DprProgressSummary = {
   executionStatus: string;
   expectedCompletionDate: string | null;
   measurementMode: 'discrete_qty' | 'whole_job';
+  scopeContributionQty?: number;
+  scopeContributionPct?: number;
+  chainageFrom?: string | null;
+  chainageTo?: string | null;
 };
 
 const WHOLE_JOB_UNIT = /^(job|jobs|ls|l\.s\.|item|lump\s*sum)$/i;
