@@ -948,7 +948,11 @@ export class ConstructionService {
       relations: ['activities'],
       order: { reportDate: 'DESC' },
     });
-    if (!this.isContractor(user) || !user) return rows;
+    const normalized = rows.map((dpr) => ({
+      ...dpr,
+      activities: [...(dpr.activities ?? [])].sort((a, b) => a.sortOrder - b.sortOrder),
+    }));
+    if (!this.isContractor(user) || !user) return normalized;
 
     const myPackageIds = new Set(
       (await this.wpRepo.find({
@@ -956,7 +960,7 @@ export class ConstructionService {
         select: ['id'],
       })).map((wp) => wp.id),
     );
-    return rows.filter((d) =>
+    return normalized.filter((d) =>
       d.submittedBy === user.sub
       || (d.workPackageId != null && myPackageIds.has(d.workPackageId)));
   }

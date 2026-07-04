@@ -280,7 +280,11 @@ export function formatDprActivityProgress(act: Record<string, unknown>): string 
   return `${today} · ${cum}`;
 }
 
-export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRow[]) {
+export function buildDprPayload(
+  header: DprHeaderForm,
+  activities: DprActivityRow[],
+  l1Boq: Array<Record<string, unknown>> = [],
+) {
   return {
     dprNumber: header.dprNumber,
     reportDate: header.reportDate,
@@ -296,8 +300,12 @@ export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRo
       .filter((row) => row.description.trim())
       .map((row) => {
         const wholeJob = isWholeJobMeasurement(row.progressMode, row.unit);
+        const boqLine = row.boqItemId
+          ? l1Boq.find((b) => String(b.id) === row.boqItemId)
+          : undefined;
         return {
           description: row.description.trim(),
+          activityCode: boqLine ? String(boqLine.itemCode ?? '') || undefined : undefined,
           unit: row.unit,
           progressMode: wholeJob ? 'whole_job' as const : 'discrete_qty' as const,
           workDoneToday: row.workDoneToday.trim() || row.description.trim(),
@@ -318,6 +326,86 @@ export function buildDprPayload(header: DprHeaderForm, activities: DprActivityRo
   };
 }
 
+export function resolveL1BoqItem(
+  boqItemId: string | null | undefined,
+  activityCode: string | null | undefined,
+  l1Boq: Array<Record<string, unknown>>,
+  fallbackBoq: Array<Record<string, unknown>> = [],
+): Record<string, unknown> | undefined {
+  const id = String(boqItemId ?? '').trim();
+  if (id) {
+    const directL1 = l1Boq.find((b) => String(b.id) === id);
+    if (directL1) return directL1;
+    const linked = fallbackBoq.find((b) => String(b.id) === id) ?? l1Boq.find((b) => String(b.id) === id);
+    const code = String(linked?.itemCode ?? '').trim();
+    if (code) {
+      const twin = l1Boq.find((b) => String(b.itemCode) === code);
+      if (twin) return twin;
+    }
+    if (linked) return linked;
+  }
+  const code = String(activityCode ?? '').trim();
+  if (code) {
+    return l1Boq.find((b) => String(b.itemCode) === code)
+      ?? fallbackBoq.find((b) => String(b.itemCode) === code);
+  }
+  return undefined;
+}
+
+export function dprActivitySummaryForActivity(
+  dpr: Record<string, unknown>,
+  act: Record<string, unknown> | null | undefined,
+  plannedQty?: number | null,
+): {
+  workItem: string;
+  billing: DprActivityBilling;
+  chainage: string;
+  location: string;
+  progress: string;
+} {
+  if (!act) {
+    const location = String(dpr.workSite ?? '—');
+    return {
+      workItem: location !== '—' ? `${location} (no BOQ line — edit DPR)` : '—',
+      billing: parseDprActivityBilling(null, plannedQty),
+      chainage: '—',
+      location,
+      progress: '—',
+    };
+  }
+  const workItem = String(act.workDoneToday ?? act.description ?? '—').trim() || '—';
+  const billing = parseDprActivityBilling(act, plannedQty);
+  const progress = formatDprActivityProgress(act);
+  const chainage = [act.chainageFrom, act.chainageTo].filter(Boolean).join(' → ') || '—';
+  const location = String(act.siteDetail ?? dpr.workSite ?? '—');
+  return { workItem, billing, chainage, location, progress };
+}
+
+export type DprTableRow = {
+  dpr: Record<string, unknown>;
+  act: Record<string, unknown> | null;
+  actIndex: number;
+  actCount: number;
+};
+
+/** One table row per activity (or one placeholder row when no activities saved). */
+export function flattenDprsForTable(dprs: Array<Record<string, unknown>>): DprTableRow[] {
+  const rows: DprTableRow[] = [];
+  for (const dpr of dprs) {
+    const activities = ((dpr.activities as Array<Record<string, unknown>>) ?? [])
+      .slice()
+      .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0));
+    if (!activities.length) {
+      rows.push({ dpr, act: null, actIndex: 0, actCount: 1 });
+      continue;
+    }
+    activities.forEach((act, actIndex) => {
+      rows.push({ dpr, act, actIndex, actCount: activities.length });
+    });
+  }
+  return rows;
+}
+
 export function dprActivitySummary(
   dpr: Record<string, unknown>,
   plannedQty?: number | null,
@@ -330,14 +418,5 @@ export function dprActivitySummary(
 } {
   const activities = (dpr.activities as Array<Record<string, unknown>>) ?? [];
   const first = activities[0];
-  const workItem = first
-    ? String(first.description ?? '—')
-    : '—';
-  const billing = parseDprActivityBilling(first, plannedQty);
-  const progress = first ? formatDprActivityProgress(first) : '—';
-  const chainage = first
-    ? [first.chainageFrom, first.chainageTo].filter(Boolean).join(' → ') || '—'
-    : '—';
-  const location = String(dpr.workSite ?? first?.siteDetail ?? '—');
-  return { workItem, billing, chainage, location, progress };
+  return dprActivitySummaryForActivity(dpr, first, plannedQty);
 }

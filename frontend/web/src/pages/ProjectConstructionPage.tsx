@@ -30,9 +30,9 @@ import {
   constructionWorkflowChipSx,
 } from '../utils/constructionTableStyles';
 import {
-  buildDprPayload, defaultDprHeader, dprActivitySummary, emptyDprActivityRow,
-  formatProgressQty, frozenProgressFromRow, isWholeJobMeasurement, pctFromQty,
-  wholeJobQtySelectOptions,
+  buildDprPayload, defaultDprHeader, dprActivitySummaryForActivity, emptyDprActivityRow,
+  flattenDprsForTable, formatProgressQty, frozenProgressFromRow, isWholeJobMeasurement,
+  pctFromQty, resolveL1BoqItem, wholeJobQtySelectOptions,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
@@ -768,6 +768,11 @@ export default function ProjectConstructionPage() {
     return visibleDprs.filter((d) => String(d.weather ?? '') === dprWeatherFilter);
   }, [visibleDprs, dprWeatherFilter]);
 
+  const dprTableRows = useMemo(
+    () => flattenDprsForTable(filteredDprs),
+    [filteredDprs],
+  );
+
   const dprWeatherFilterOptions = useMemo(() => {
     const legacy = new Set<string>();
     for (const d of visibleDprs) {
@@ -1304,13 +1309,22 @@ export default function ProjectConstructionPage() {
   };
 
   const handleSaveDpr = async () => {
-    const payload = buildDprPayload(dprHeaderForm, dprActivityRows);
+    const payload = buildDprPayload(dprHeaderForm, dprActivityRows, dprBoq);
     if (!payload.dprNumber.trim()) {
       setError('DPR number is required.');
       return;
     }
     if (!payload.activities.length) {
       setError('Add at least one work item with a description.');
+      return;
+    }
+    if (payload.activities.some((a) => !a.boqItemId)) {
+      const msg = 'Select an L1 BOQ item for each work line.';
+      if (isContractorUser) {
+        setDprFormError(msg);
+      } else {
+        setError(msg);
+      }
       return;
     }
     try {
@@ -2223,7 +2237,7 @@ export default function ProjectConstructionPage() {
               ]}
             />
             <TableBody>
-              {filteredDprs.length === 0 && (
+              {dprTableRows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={16}>
                     <Typography variant="body2" color="text.secondary">
@@ -2236,22 +2250,30 @@ export default function ProjectConstructionPage() {
                   </TableCell>
                 </TableRow>
               )}
-              {filteredDprs.map((dpr) => {
-                const firstAct = ((dpr.activities as Array<Record<string, unknown>>) ?? [])[0];
-                const boqRef = firstAct?.boqItemId
-                  ? dprBoq.find((b) => String(b.id) === String(firstAct.boqItemId))
-                  : undefined;
+              {dprTableRows.map(({ dpr, act, actIndex, actCount }) => {
+                const boqRef = resolveL1BoqItem(
+                  act ? String(act.boqItemId ?? '') : '',
+                  act ? String(act.activityCode ?? '') : '',
+                  dprBoq,
+                  boq,
+                );
                 const plannedQty = boqRef
                   ? Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0) || null
                   : null;
-                const summary = dprActivitySummary(dpr, plannedQty);
+                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty);
                 const status = String(dpr.status);
                 const isEditable = canEditDpr(dpr);
                 const dprId = String(dpr.id);
+                const rowKey = act ? `${dprId}-${String(act.id ?? actIndex)}` : dprId;
+                const span = actCount;
                 return (
-                  <TableRow key={dprId}>
-                    <TableCell>{String(dpr.dprNumber)}</TableCell>
-                    <TableCell>{String(dpr.reportDate)}</TableCell>
+                  <TableRow key={rowKey}>
+                    {actIndex === 0 && (
+                      <>
+                        <TableCell rowSpan={span}>{String(dpr.dprNumber)}</TableCell>
+                        <TableCell rowSpan={span}>{String(dpr.reportDate)}</TableCell>
+                      </>
+                    )}
                     <TableCell>{summary.location}</TableCell>
                     <TableCell>{summary.chainage}</TableCell>
                     <TableCell>
@@ -2284,43 +2306,47 @@ export default function ProjectConstructionPage() {
                         cumPct={summary.billing.cumPct}
                       />
                     </TableCell>
-                    <TableCell>{String(dpr.contractorName ?? '—')}</TableCell>
-                    <TableCell>{String(dpr.supervisorName ?? '—')}</TableCell>
-                    <TableCell>
-                      {dpr.weather
-                        ? <Chip size="small" label={String(dpr.weather)} variant="outlined" />
-                        : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <StatusChip status={status} label={dprWorkflowStepLabel(status)} />
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="nowrap">
-                        <Button
-                          size="small" variant="text" startIcon={<VisibilityIcon fontSize="small" />}
-                          onClick={() => { void viewDprDetail(dprId); }}
-                        >
-                          View
-                        </Button>
-                        {canSubmitDpr && isEditable && (
-                          <Button
-                            size="small" variant="outlined"
-                            onClick={() => { void loadDprForEdit(dprId); }}
-                          >
-                            Edit
-                          </Button>
-                        )}
-                        {canSubmitDpr && isEditable && (
-                          <Button
-                            size="small" variant="contained"
-                            onClick={() => { void submitWorkflow(() => constructionApi.submitDpr(projectId, dprId), 'submit DPR'); }}
-                          >
-                            {status === 'rejected' ? 'Resubmit' : 'Submit to JE'}
-                          </Button>
-                        )}
-                        {!isEditable && <ApprovalButtons type="dpr" id={dprId} status={status} />}
-                      </Stack>
-                    </TableCell>
+                    {actIndex === 0 && (
+                      <>
+                        <TableCell rowSpan={span}>{String(dpr.contractorName ?? '—')}</TableCell>
+                        <TableCell rowSpan={span}>{String(dpr.supervisorName ?? '—')}</TableCell>
+                        <TableCell rowSpan={span}>
+                          {dpr.weather
+                            ? <Chip size="small" label={String(dpr.weather)} variant="outlined" />
+                            : '—'}
+                        </TableCell>
+                        <TableCell rowSpan={span}>
+                          <StatusChip status={status} label={dprWorkflowStepLabel(status)} />
+                        </TableCell>
+                        <TableCell rowSpan={span}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="nowrap">
+                            <Button
+                              size="small" variant="text" startIcon={<VisibilityIcon fontSize="small" />}
+                              onClick={() => { void viewDprDetail(dprId); }}
+                            >
+                              View
+                            </Button>
+                            {canSubmitDpr && isEditable && (
+                              <Button
+                                size="small" variant="outlined"
+                                onClick={() => { void loadDprForEdit(dprId); }}
+                              >
+                                Edit
+                              </Button>
+                            )}
+                            {canSubmitDpr && isEditable && (
+                              <Button
+                                size="small" variant="contained"
+                                onClick={() => { void submitWorkflow(() => constructionApi.submitDpr(projectId, dprId), 'submit DPR'); }}
+                              >
+                                {status === 'rejected' ? 'Resubmit' : 'Submit to JE'}
+                              </Button>
+                            )}
+                            {!isEditable && <ApprovalButtons type="dpr" id={dprId} status={status} />}
+                          </Stack>
+                        </TableCell>
+                      </>
+                    )}
                   </TableRow>
                 );
               })}
