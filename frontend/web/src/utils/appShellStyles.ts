@@ -1,8 +1,6 @@
-export const DRAWER_WIDTH = 260;
-export const DRAWER_WIDTH_MINI = 72;
+import { APP_TOOLBAR_MIN_HEIGHT } from '../constants/layout';
 
-/** Matches AppLayout Toolbar minHeight — keep drawer brand block in sync on md+. */
-export const APP_TOOLBAR_MIN_HEIGHT = { xs: 64, sm: 68 };
+export { DRAWER_WIDTH, DRAWER_WIDTH_MINI, APP_TOOLBAR_MIN_HEIGHT } from '../constants/layout';
 
 /** Fixed header height on md+ — drawer brand and AppBar must match exactly. */
 export const APP_HEADER_HEIGHT_MD = APP_TOOLBAR_MIN_HEIGHT.sm;

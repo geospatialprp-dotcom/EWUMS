@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 import {
   AppBar, Box, Drawer, IconButton, List, ListItemButton, ListItemIcon,
-  ListItemText, Toolbar, Tooltip, Typography, Badge, useMediaQuery, useTheme,
+  ListItemText, Toolbar, Tooltip, Typography, Badge,
 } from '@mui/material';
 
 import MapIcon from '@mui/icons-material/Map';
@@ -28,6 +28,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import { useAuth } from '../../context/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { isSecretariatScopedUser } from '../../utils/roleNavigation';
 import { APP_BRAND } from '../../constants/branding';
 import { formatHeaderUserCaption, formatUserProfileName } from '../../utils/userDisplayLabel';
@@ -108,9 +109,7 @@ function isNavSelected(pathname: string, path: string) {
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
+  const { isMobile, isTablet } = useBreakpoint();
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -124,10 +123,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
 
   useEffect(() => {
-    if (isDesktop) setSidebarCollapsed(false);
-  }, [isDesktop]);
+    if (!isTablet) setSidebarCollapsed(false);
+  }, [isTablet]);
 
-  const drawerCollapsed = !isMobile && !isDesktop && sidebarCollapsed;
+  const drawerCollapsed = isTablet && sidebarCollapsed;
   const drawerWidth = drawerCollapsed ? DRAWER_WIDTH_MINI : DRAWER_WIDTH;
 
   const secretariatScoped = isSecretariatScopedUser(user?.roles);
@@ -196,7 +195,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Box>
           </Box>
         )}
-        {!isMobile && !isDesktop && (
+        {isTablet && (
           <IconButton
             onClick={() => setSidebarCollapsed((v) => !v)}
             size="small"
@@ -240,6 +239,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </>
         )}
       </Box>
+
+      {isMobile && (
+        <Box sx={{ px: 2, py: 1.5, borderTop: '1px solid rgba(148, 163, 184, 0.18)', flexShrink: 0 }}>
+          <DivisionSwitcher />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+            <LanguageSwitcher />
+            <HelpPanel />
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 
@@ -298,13 +307,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <Box sx={{ flex: { xs: '0 0 auto', md: 1 }, minWidth: { xs: 0, md: 16 } }} />
 
           <Box sx={appHeaderActionsSx()}>
-            {!secretariatScoped && <DivisionSwitcher />}
-            <Box sx={appHeaderActionItemSx()}>
-              <LanguageSwitcher />
-            </Box>
-            <Box sx={appHeaderActionItemSx()}>
-              <HelpPanel />
-            </Box>
+            {!isMobile && !secretariatScoped && <DivisionSwitcher />}
+            {!isMobile && (
+              <>
+                <Box sx={appHeaderActionItemSx()}>
+                  <LanguageSwitcher />
+                </Box>
+                <Box sx={appHeaderActionItemSx()}>
+                  <HelpPanel />
+                </Box>
+              </>
+            )}
             <Box
               sx={appNotificationBellSlotSx()}
               role="region"
@@ -385,7 +398,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           minHeight: 0,
           minWidth: 0,
           overflowY: 'auto',
-          overflowX: 'auto',
+          overflowX: 'hidden',
           WebkitOverflowScrolling: 'touch',
         }}
       >

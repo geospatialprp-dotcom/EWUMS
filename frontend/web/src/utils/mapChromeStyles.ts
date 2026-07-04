@@ -45,7 +45,7 @@ export function mapDarkHeaderSx() {
 
 export function mapLayerPanelSx() {
   return {
-    width: { xs: 260, md: 288 },
+    width: { xs: 'min(100vw - 48px, 300px)', md: 288 },
     flexShrink: 0,
     display: { xs: 'none', md: 'flex' },
     flexDirection: 'column',

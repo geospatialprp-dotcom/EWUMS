@@ -17,12 +17,21 @@ const ACCENTS: Record<PageAccent, { bar: string; label: string; title: string }>
   amber: { bar: '#d97706', label: '#64748b', title: '#0f172a' },
 };
 
+import { APP_TOOLBAR_MIN_HEIGHT } from '../constants/layout';
+
 export function pageShellSx(fullHeight = false) {
   return {
     p: { xs: 1.5, sm: 2, md: 3 },
     bgcolor: '#f1f5f9',
     minWidth: 0,
-    minHeight: fullHeight ? { xs: 'calc(100vh - 56px)', sm: 'calc(100vh - 68px)' } : undefined,
+    maxWidth: '100%',
+    overflowX: 'hidden',
+    minHeight: fullHeight
+      ? {
+          xs: `calc(100vh - ${APP_TOOLBAR_MIN_HEIGHT.xs}px)`,
+          sm: `calc(100vh - ${APP_TOOLBAR_MIN_HEIGHT.sm}px)`,
+        }
+      : undefined,
     overflow: fullHeight ? 'auto' : undefined,
   };
 }
@@ -88,6 +97,7 @@ export function dataTableSx() {
     border: '1px solid #e2e8f0',
     borderRadius: 2,
     overflow: 'auto',
+    maxWidth: '100%',
     bgcolor: '#ffffff',
     WebkitOverflowScrolling: 'touch',
     '& .MuiTableHead-root .MuiTableCell-root': {

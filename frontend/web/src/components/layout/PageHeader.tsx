@@ -6,6 +6,7 @@ import {
   pageTitleSx,
   type PageAccent,
 } from '../../utils/pagePresentationStyles';
+import { responsiveHeaderStackSx } from '../../utils/responsiveStyles';
 
 interface PageHeaderProps {
   title: string;
@@ -25,8 +26,8 @@ export default function PageHeader({
   leading,
 }: PageHeaderProps) {
   return (
-    <Box display="flex" justifyContent="space-between" alignItems="center" gap={2} flexWrap="wrap" sx={pageHeaderSx(accent)}>
-      <Box display="flex" alignItems="flex-start" gap={1.5} flex={1} minWidth={0}>
+    <Box sx={[pageHeaderSx(accent), responsiveHeaderStackSx()]}>
+      <Box display="flex" alignItems="flex-start" gap={{ xs: 1, sm: 1.5 }} flex={1} minWidth={0}>
         {leading}
         <Box minWidth={0}>
           {eyebrow && (
@@ -45,7 +46,13 @@ export default function PageHeader({
         </Box>
       </Box>
       {actions && (
-        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+        <Box
+          display="flex"
+          alignItems="center"
+          gap={1}
+          flexWrap="wrap"
+          sx={{ width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}
+        >
           {actions}
         </Box>
       )}
