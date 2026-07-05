@@ -1,7 +1,7 @@
 import {
   IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export class DprActivityDto {
   @IsOptional() @IsString() activityCode?: string;
@@ -58,8 +58,12 @@ export class MbEntryDto {
 
 export class CreateMbDto {
   @IsString() mbNumber: string;
-  @IsOptional() @IsUUID() dprId?: string;
-  @IsOptional() @IsUUID() workPackageId?: string;
+  @IsOptional() @IsUUID()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : value))
+  dprId?: string;
+  @IsOptional() @IsUUID()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : value))
+  workPackageId?: string;
   @IsEnum(['gravity', 'pumping']) schemeType: 'gravity' | 'pumping';
   @IsDateString() measurementDate: string;
   @IsOptional() @IsString() siteLocation?: string;

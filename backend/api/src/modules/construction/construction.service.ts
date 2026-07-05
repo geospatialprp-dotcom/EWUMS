@@ -2,7 +2,7 @@ import {
   BadRequestException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, QueryFailedError, Repository } from 'typeorm';
+import { In, DataSource, EntityManager, IsNull, QueryFailedError, Repository } from 'typeorm';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { WorkflowTask } from '../workflows/entities/workflow-task.entity';
@@ -123,6 +123,7 @@ export class ConstructionService {
     private progressSync: ProjectProgressSyncService,
     private divisionAccess: DivisionAccessService,
     private staffProvisioner: DivisionStaffProvisionerService,
+    private readonly dataSource: DataSource,
   ) {}
 
   private async refreshProjectProgress(
@@ -202,6 +203,14 @@ export class ConstructionService {
       const code = (err as { code?: string }).code;
       const detail = String((err as { detail?: string }).detail ?? '');
       const msg = String(err.message ?? '');
+      if (code === '23505') {
+        if (detail.includes('mb_number') || msg.includes('measurement_books_project_id_mb_number_key')) {
+          throw new BadRequestException(
+            'Could not save MB — run migration 105_mb_number_not_unique.sql on the server to allow the same MB number again.',
+          );
+        }
+        throw new BadRequestException('Could not save MB — duplicate record conflict.');
+      }
       if (code === '23503') {
         if (detail.includes('boq_item_id')) {
           throw new BadRequestException(
@@ -227,8 +236,27 @@ export class ConstructionService {
           'MB entry data is incomplete — select an L1 BOQ item and enter quantity before saving.',
         );
       }
+      if (/generated column|column "amount"/i.test(msg)) {
+        throw new BadRequestException(
+          'MB line amount could not be saved — redeploy the latest API build on the server.',
+        );
+      }
+      throw new BadRequestException(
+        `Could not save measurement book: ${msg.replace(/\s+/g, ' ').slice(0, 240)}`,
+      );
     }
     throw err;
+  }
+
+  private normalizeMbDto(dto: CreateMbDto): CreateMbDto {
+    return {
+      ...dto,
+      mbNumber: String(dto.mbNumber ?? '').trim(),
+      dprId: dto.dprId || undefined,
+      workPackageId: dto.workPackageId || undefined,
+      siteLocation: dto.siteLocation?.trim() || undefined,
+      remarks: dto.remarks?.trim() || undefined,
+    };
   }
 
   async getOverview(tenantId: string, projectId: string, user?: JwtPayload) {
@@ -1821,22 +1849,26 @@ export class ConstructionService {
 
   async createMb(tenantId: string, projectId: string, userId: string, dto: CreateMbDto) {
     try {
-      const mb = this.mbRepo.create({
-        tenantId,
-        projectId,
-        dprId: dto.dprId ?? null,
-        workPackageId: dto.workPackageId ?? null,
-        mbNumber: dto.mbNumber,
-        schemeType: dto.schemeType,
-        measurementDate: dto.measurementDate,
-        siteAddress: dto.siteLocation ?? null,
-        remarks: dto.remarks ?? null,
-        status: 'draft',
+      const normalized = this.normalizeMbDto(dto);
+      const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, normalized.entries);
+      const mbId = await this.dataSource.transaction(async (manager) => {
+        const mb = manager.create(MeasurementBook, {
+          tenantId,
+          projectId,
+          dprId: normalized.dprId ?? null,
+          workPackageId: normalized.workPackageId ?? null,
+          mbNumber: normalized.mbNumber,
+          schemeType: normalized.schemeType,
+          measurementDate: normalized.measurementDate,
+          siteAddress: normalized.siteLocation ?? null,
+          remarks: normalized.remarks ?? null,
+          status: 'draft',
+        });
+        const saved = await manager.save(MeasurementBook, mb);
+        await this.saveMbEntries(saved.id, entries, manager);
+        return saved.id;
       });
-      const saved = await this.mbRepo.save(mb);
-      const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, dto.entries);
-      await this.saveMbEntries(saved.id, entries);
-      return this.getMb(tenantId, projectId, saved.id);
+      return this.getMb(tenantId, projectId, mbId);
     } catch (err) {
       this.raiseMbPersistenceError(err);
     }
@@ -1850,24 +1882,27 @@ export class ConstructionService {
     dto: CreateMbDto,
   ) {
     try {
-      const mb = await this.mbRepo.findOne({ where: { id, tenantId, projectId } });
-      if (!mb) throw new NotFoundException('Measurement book not found');
-      if (mb.status !== 'draft' && mb.status !== 'rejected') {
-        throw new BadRequestException('Only draft or rejected MBs can be edited');
-      }
-      Object.assign(mb, {
-        mbNumber: dto.mbNumber,
-        schemeType: dto.schemeType,
-        measurementDate: dto.measurementDate,
-        siteAddress: dto.siteLocation ?? null,
-        workPackageId: dto.workPackageId ?? null,
-        dprId: dto.dprId ?? null,
-        remarks: dto.remarks ?? null,
+      const normalized = this.normalizeMbDto(dto);
+      const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, normalized.entries);
+      await this.dataSource.transaction(async (manager) => {
+        const mb = await manager.findOne(MeasurementBook, { where: { id, tenantId, projectId } });
+        if (!mb) throw new NotFoundException('Measurement book not found');
+        if (mb.status !== 'draft' && mb.status !== 'rejected') {
+          throw new BadRequestException('Only draft or rejected MBs can be edited');
+        }
+        Object.assign(mb, {
+          mbNumber: normalized.mbNumber,
+          schemeType: normalized.schemeType,
+          measurementDate: normalized.measurementDate,
+          siteAddress: normalized.siteLocation ?? null,
+          workPackageId: normalized.workPackageId ?? null,
+          dprId: normalized.dprId ?? null,
+          remarks: normalized.remarks ?? null,
+        });
+        await manager.save(MeasurementBook, mb);
+        await this.saveMbEntries(mb.id, entries, manager);
       });
-      await this.mbRepo.save(mb);
-      const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, dto.entries);
-      await this.saveMbEntries(mb.id, entries);
-      return this.getMb(tenantId, projectId, mb.id);
+      return this.getMb(tenantId, projectId, id);
     } catch (err) {
       this.raiseMbPersistenceError(err);
     }
@@ -3143,31 +3178,38 @@ export class ConstructionService {
     });
   }
 
-  private async saveMbEntries(mbId: string, entries: CreateMbDto['entries']) {
-    await this.mbEntryRepo.delete({ mbId });
+  private mapMbEntryInserts(mbId: string, entries: CreateMbDto['entries']) {
+    return entries.map((item, index) => ({
+      mbId,
+      boqItemId: item.boqItemId ?? null,
+      itemCode: item.itemCode ?? null,
+      description: String(item.description ?? '').trim(),
+      unit: String(item.unit ?? '').trim() || 'nos',
+      measuredQty: Number(item.measuredQty) || 0,
+      rate: Number(item.rate) || 0,
+      lengthM: item.lengthM != null ? Number(item.lengthM) : null,
+      widthM: item.widthM != null ? Number(item.widthM) : null,
+      heightM: item.heightM != null ? Number(item.heightM) : null,
+      depthM: item.depthM != null ? Number(item.depthM) : null,
+      nos: item.nos != null ? Number(item.nos) : null,
+      chainageFrom: item.chainageFrom ?? null,
+      chainageTo: item.chainageTo ?? null,
+      latitude: item.latitude != null ? Number(item.latitude) : null,
+      longitude: item.longitude != null ? Number(item.longitude) : null,
+      sortOrder: index,
+    }));
+  }
+
+  private async saveMbEntries(
+    mbId: string,
+    entries: CreateMbDto['entries'],
+    manager?: EntityManager,
+  ) {
+    const em = manager ?? this.mbEntryRepo.manager;
+    await em.delete(MbEntry, { mbId });
     if (!entries.length) return;
-    // Use insert() — mb_entries.amount is GENERATED ALWAYS; repository.save() can trigger 500.
-    await this.mbEntryRepo.insert(
-      entries.map((item, index) => ({
-        mbId,
-        boqItemId: item.boqItemId ?? null,
-        itemCode: item.itemCode ?? null,
-        description: item.description,
-        unit: item.unit,
-        measuredQty: item.measuredQty,
-        rate: item.rate,
-        lengthM: item.lengthM ?? null,
-        widthM: item.widthM ?? null,
-        heightM: item.heightM ?? null,
-        depthM: item.depthM ?? null,
-        nos: item.nos ?? null,
-        chainageFrom: item.chainageFrom ?? null,
-        chainageTo: item.chainageTo ?? null,
-        latitude: item.latitude ?? null,
-        longitude: item.longitude ?? null,
-        sortOrder: index,
-      })),
-    );
+    // Use insert() — mb_entries.amount is GENERATED ALWAYS; repository.save() triggers 500.
+    await em.insert(MbEntry, this.mapMbEntryInserts(mbId, entries));
   }
 
   private async saveInvoiceLines(invoiceId: string, lines: CreateInvoiceDto['lineItems']) {
