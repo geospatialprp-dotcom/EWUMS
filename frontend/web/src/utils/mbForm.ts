@@ -49,6 +49,26 @@ export function emptyMbEntryRow(): MbEntryRow {
   };
 }
 
+/** MB numbers must be unique per project; suggest the next unused number. */
+export function suggestNextMbNumber(existingNumbers: string[]): string {
+  let max = 0;
+  for (const raw of existingNumbers) {
+    const match = String(raw ?? '').trim().match(/(\d+)\s*$/);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return max > 0 ? String(max + 1) : '1';
+}
+
+export function isMbNumberTaken(mbNumber: string, existingNumbers: string[], editingMbNumber?: string): boolean {
+  const normalized = mbNumber.trim().toLowerCase();
+  if (!normalized) return false;
+  const skip = editingMbNumber?.trim().toLowerCase();
+  return existingNumbers.some((n) => {
+    const existing = String(n ?? '').trim().toLowerCase();
+    return existing === normalized && existing !== skip;
+  });
+}
+
 export function defaultMbHeader(): MbHeaderForm {
   return {
     mbNumber: '',

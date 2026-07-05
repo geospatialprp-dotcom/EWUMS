@@ -67,7 +67,8 @@ import { EMPTY_BILINGUAL } from '../hooks/useBilingualRemark';
 import { hasBilingualContent, serializeBilingualText, parseBilingualText, type BilingualText } from '../utils/bilingualText';
 import {
   buildMbPayload, calcMbQuantity, defaultMbHeader, emptyMbEntryRow,
-  mbEntrySummary, type MbEntryRow, type MbHeaderForm,
+  isMbNumberTaken, mbEntrySummary, suggestNextMbNumber,
+  type MbEntryRow, type MbHeaderForm,
 } from '../utils/mbForm';
 import { boqUnitOptions, collectBoqUnits } from '../utils/boqUnits';
 import {
@@ -1469,6 +1470,14 @@ export default function ProjectConstructionPage() {
       return;
     }
     const payload = buildMbPayload(mbHeaderForm, mbEntryRows);
+    const existingMbNumbers = mbs.map((mb) => String(mb.mbNumber ?? ''));
+    const editingMbNumber = editingMbId
+      ? String(mbs.find((mb) => String(mb.id) === editingMbId)?.mbNumber ?? '')
+      : undefined;
+    if (isMbNumberTaken(payload.mbNumber, existingMbNumbers, editingMbNumber)) {
+      setError('MB number already exists for this project. Edit the existing MB or use the next number.');
+      return;
+    }
     if (!payload.mbNumber.trim()) {
       setError('MB number is required.');
       return;
@@ -1519,6 +1528,11 @@ export default function ProjectConstructionPage() {
 
   const openNewMbDialog = () => {
     resetMbForm();
+    const existingMbNumbers = mbs.map((mb) => String(mb.mbNumber ?? ''));
+    setMbHeaderForm({
+      ...defaultMbHeader(),
+      mbNumber: suggestNextMbNumber(existingMbNumbers),
+    });
     setMbDialog(true);
   };
 
@@ -3318,8 +3332,18 @@ export default function ProjectConstructionPage() {
           )}
           <Grid container spacing={1.5}>
             <Grid item xs={12} sm={6} md={4}>
-              <TextField required fullWidth label="MB Number"
-                value={mbHeaderForm.mbNumber} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, mbNumber: e.target.value })} />
+              <TextField
+                required
+                fullWidth
+                label="MB Number"
+                helperText={
+                  editingMbId
+                    ? 'MB number must stay unique within this project.'
+                    : `Unique per project (not linked to DPR #). Suggested: ${suggestNextMbNumber(mbs.map((mb) => String(mb.mbNumber ?? '')))}.`
+                }
+                value={mbHeaderForm.mbNumber}
+                onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, mbNumber: e.target.value })}
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={4}>
               <TextField required fullWidth type="date" label="Date of Measurement" InputLabelProps={{ shrink: true }}
