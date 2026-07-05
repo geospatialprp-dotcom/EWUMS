@@ -3151,29 +3151,27 @@ export class ConstructionService {
   private async saveMbEntries(mbId: string, entries: CreateMbDto['entries']) {
     await this.mbEntryRepo.delete({ mbId });
     if (!entries.length) return;
-    await this.mbEntryRepo.save(
-      entries.map((item, index) => {
-        const row = this.mbEntryRepo.create({
-          mbId,
-          boqItemId: item.boqItemId ?? null,
-          itemCode: item.itemCode ?? null,
-          description: item.description,
-          unit: item.unit,
-          measuredQty: item.measuredQty,
-          rate: item.rate,
-          lengthM: item.lengthM ?? null,
-          widthM: item.widthM ?? null,
-          heightM: item.heightM ?? null,
-          depthM: item.depthM ?? null,
-          nos: item.nos ?? null,
-          chainageFrom: item.chainageFrom ?? null,
-          chainageTo: item.chainageTo ?? null,
-          latitude: item.latitude ?? null,
-          longitude: item.longitude ?? null,
-          sortOrder: index,
-        });
-        return row;
-      }),
+    // Use insert() — mb_entries.amount is GENERATED ALWAYS; repository.save() can trigger 500.
+    await this.mbEntryRepo.insert(
+      entries.map((item, index) => ({
+        mbId,
+        boqItemId: item.boqItemId ?? null,
+        itemCode: item.itemCode ?? null,
+        description: item.description,
+        unit: item.unit,
+        measuredQty: item.measuredQty,
+        rate: item.rate,
+        lengthM: item.lengthM ?? null,
+        widthM: item.widthM ?? null,
+        heightM: item.heightM ?? null,
+        depthM: item.depthM ?? null,
+        nos: item.nos ?? null,
+        chainageFrom: item.chainageFrom ?? null,
+        chainageTo: item.chainageTo ?? null,
+        latitude: item.latitude ?? null,
+        longitude: item.longitude ?? null,
+        sortOrder: index,
+      })),
     );
   }
 
