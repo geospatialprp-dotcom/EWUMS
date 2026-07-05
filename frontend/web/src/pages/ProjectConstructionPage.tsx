@@ -46,6 +46,7 @@ import DprPhotoGallery from '../components/construction/DprPhotoGallery';
 import DprBoqProgressCell from '../components/construction/DprBoqProgressCell';
 import DprMobileCard from '../components/construction/DprMobileCard';
 import MbMobileCard from '../components/construction/MbMobileCard';
+import MbDetailDialog from '../components/construction/MbDetailDialog';
 import DprDetailDialog from '../components/construction/DprDetailDialog';
 import DprExecutionQtyDisplay from '../components/construction/DprExecutionQtyDisplay';
 import DprPlannedVsActualPanel from '../components/construction/DprPlannedVsActualPanel';
@@ -2672,7 +2673,9 @@ export default function ProjectConstructionPage() {
                           </Button>
                         )}
                         {canCreateMb && isEditable && (
-                          <Button size="small" variant="contained"
+                          <Button size="small" variant="contained" color="success"
+                            startIcon={<SendIcon fontSize="small" />}
+                            sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}
                             onClick={() => { void submitWorkflow(() => constructionApi.submitMb(projectId, mbId), 'submit MB'); }}>
                             {status === 'rejected' ? 'Resubmit' : 'Submit'}
                           </Button>
@@ -3572,56 +3575,27 @@ export default function ProjectConstructionPage() {
         </DialogActions>
       </Dialog>
 
-      {/* MB Detail Dialog */}
-      <Dialog open={mbDetailOpen} onClose={() => setMbDetailOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>MB {String(mbDetail?.mbNumber ?? '')} — {String(mbDetail?.measurementDate ?? '')}</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
-          {mbDetail && (
-            <>
-              <Box display="flex" gap={1}>
-                <StatusChip status={String(mbDetail.status)} label={mbWorkflowStepLabel(String(mbDetail.status))} />
-              </Box>
-              <Grid container spacing={1}>
-                {[['Site', String(mbDetail.siteAddress ?? '—')], ['Scheme', String(mbDetail.schemeType ?? '—')]].map(([l, v]) => (
-                  <Grid item xs={12} sm={6} key={l}>
-                    <Typography variant="caption" color="text.secondary">{l}</Typography>
-                    <Typography variant="body2">{v}</Typography>
-                  </Grid>
-                ))}
-              </Grid>
-              {mbDetail.remarks && (
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{String(mbDetail.remarks)}</Typography>
-              )}
-              <Divider />
-              <Typography variant="subtitle2" fontWeight={700}>Measurements</Typography>
-              {((mbDetail.entries as Array<Record<string, unknown>>) ?? []).map((e, idx) => (
-                <Box key={String(e.id ?? idx)} sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                  <Typography variant="body2" fontWeight={600}>{idx + 1}. {String(e.description)}</Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Qty: {String(e.measuredQty)} {String(e.unit)}
-                    {' · '}L×W×D: {[e.lengthM, e.widthM, e.depthM].filter(Boolean).join(' × ') || '—'}
-                    {' · '}Chainage: {[e.chainageFrom, e.chainageTo].filter(Boolean).join(' → ') || '—'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    GPS: {e.latitude != null && e.longitude != null ? `${e.latitude}, ${e.longitude}` : '—'}
-                    {' · '}Rate: ₹{Number(e.rate ?? 0).toLocaleString()}
-                  </Typography>
-                </Box>
-              ))}
-              {((mbDetail.documents as Array<Record<string, unknown>>) ?? []).length > 0 && (
-                <>
-                  <Divider />
-                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>Geo-tagged Photographs</Typography>
-                  <DprPhotoGallery projectId={projectId} documents={(mbDetail.documents as Array<Record<string, unknown>>) ?? []} />
-                </>
-              )}
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setMbDetailOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <MbDetailDialog
+        open={mbDetailOpen}
+        onClose={() => setMbDetailOpen(false)}
+        projectId={projectId!}
+        mb={mbDetail}
+        workPackageLabel={(() => {
+          const wpId = String(mbDetail?.workPackageId ?? '');
+          const wp = workPackages.find((w) => String(w.id) === wpId);
+          return wp ? `${String(wp.packageCode)} — ${String(wp.name ?? '')}` : undefined;
+        })()}
+        linkedDprLabel={(() => {
+          const dprId = String(mbDetail?.dprId ?? '');
+          const dpr = dprs.find((d) => String(d.id) === dprId);
+          return dpr ? `${String(dpr.dprNumber)} (${String(dpr.reportDate)})` : undefined;
+        })()}
+        canEdit={canCreateMb && (String(mbDetail?.status) === 'draft' || String(mbDetail?.status) === 'rejected')}
+        onEdit={mbDetail ? () => {
+          setMbDetailOpen(false);
+          void loadMbForEdit(String(mbDetail.id));
+        } : undefined}
+      />
 
       {/* MB Verification Dialog — Stage 4 */}
       <Dialog open={Boolean(mbVerifyDialog)} onClose={() => setMbVerifyDialog(null)} maxWidth="sm" fullWidth>

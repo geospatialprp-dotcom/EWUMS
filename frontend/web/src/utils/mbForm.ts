@@ -63,6 +63,35 @@ export function defaultMbHeader(): MbHeaderForm {
   };
 }
 
+export function parseMbRemarks(remarks: string | null | undefined): {
+  general: string;
+  quality: string;
+  material: string;
+} {
+  const raw = String(remarks ?? '').trim();
+  if (!raw) return { general: '', quality: '', material: '' };
+  const qualityMatch = raw.match(/Quality verification:\s*([\s\S]*?)(?=\n\nMaterial verification:|$)/i);
+  const materialMatch = raw.match(/Material verification:\s*([\s\S]*?)$/i);
+  let general = raw;
+  if (qualityMatch) {
+    general = general.replace(/\n\nQuality verification:[\s\S]*/i, '').trim();
+  }
+  if (materialMatch && !qualityMatch) {
+    general = general.replace(/\n\nMaterial verification:[\s\S]*/i, '').trim();
+  }
+  return {
+    general,
+    quality: qualityMatch?.[1]?.trim() ?? '',
+    material: materialMatch?.[1]?.trim() ?? '',
+  };
+}
+
+export function mbEntryLineAmount(entry: Record<string, unknown>): number {
+  const qty = Number(entry.measuredQty ?? 0);
+  const rate = Number(entry.rate ?? 0);
+  return Math.round(qty * rate * 100) / 100;
+}
+
 function buildMbRemarks(header: MbHeaderForm): string | undefined {
   const parts = [
     header.remarks.trim(),
