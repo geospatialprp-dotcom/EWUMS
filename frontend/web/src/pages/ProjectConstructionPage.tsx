@@ -697,6 +697,41 @@ export default function ProjectConstructionPage() {
     () => collectBoqUnits(mbBoq, mbHeaderForm.schemeType),
     [mbBoq, mbHeaderForm.schemeType],
   );
+  const mbLinkableDprs = useMemo(() => {
+    let list = dprs;
+    if (mbHeaderForm.schemeType) {
+      list = list.filter((d) => String(d.schemeType ?? '') === mbHeaderForm.schemeType);
+    }
+    if (mbHeaderForm.workPackageId) {
+      list = list.filter((d) => String(d.workPackageId ?? '') === mbHeaderForm.workPackageId);
+    }
+    return list;
+  }, [dprs, mbHeaderForm.schemeType, mbHeaderForm.workPackageId]);
+
+  const prefillMbFromLinkedDpr = useCallback((dpr: Record<string, unknown>) => {
+    const act = primaryDprActivity((dpr.activities as Array<Record<string, unknown>>) ?? []);
+    if (!act) return;
+    const boqLine = resolveL1BoqItem(
+      String(act.boqItemId ?? ''),
+      String(act.activityCode ?? ''),
+      mbBoq,
+      boq,
+    );
+    setMbEntryRows((rows) => rows.map((r, idx) => {
+      if (idx !== 0) return r;
+      const qty = Number(act.quantityDone ?? r.measuredQty) || r.measuredQty;
+      return {
+        ...r,
+        boqItemId: boqLine ? String(boqLine.id) : String(act.boqItemId ?? ''),
+        description: boqLine ? String(boqLine.description ?? '') : String(act.description ?? r.description),
+        unit: boqLine ? String(boqLine.unit) : String(act.unit ?? r.unit),
+        rate: boqLine ? Number(boqLine.rate) : r.rate,
+        measuredQty: qty,
+        chainageFrom: r.chainageFrom || String(act.chainageFrom ?? ''),
+        chainageTo: r.chainageTo || String(act.chainageTo ?? ''),
+      };
+    }));
+  }, [mbBoq, boq]);
 
   const dprBoqItemsForRow = useCallback((rowComponent: string) => {
     let items = dprBoq.filter((b) => b.schemeType === dprHeaderForm.schemeType);
@@ -3264,6 +3299,11 @@ export default function ProjectConstructionPage() {
               Upload <strong>L1 Contractor BOQ</strong> in Work Planning first. MB rates must come from L1 BOQ only (not government tender BOQ).
             </Alert>
           )}
+          {dprs.length === 0 && (
+            <Alert severity="info">
+              No daily progress reports yet. The contractor must create and submit a <strong>DPR</strong> for work package SW-01/GM-02 before you can link it here.
+            </Alert>
+          )}
           <Grid container spacing={1.5}>
             <Grid item xs={12} sm={6} md={4}>
               <TextField required fullWidth label="MB Number"
@@ -3286,11 +3326,18 @@ export default function ProjectConstructionPage() {
                 onChange={(e) => {
                   const wpId = e.target.value;
                   const wp = workPackages.find((w) => String(w.id) === wpId);
+                  const matchingDprs = dprs.filter((d) => (
+                    String(d.schemeType ?? '') === mbHeaderForm.schemeType
+                    && String(d.workPackageId ?? '') === wpId
+                  ));
+                  const autoDprId = matchingDprs.length === 1 ? String(matchingDprs[0].id) : '';
+                  const linkedDpr = autoDprId ? matchingDprs[0] : null;
                   setMbHeaderForm({
                     ...mbHeaderForm,
                     workPackageId: wpId,
-                    siteLocation: wp && !mbHeaderForm.siteLocation
-                      ? String(wp.name ?? '')
+                    dprId: autoDprId || (matchingDprs.some((d) => String(d.id) === mbHeaderForm.dprId) ? mbHeaderForm.dprId : ''),
+                    siteLocation: wp
+                      ? String(wp.name ?? mbHeaderForm.siteLocation)
                       : mbHeaderForm.siteLocation,
                   });
                   if (wp) {
@@ -3300,6 +3347,7 @@ export default function ProjectConstructionPage() {
                       chainageTo: r.chainageTo || String(wp.chainageTo ?? ''),
                     })));
                   }
+                  if (linkedDpr) prefillMbFromLinkedDpr(linkedDpr);
                 }}>
                 <MenuItem value="">— None —</MenuItem>
                 {workPackages.map((wp) => (
@@ -3310,20 +3358,26 @@ export default function ProjectConstructionPage() {
             <Grid item xs={12} sm={6} md={4}>
               <TextField select fullWidth label="Linked DPR"
                 value={mbHeaderForm.dprId}
+                helperText={mbLinkableDprs.length === 0
+                  ? 'No DPR for this work package — contractor must submit DPR first'
+                  : undefined}
                 onChange={(e) => {
                   const dprId = e.target.value;
                   const linked = dprs.find((d) => String(d.id) === dprId);
                   setMbHeaderForm({
                     ...mbHeaderForm,
                     dprId,
-                    siteLocation: linked && !mbHeaderForm.siteLocation
+                    siteLocation: linked
                       ? String(linked.workSite ?? mbHeaderForm.siteLocation)
                       : mbHeaderForm.siteLocation,
                   });
+                  if (linked) prefillMbFromLinkedDpr(linked);
                 }}>
                 <MenuItem value="">— None —</MenuItem>
-                {dprs.map((d) => (
-                  <MenuItem key={String(d.id)} value={String(d.id)}>{String(d.dprNumber)} — {String(d.reportDate)}</MenuItem>
+                {mbLinkableDprs.map((d) => (
+                  <MenuItem key={String(d.id)} value={String(d.id)}>
+                    {String(d.dprNumber)} — {String(d.reportDate)} ({String(d.status ?? 'draft').replace(/_/g, ' ')})
+                  </MenuItem>
                 ))}
               </TextField>
             </Grid>
