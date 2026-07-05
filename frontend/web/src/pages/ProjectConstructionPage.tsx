@@ -24,6 +24,7 @@ import { constructionApi, projectsApi, type SchemeType } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import ConstructionTableHead from '../components/construction/ConstructionTableHead';
 import ResponsiveDataView from '../components/layout/ResponsiveDataView';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import ConstructionStyledTableHead from '../components/construction/ConstructionStyledTableHead';
 import {
   constructionSectionBarSx,
@@ -576,6 +577,7 @@ export default function ProjectConstructionPage() {
   const { projectId = '' } = useParams();
   const location = useLocation();
   const { user, hasPermission } = useAuth();
+  const { isMobile } = useBreakpoint();
   const roles = user?.roles ?? [];
 
   const [tab, setTab] = useState<TabKey>(() => (
@@ -607,10 +609,6 @@ export default function ProjectConstructionPage() {
   const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
   const [boq, setBoq] = useState<Array<Record<string, unknown>>>([]);
   const [l1Boq, setL1Boq] = useState<Array<Record<string, unknown>>>([]);
-  const billingBoq = useMemo(
-    () => (l1Boq.length > 0 ? l1Boq : boq),
-    [l1Boq, boq],
-  );
   const ratesFromL1Boq = l1Boq.length > 0;
   const [dprs, setDprs] = useState<Array<Record<string, unknown>>>([]);
   const [mbs, setMbs] = useState<Array<Record<string, unknown>>>([]);
@@ -687,17 +685,14 @@ export default function ProjectConstructionPage() {
     [pendingL1BoqUpload, l1Boq],
   );
   const dprBoq = useMemo(() => displayL1Boq, [displayL1Boq]);
-  const boqUnitsSource = useMemo(
-    () => (displayL1Boq.length > 0 ? displayL1Boq : displayGovBoq),
-    [displayL1Boq, displayGovBoq],
-  );
+  const mbBoq = useMemo(() => displayL1Boq, [displayL1Boq]);
   const dprBoqUnits = useMemo(
     () => collectBoqUnits(dprBoq, dprHeaderForm.schemeType),
     [dprBoq, dprHeaderForm.schemeType],
   );
   const mbBoqUnits = useMemo(
-    () => collectBoqUnits(boqUnitsSource, mbHeaderForm.schemeType),
-    [boqUnitsSource, mbHeaderForm.schemeType],
+    () => collectBoqUnits(mbBoq, mbHeaderForm.schemeType),
+    [mbBoq, mbHeaderForm.schemeType],
   );
 
   const dprBoqItemsForRow = useCallback((rowComponent: string) => {
@@ -1428,6 +1423,10 @@ export default function ProjectConstructionPage() {
   };
 
   const handleCreateMb = async () => {
+    if (mbBoq.length === 0) {
+      setError('Upload L1 Contractor BOQ in Work Planning before saving measurement book entries.');
+      return;
+    }
     const payload = buildMbPayload(mbHeaderForm, mbEntryRows);
     if (!payload.mbNumber.trim()) {
       setError('MB number is required.');
@@ -1491,21 +1490,24 @@ export default function ProjectConstructionPage() {
         materialVerification: '',
       });
       const entries = (m.entries as Array<Record<string, unknown>>) ?? [];
-      setMbEntryRows(entries.length ? entries.map((e) => ({
-        key: emptyMbEntryRow().key,
-        description: String(e.description ?? ''),
-        unit: String(e.unit ?? 'cum'),
-        measuredQty: Number(e.measuredQty ?? 0),
-        rate: Number(e.rate ?? 0),
-        boqItemId: String(e.boqItemId ?? ''),
-        chainageFrom: String(e.chainageFrom ?? ''),
-        chainageTo: String(e.chainageTo ?? ''),
-        lengthM: e.lengthM != null ? String(e.lengthM) : '',
-        widthM: e.widthM != null ? String(e.widthM) : '',
-        depthM: e.depthM != null ? String(e.depthM) : '',
-        latitude: e.latitude != null ? String(e.latitude) : '',
-        longitude: e.longitude != null ? String(e.longitude) : '',
-      })) : [emptyMbEntryRow()]);
+      setMbEntryRows(entries.length ? entries.map((e) => {
+        const l1Item = resolveL1BoqItem(String(e.boqItemId ?? ''), '', displayL1Boq, boq);
+        return {
+          key: emptyMbEntryRow().key,
+          description: l1Item ? String(l1Item.description ?? '') : String(e.description ?? ''),
+          unit: l1Item ? String(l1Item.unit) : String(e.unit ?? 'cum'),
+          measuredQty: Number(e.measuredQty ?? 0),
+          rate: l1Item ? Number(l1Item.rate) : Number(e.rate ?? 0),
+          boqItemId: l1Item ? String(l1Item.id) : String(e.boqItemId ?? ''),
+          chainageFrom: String(e.chainageFrom ?? ''),
+          chainageTo: String(e.chainageTo ?? ''),
+          lengthM: e.lengthM != null ? String(e.lengthM) : '',
+          widthM: e.widthM != null ? String(e.widthM) : '',
+          depthM: e.depthM != null ? String(e.depthM) : '',
+          latitude: e.latitude != null ? String(e.latitude) : '',
+          longitude: e.longitude != null ? String(e.longitude) : '',
+        };
+      }) : [emptyMbEntryRow()]);
       setMbPhotos([]);
       setMbDialog(true);
     } catch (err) {
@@ -3193,95 +3195,214 @@ export default function ProjectConstructionPage() {
       />
 
       {/* MB Dialog */}
-      <Dialog open={mbDialog} onClose={() => { setMbDialog(false); resetMbForm(); }} maxWidth="md" fullWidth scroll="paper">
-        <DialogTitle>
+      <Dialog
+        open={mbDialog}
+        onClose={() => { setMbDialog(false); resetMbForm(); }}
+        maxWidth="lg"
+        fullWidth
+        fullScreen={isMobile}
+        scroll="paper"
+      >
+        <DialogTitle sx={{ pb: 1 }}>
           {editingMbId ? 'Edit Measurement Book' : 'Measurement Book — Stage 3 (JE Site Inspection)'}
         </DialogTitle>
-        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2, overflowY: 'auto', '& > *': { flexShrink: 0 } }}>
+        <DialogContent
+          dividers
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            pt: 2,
+            overflowY: 'auto',
+            '& > *': { flexShrink: 0 },
+          }}
+        >
           <Typography variant="subtitle2" fontWeight={700}>JE — Site Inspection &amp; Measurement</Typography>
-          <Box display="flex" gap={1} flexWrap="wrap">
-            <TextField required label="MB Number" sx={{ flex: 1, minWidth: 160 }}
-              value={mbHeaderForm.mbNumber} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, mbNumber: e.target.value })} />
-            <TextField required type="date" label="Date of Measurement" InputLabelProps={{ shrink: true }} sx={{ flex: 1, minWidth: 160 }}
-              value={mbHeaderForm.measurementDate} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, measurementDate: e.target.value })} />
-          </Box>
-          <Box display="flex" gap={1} flexWrap="wrap">
-            <TextField select label="Scheme" sx={{ flex: 1, minWidth: 140 }}
-              value={mbHeaderForm.schemeType} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, schemeType: e.target.value as SchemeType })}>
-              <MenuItem value="gravity">Gravity</MenuItem>
-              <MenuItem value="pumping">Pumping</MenuItem>
-            </TextField>
-            <TextField select label="Work Package" sx={{ flex: 1, minWidth: 160 }}
-              value={mbHeaderForm.workPackageId} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, workPackageId: e.target.value })}>
-              <MenuItem value="">— None —</MenuItem>
-              {workPackages.map((wp) => (
-                <MenuItem key={String(wp.id)} value={String(wp.id)}>{String(wp.packageCode)}</MenuItem>
-              ))}
-            </TextField>
-            <TextField select label="Linked DPR" sx={{ flex: 1, minWidth: 160 }}
-              value={mbHeaderForm.dprId} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, dprId: e.target.value })}>
-              <MenuItem value="">— None —</MenuItem>
-              {dprs.map((d) => (
-                <MenuItem key={String(d.id)} value={String(d.id)}>{String(d.dprNumber)} — {String(d.reportDate)}</MenuItem>
-              ))}
-            </TextField>
-          </Box>
-          <TextField fullWidth label="Site Location" value={mbHeaderForm.siteLocation}
-            onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, siteLocation: e.target.value })} />
+          {mbBoq.length === 0 && (
+            <Alert severity="warning">
+              Upload <strong>L1 Contractor BOQ</strong> in Work Planning first. MB rates must come from L1 BOQ only (not government tender BOQ).
+            </Alert>
+          )}
+          <Grid container spacing={1.5}>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField required fullWidth label="MB Number"
+                value={mbHeaderForm.mbNumber} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, mbNumber: e.target.value })} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField required fullWidth type="date" label="Date of Measurement" InputLabelProps={{ shrink: true }}
+                value={mbHeaderForm.measurementDate} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, measurementDate: e.target.value })} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField select fullWidth label="Scheme"
+                value={mbHeaderForm.schemeType} onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, schemeType: e.target.value as SchemeType })}>
+                <MenuItem value="gravity">Gravity</MenuItem>
+                <MenuItem value="pumping">Pumping</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField select fullWidth label="Work Package"
+                value={mbHeaderForm.workPackageId}
+                onChange={(e) => {
+                  const wpId = e.target.value;
+                  const wp = workPackages.find((w) => String(w.id) === wpId);
+                  setMbHeaderForm({
+                    ...mbHeaderForm,
+                    workPackageId: wpId,
+                    siteLocation: wp && !mbHeaderForm.siteLocation
+                      ? String(wp.name ?? '')
+                      : mbHeaderForm.siteLocation,
+                  });
+                  if (wp) {
+                    setMbEntryRows((rows) => rows.map((r) => ({
+                      ...r,
+                      chainageFrom: r.chainageFrom || String(wp.chainageFrom ?? ''),
+                      chainageTo: r.chainageTo || String(wp.chainageTo ?? ''),
+                    })));
+                  }
+                }}>
+                <MenuItem value="">— None —</MenuItem>
+                {workPackages.map((wp) => (
+                  <MenuItem key={String(wp.id)} value={String(wp.id)}>{String(wp.packageCode)} — {String(wp.name ?? '')}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField select fullWidth label="Linked DPR"
+                value={mbHeaderForm.dprId}
+                onChange={(e) => {
+                  const dprId = e.target.value;
+                  const linked = dprs.find((d) => String(d.id) === dprId);
+                  setMbHeaderForm({
+                    ...mbHeaderForm,
+                    dprId,
+                    siteLocation: linked && !mbHeaderForm.siteLocation
+                      ? String(linked.workSite ?? mbHeaderForm.siteLocation)
+                      : mbHeaderForm.siteLocation,
+                  });
+                }}>
+                <MenuItem value="">— None —</MenuItem>
+                {dprs.map((d) => (
+                  <MenuItem key={String(d.id)} value={String(d.id)}>{String(d.dprNumber)} — {String(d.reportDate)}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth label="Site Location" value={mbHeaderForm.siteLocation}
+                onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, siteLocation: e.target.value })} />
+            </Grid>
+          </Grid>
 
           <Divider />
-          <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems={{ xs: 'stretch', sm: 'center' }}
+            flexDirection={{ xs: 'column', sm: 'row' }}
+            gap={1}
+          >
             <Typography variant="subtitle2" fontWeight={700}>Measured Work Items</Typography>
             <Button size="small" startIcon={<AddIcon />} onClick={() => setMbEntryRows((r) => [...r, emptyMbEntryRow()])}>
               Add work item
             </Button>
           </Box>
 
-          <Box display="flex" flexDirection="column" gap={2}>
-            {mbEntryRows.map((row, idx) => (
-              <Box key={row.key} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'visible' }}>
-                <Box display="flex" justifyContent="space-between" mb={1.5}>
-                  <Typography variant="body2" fontWeight={600}>Work item {idx + 1}</Typography>
+          <Stack spacing={2}>
+            {mbEntryRows.map((row, idx) => {
+              const boqLine = row.boqItemId
+                ? resolveL1BoqItem(row.boqItemId, '', mbBoq, boq)
+                : undefined;
+              const workDescription = boqLine ? String(boqLine.description ?? '').trim() : row.description;
+              const dimQty = calcMbQuantity(row);
+              const hasDims = [row.lengthM, row.widthM, row.depthM].some((v) => String(v).trim() !== '');
+              return (
+              <Box key={row.key} sx={{ p: { xs: 1.5, sm: 2 }, border: 1, borderColor: 'divider', borderRadius: 2, bgcolor: '#fafbfc' }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                  <Typography variant="body2" fontWeight={700}>Work item {idx + 1}</Typography>
                   {mbEntryRows.length > 1 && (
-                    <IconButton size="small" color="error" onClick={() => setMbEntryRows((r) => r.filter((x) => x.key !== row.key))}>
+                    <IconButton size="small" color="error" aria-label="Remove work item"
+                      onClick={() => setMbEntryRows((r) => r.filter((x) => x.key !== row.key))}>
                       <DeleteOutlineIcon fontSize="small" />
                     </IconButton>
                   )}
                 </Box>
-                <Box display="flex" flexDirection="column" gap={1.5}>
-                  <TextField fullWidth required label="Work Item" value={row.description}
-                    onChange={(e) => updateMbEntryRow(row.key, { description: e.target.value })} />
-                  <TextField select fullWidth label="BOQ Item" value={row.boqItemId}
-                    onChange={(e) => {
-                      const item = billingBoq.find((b) => String(b.id) === e.target.value);
-                      updateMbEntryRow(row.key, {
-                        boqItemId: e.target.value,
-                        description: row.description || (item ? String(item.description) : ''),
-                        unit: item ? String(item.unit) : row.unit,
-                        rate: item ? Number(item.rate) : row.rate,
-                      });
-                    }}>
-                    <MenuItem value="">— Select —</MenuItem>
-                    {billingBoq.filter((b) => b.schemeType === mbHeaderForm.schemeType).map((b) => (
-                      <MenuItem key={String(b.id)} value={String(b.id)}>{String(b.itemCode)} — {String(b.description).slice(0, 40)}</MenuItem>
-                    ))}
-                  </TextField>
-                  <Box display="flex" gap={1} flexWrap="wrap">
-                    <TextField label="Chainage From" sx={{ flex: 1, minWidth: 120 }} value={row.chainageFrom}
+                <Grid container spacing={1.5}>
+                  <Grid item xs={12}>
+                    <TextField select fullWidth label="BOQ Item (L1)" value={row.boqItemId}
+                      onChange={(e) => {
+                        const item = e.target.value
+                          ? resolveL1BoqItem(e.target.value, '', mbBoq, boq)
+                          : undefined;
+                        updateMbEntryRow(row.key, {
+                          boqItemId: item ? String(item.id) : e.target.value,
+                          description: item ? String(item.description ?? '') : '',
+                          unit: item ? String(item.unit) : row.unit,
+                          rate: item ? Number(item.rate) : row.rate,
+                        });
+                      }}>
+                      <MenuItem value="">— Select BOQ line —</MenuItem>
+                      {mbBoq.filter((b) => b.schemeType === mbHeaderForm.schemeType).map((b) => (
+                        <MenuItem key={String(b.id)} value={String(b.id)}>
+                          <Box>
+                            <Typography variant="body2" fontWeight={700}>{String(b.itemCode)}</Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'normal', display: 'block' }}>
+                              {String(b.description)}
+                            </Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      required
+                      label="Work item description"
+                      value={workDescription}
+                      InputProps={{ readOnly: Boolean(boqLine) }}
+                      helperText={boqLine ? 'From selected L1 BOQ line' : 'Select a BOQ item or enter description'}
+                      onChange={(e) => {
+                        if (!boqLine) updateMbEntryRow(row.key, { description: e.target.value });
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField fullWidth label="Chainage from" value={row.chainageFrom}
                       onChange={(e) => updateMbEntryRow(row.key, { chainageFrom: e.target.value })} />
-                    <TextField label="Chainage To" sx={{ flex: 1, minWidth: 120 }} value={row.chainageTo}
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField fullWidth label="Chainage to" value={row.chainageTo}
                       onChange={(e) => updateMbEntryRow(row.key, { chainageTo: e.target.value })} />
-                  </Box>
-                  <Box display="flex" gap={1} flexWrap="wrap">
-                    <TextField type="number" label="Length (m)" sx={{ flex: 1, minWidth: 100 }} value={row.lengthM}
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={700} display="block" sx={{ mb: 0.5 }}>
+                      Dimensions (L × W × D) — auto-calculates quantity when filled
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField fullWidth type="number" label="Length (m)" value={row.lengthM}
                       onChange={(e) => updateMbEntryRow(row.key, { lengthM: e.target.value })} />
-                    <TextField type="number" label="Width (m)" sx={{ flex: 1, minWidth: 100 }} value={row.widthM}
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField fullWidth type="number" label="Width (m)" value={row.widthM}
                       onChange={(e) => updateMbEntryRow(row.key, { widthM: e.target.value })} />
-                    <TextField type="number" label="Depth (m)" sx={{ flex: 1, minWidth: 100 }} value={row.depthM}
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField fullWidth type="number" label="Depth (m)" value={row.depthM}
                       onChange={(e) => updateMbEntryRow(row.key, { depthM: e.target.value })} />
-                    <TextField type="number" required label="Quantity" sx={{ flex: 1, minWidth: 100 }} value={row.measuredQty}
-                      onChange={(e) => updateMbEntryRow(row.key, { measuredQty: Number(e.target.value) })} />
-                    <TextField select label="Unit" sx={{ flex: 1, minWidth: 90 }} value={row.unit}
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      required
+                      label="Quantity"
+                      value={row.measuredQty}
+                      helperText={hasDims ? `From dimensions: ${dimQty}` : undefined}
+                      onChange={(e) => updateMbEntryRow(row.key, { measuredQty: Number(e.target.value) })}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField select fullWidth label="Unit" value={row.unit}
                       onChange={(e) => updateMbEntryRow(row.key, { unit: e.target.value })}
                       helperText={mbBoqUnits.length === 0 ? 'Upload L1 Contractor BOQ in Work Planning' : undefined}>
                       <MenuItem value="">— Select —</MenuItem>
@@ -3289,21 +3410,41 @@ export default function ProjectConstructionPage() {
                         <MenuItem key={u} value={u}>{u}</MenuItem>
                       ))}
                     </TextField>
-                    <TextField type="number" label="Rate" sx={{ flex: 1, minWidth: 100 }} value={row.rate}
-                      onChange={(e) => updateMbEntryRow(row.key, { rate: Number(e.target.value) })} />
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" fontWeight={600}>GPS Verification</Typography>
-                  <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
-                    <TextField label="Latitude" sx={{ flex: 1, minWidth: 140 }} value={row.latitude}
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Rate (₹) — L1 BOQ"
+                      value={row.rate}
+                      InputProps={{ readOnly: Boolean(boqLine) }}
+                      helperText={boqLine ? 'From L1 Contractor BOQ' : undefined}
+                      onChange={(e) => {
+                        if (!boqLine) updateMbEntryRow(row.key, { rate: Number(e.target.value) });
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={700} display="block" sx={{ mb: 0.5 }}>
+                      GPS verification
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={5}>
+                    <TextField fullWidth label="Latitude" value={row.latitude}
                       onChange={(e) => updateMbEntryRow(row.key, { latitude: e.target.value })} />
-                    <TextField label="Longitude" sx={{ flex: 1, minWidth: 140 }} value={row.longitude}
+                  </Grid>
+                  <Grid item xs={12} sm={5}>
+                    <TextField fullWidth label="Longitude" value={row.longitude}
                       onChange={(e) => updateMbEntryRow(row.key, { longitude: e.target.value })} />
+                  </Grid>
+                  <Grid item xs={12} sm={2} display="flex" alignItems="center">
                     <GpsCaptureButton loading={mbGpsCapturingKey === row.key} onCapture={() => captureMbEntryGps(row.key)} />
-                  </Box>
-                </Box>
+                  </Grid>
+                </Grid>
               </Box>
-            ))}
-          </Box>
+            );
+            })}
+          </Stack>
 
           <Divider />
           <Typography variant="subtitle2" fontWeight={700}>Quality &amp; Material Verification</Typography>
@@ -3330,9 +3471,9 @@ export default function ProjectConstructionPage() {
             minRows={2}
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setMbDialog(false); resetMbForm(); }}>Cancel</Button>
-          <Button variant="contained" onClick={() => { void handleCreateMb(); }}>Save MB</Button>
+        <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: 2, gap: 1, flexDirection: { xs: 'column-reverse', sm: 'row' } }}>
+          <Button fullWidth={isMobile} onClick={() => { setMbDialog(false); resetMbForm(); }}>Cancel</Button>
+          <Button fullWidth={isMobile} variant="contained" onClick={() => { void handleCreateMb(); }}>Save MB</Button>
         </DialogActions>
       </Dialog>
 
