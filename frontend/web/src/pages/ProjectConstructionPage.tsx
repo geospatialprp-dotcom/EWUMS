@@ -67,8 +67,7 @@ import { EMPTY_BILINGUAL } from '../hooks/useBilingualRemark';
 import { hasBilingualContent, serializeBilingualText, parseBilingualText, type BilingualText } from '../utils/bilingualText';
 import {
   buildMbPayload, calcMbQuantity, defaultMbHeader, emptyMbEntryRow,
-  isMbNumberTaken, mbEntrySummary, suggestNextMbNumber,
-  type MbEntryRow, type MbHeaderForm,
+  mbEntrySummary, type MbEntryRow, type MbHeaderForm,
 } from '../utils/mbForm';
 import { boqUnitOptions, collectBoqUnits } from '../utils/boqUnits';
 import {
@@ -1470,14 +1469,6 @@ export default function ProjectConstructionPage() {
       return;
     }
     const payload = buildMbPayload(mbHeaderForm, mbEntryRows);
-    const existingMbNumbers = mbs.map((mb) => String(mb.mbNumber ?? ''));
-    const editingMbNumber = editingMbId
-      ? String(mbs.find((mb) => String(mb.id) === editingMbId)?.mbNumber ?? '')
-      : undefined;
-    if (isMbNumberTaken(payload.mbNumber, existingMbNumbers, editingMbNumber)) {
-      setError('MB number already exists for this project. Edit the existing MB or use the next number.');
-      return;
-    }
     if (!payload.mbNumber.trim()) {
       setError('MB number is required.');
       return;
@@ -1528,11 +1519,6 @@ export default function ProjectConstructionPage() {
 
   const openNewMbDialog = () => {
     resetMbForm();
-    const existingMbNumbers = mbs.map((mb) => String(mb.mbNumber ?? ''));
-    setMbHeaderForm({
-      ...defaultMbHeader(),
-      mbNumber: suggestNextMbNumber(existingMbNumbers),
-    });
     setMbDialog(true);
   };
 
@@ -3336,11 +3322,7 @@ export default function ProjectConstructionPage() {
                 required
                 fullWidth
                 label="MB Number"
-                helperText={
-                  editingMbId
-                    ? 'MB number must stay unique within this project.'
-                    : `Unique per project (not linked to DPR #). Suggested: ${suggestNextMbNumber(mbs.map((mb) => String(mb.mbNumber ?? '')))}.`
-                }
+                helperText="Same or different MB number allowed (not linked to DPR #)."
                 value={mbHeaderForm.mbNumber}
                 onChange={(e) => setMbHeaderForm({ ...mbHeaderForm, mbNumber: e.target.value })}
               />

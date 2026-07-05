@@ -202,11 +202,6 @@ export class ConstructionService {
       const code = (err as { code?: string }).code;
       const detail = String((err as { detail?: string }).detail ?? '');
       const msg = String(err.message ?? '');
-      if (code === '23505' && (detail.includes('mb_number') || detail.includes('project_id'))) {
-        throw new BadRequestException(
-          'MB number already exists for this project. Edit the existing MB or use the next number.',
-        );
-      }
       if (code === '23503') {
         if (detail.includes('boq_item_id')) {
           throw new BadRequestException(
