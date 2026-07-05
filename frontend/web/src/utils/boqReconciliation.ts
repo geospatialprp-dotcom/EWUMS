@@ -1,5 +1,6 @@
 import { formatBoqRoundedRupee } from './boqAmount';
 
+export interface BoqReconRow {
   id: string;
   itemCode: string;
   description: string;
