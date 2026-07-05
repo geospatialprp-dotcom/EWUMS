@@ -15,7 +15,7 @@ import DprPhotoGallery from './DprPhotoGallery';
 import DprBoqProgressCell from './DprBoqProgressCell';
 import DprTableQtyCell from './DprTableQtyCell';
 import { dprWorkflowStepLabel, STATUS_COLORS } from '../../constants/construction';
-import { parseDprActivityBilling } from '../../utils/dprForm';
+import { parseDprActivityBilling, resolveDprPlannedQty, dprBoqCumulativeBefore } from '../../utils/dprForm';
 import { constructionTableTheme } from '../../utils/constructionTableStyles';
 
 type InfoTileProps = {
@@ -175,9 +175,9 @@ export default function DprDetailDialog({
                   <Typography variant="body2" color="text.secondary">No work items recorded.</Typography>
                 )}
                 {activities.map((act, idx) => {
-                  const plannedQty = act.plannedQty != null ? Number(act.plannedQty) : null;
-                  const boqCum = act.boqCumulativeQty != null ? Number(act.boqCumulativeQty) : null;
-                  const billing = parseDprActivityBilling(act, plannedQty, boqCum);
+                  const plannedQty = resolveDprPlannedQty(null, act);
+                  const boqCumBefore = dprBoqCumulativeBefore(act);
+                  const billing = parseDprActivityBilling(act, plannedQty, boqCumBefore);
                   return (
                   <Paper
                     key={String(act.id ?? idx)}

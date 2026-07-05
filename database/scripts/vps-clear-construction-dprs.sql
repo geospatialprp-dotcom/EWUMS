@@ -64,6 +64,10 @@ BEGIN
     );
   GET DIAGNOSTICS v_wf_deleted = ROW_COUNT;
 
+  DELETE FROM dpr_boq_progress_ledger
+  WHERE tenant_id = v_tenant
+    AND project_id IN (SELECT project_id FROM tmp_dpr_projects);
+
   DELETE FROM dpr_boq_execution
   WHERE tenant_id = v_tenant
     AND project_id IN (SELECT project_id FROM tmp_dpr_projects);

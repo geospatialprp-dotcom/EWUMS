@@ -7,6 +7,7 @@ export interface BoqReconRow {
   contractQty: number;
   revisedQty: number;
   dprQty: number;
+  dprOverQty?: number;
   executedQty: number;
   mbQty: number;
   remainingQty: number;

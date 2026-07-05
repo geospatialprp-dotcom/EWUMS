@@ -36,13 +36,16 @@ import {
   activityRowFromBoqAndWp, buildDprPayload, defaultDprHeader, dprActivityDescriptionFromBoq,
   dprActivitySummaryForActivity,
   emptyDprActivityRow, findL1BoqForComponent, flattenDprsForTable, formatProgressQty,
-  frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillDprActivitiesFromWp, primaryDprActivity, resolveDprProgressHint, resolveL1BoqItem, wholeJobQtySelectOptions,
+  frozenProgressFromRow, isWholeJobMeasurement, pctFromQty, prefillDprActivitiesFromWp, primaryDprActivity,
+  resolveDprPlannedQty, resolveDprProgressHint, resolveL1BoqItem, dprBoqCumulativeBefore, snapWholeJobQty,
+  wholeJobQtySelectOptions,
   wholeJobScopeBalanceQty, matchingWorkPackageCount,
   type DprActivityRow, type DprHeaderForm, type DprProgressSummary,
 } from '../utils/dprForm';
 import DprPhotoGallery from '../components/construction/DprPhotoGallery';
 import DprBoqProgressCell from '../components/construction/DprBoqProgressCell';
 import DprMobileCard from '../components/construction/DprMobileCard';
+import MbMobileCard from '../components/construction/MbMobileCard';
 import DprDetailDialog from '../components/construction/DprDetailDialog';
 import DprExecutionQtyDisplay from '../components/construction/DprExecutionQtyDisplay';
 import DprPlannedVsActualPanel from '../components/construction/DprPlannedVsActualPanel';
@@ -1235,7 +1238,8 @@ export default function ProjectConstructionPage() {
           let quantityDone = Number(act.quantityDone ?? 0);
           if (wholeJob && quantityDone > 0) {
             const boqLine = dprBoq.find((b) => String(b.id) === String(act.boqItemId ?? ''));
-            const maxBal = wholeJobScopeBalanceQty(null, boqLine);
+            const maxBal = wholeJobScopeBalanceQty(null, boqLine, matchingWorkPackageCount(workPackages, String(boqLine?.component ?? '')));
+            quantityDone = snapWholeJobQty(quantityDone, maxBal);
             const opts = wholeJobQtySelectOptions(maxBal);
             if (!opts.some((q) => Math.abs(q - quantityDone) < 0.0005)) {
               quantityDone = 0;
@@ -1370,7 +1374,7 @@ export default function ProjectConstructionPage() {
   };
 
   const handleSaveDpr = async () => {
-    const payload = buildDprPayload(dprHeaderForm, dprActivityRows, dprBoq, boq);
+    const payload = buildDprPayload(dprHeaderForm, dprActivityRows, dprBoq, boq, workPackages, dprProgressHints);
     if (!payload.dprNumber.trim()) {
       reportDprFormError('DPR number is required.');
       return;
@@ -2306,13 +2310,9 @@ export default function ProjectConstructionPage() {
                   dprBoq,
                   boq,
                 );
-                const plannedQty = boqRef
-                  ? Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0) || null
-                  : (act?.plannedQty != null ? Number(act.plannedQty) : null);
-                const boqCumulativeQty = boqRef != null
-                  ? Number(boqRef.dprQty ?? 0)
-                  : (act?.boqCumulativeQty != null ? Number(act.boqCumulativeQty) : null);
-                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty, boqCumulativeQty);
+                const plannedQty = resolveDprPlannedQty(boqRef, act, workPackages);
+                const boqCumulativeBefore = dprBoqCumulativeBefore(act);
+                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty, boqCumulativeBefore);
                 const status = String(dpr.status);
                 const isEditable = canEditDpr(dpr);
                 const dprId = String(dpr.id);
@@ -2410,13 +2410,9 @@ export default function ProjectConstructionPage() {
                   dprBoq,
                   boq,
                 );
-                const plannedQty = boqRef
-                  ? Number(boqRef.revisedQty ?? boqRef.contractQty ?? 0) || null
-                  : (act?.plannedQty != null ? Number(act.plannedQty) : null);
-                const boqCumulativeQty = boqRef != null
-                  ? Number(boqRef.dprQty ?? 0)
-                  : (act?.boqCumulativeQty != null ? Number(act.boqCumulativeQty) : null);
-                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty, boqCumulativeQty);
+                const plannedQty = resolveDprPlannedQty(boqRef, act, workPackages);
+                const boqCumulativeBefore = dprBoqCumulativeBefore(act);
+                const summary = dprActivitySummaryForActivity(dpr, act, plannedQty, boqCumulativeBefore);
                 const status = String(dpr.status);
                 const isEditable = canEditDpr(dpr);
                 const dprId = String(dpr.id);
@@ -2549,7 +2545,45 @@ export default function ProjectConstructionPage() {
               <Chip key={step.status} size="small" variant="outlined" label={`${step.step}. ${step.label}`} sx={constructionWorkflowChipSx('mb')} />
             ))}
           </Box>
-          <Table size="small" sx={constructionTableShellSx('mb')}>
+          <ResponsiveDataView
+            mobileCards={mbs.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>
+                {canCreateMb
+                  ? 'No measurement books yet — after contractor DPR is approved, click New MB to record site measurements (L1 BOQ rates).'
+                  : 'No measurement books yet.'}
+              </Typography>
+            ) : (
+              mbs.map((mb) => {
+                const summary = mbEntrySummary(mb);
+                const status = String(mb.status);
+                const isEditable = status === 'draft' || status === 'rejected';
+                const mbId = String(mb.id);
+                return (
+                  <MbMobileCard
+                    key={mbId}
+                    mbNumber={String(mb.mbNumber)}
+                    measurementDate={String(mb.measurementDate)}
+                    workItem={summary.workItem}
+                    chainage={summary.chainage}
+                    qty={summary.qty}
+                    coordinates={summary.coordinates}
+                    status={status}
+                    statusLabel={mbWorkflowStepLabel(status)}
+                    statusColor={STATUS_COLORS[status] ?? 'default'}
+                    isEditable={isEditable}
+                    canCreate={canCreateMb}
+                    onView={() => { void viewMbDetail(mbId); }}
+                    onEdit={canCreateMb && isEditable ? () => { void loadMbForEdit(mbId); } : undefined}
+                    onSubmit={canCreateMb && isEditable
+                      ? () => { void submitWorkflow(() => constructionApi.submitMb(projectId, mbId), 'submit MB'); }
+                      : undefined}
+                    verifySlot={!isEditable ? <MbVerifyActions mbId={mbId} status={status} /> : undefined}
+                  />
+                );
+              })
+            )}
+            table={(
+          <Table size="small" sx={{ ...constructionTableShellSx('mb'), minWidth: 960, tableLayout: 'fixed', width: 'max-content' }}>
             <ConstructionTableHead
               stage="mb"
               columns={[
@@ -2568,7 +2602,9 @@ export default function ProjectConstructionPage() {
                 <TableRow>
                   <TableCell colSpan={8}>
                     <Typography variant="body2" color="text.secondary">
-                      No measurement books yet.
+                      {canCreateMb
+                        ? 'No measurement books yet — after contractor DPR is approved, click New MB to record site measurements (L1 BOQ rates).'
+                        : 'No measurement books yet.'}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -2614,6 +2650,8 @@ export default function ProjectConstructionPage() {
               })}
             </TableBody>
           </Table>
+            )}
+          />
         </Box>
       )}
 
@@ -2963,9 +3001,12 @@ export default function ProjectConstructionPage() {
                     (() => {
                       const scopeBal = wholeJobScopeBalanceQty(progressHint, boqRef, wpCount);
                       const qtyOptions = wholeJobQtySelectOptions(scopeBal);
-                      const safeQty = qtyOptions.some((q) => Math.abs(q - row.quantityDone) < 0.0005)
-                        ? row.quantityDone
-                        : 0;
+                      const safeQty = snapWholeJobQty(
+                        qtyOptions.some((q) => Math.abs(q - row.quantityDone) < 0.0005)
+                          ? row.quantityDone
+                          : 0,
+                        scopeBal,
+                      );
                       return (
                     <>
                       <TextField
@@ -2975,7 +3016,7 @@ export default function ProjectConstructionPage() {
                         sx={{ flex: 1, minWidth: 160 }}
                         value={safeQty}
                         onChange={(e) => {
-                          const qty = Number(e.target.value);
+                          const qty = snapWholeJobQty(Number(e.target.value), scopeBal);
                           const frozen = frozenProgressFromRow(qty, progressHint);
                           updateDprActivityRow(row.key, {
                             quantityDone: qty,

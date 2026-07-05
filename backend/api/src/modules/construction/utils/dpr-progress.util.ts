@@ -58,14 +58,23 @@ export function buildExecutionScopeKey(parts: {
   return createHash('sha256').update(raw).digest('hex').slice(0, 64);
 }
 
+export function snapWholeJobQty(qty: number, maxQty: number): number {
+  const cap = Math.max(0, Number(maxQty) || 0);
+  const clamped = Math.max(0, Math.min(Number(qty) || 0, cap));
+  if (clamped <= 0) return 0;
+  const snapped = Math.round(clamped * 2) / 2;
+  return Math.round(Math.min(snapped, cap) * 1000) / 1000;
+}
+
 export function progressIncrementQty(
-  _mode: BoqMeasurementMode,
-  _sanctionedQty: number,
+  mode: BoqMeasurementMode,
+  sanctionedQty: number,
   _progressPctToday: number | null | undefined,
   quantityDone: number,
 ): { deltaQty: number; deltaPct: number | null } {
-  const deltaQty = Number(quantityDone ?? 0);
-  const deltaPct = _sanctionedQty > 0 ? (deltaQty / _sanctionedQty) * 100 : null;
+  const raw = Number(quantityDone ?? 0);
+  const deltaQty = mode === 'whole_job' ? snapWholeJobQty(raw, sanctionedQty) : raw;
+  const deltaPct = sanctionedQty > 0 ? (deltaQty / sanctionedQty) * 100 : null;
   return { deltaQty, deltaPct };
 }
 

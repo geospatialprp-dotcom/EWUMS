@@ -80,6 +80,7 @@ import {
   progressIncrementQty,
   sanctionedBoqQty,
   scopeSanctionedQty,
+  snapWholeJobQty,
   type BoqMeasurementMode,
 } from './utils/dpr-progress.util';
 
@@ -392,6 +393,7 @@ export class ConstructionService {
       .innerJoin('dpr_reports', 'd', 'd.id = a.dpr_id')
       .where('d.tenant_id = :tenantId', { tenantId })
       .andWhere('d.project_id = :projectId', { projectId })
+      .andWhere('d.status NOT IN (:...draftStatuses)', { draftStatuses: ['draft', 'rejected'] })
       .select(['a.boq_item_id AS boq_item_id', 'SUM(a.quantity_done) AS qty'])
       .groupBy('a.boq_item_id')
       .getRawMany();
@@ -412,11 +414,15 @@ export class ConstructionService {
     const rows = items.map((item) => {
       const contractQty = Number(item.contractQty);
       const revisedQty = Number(item.revisedQty) || contractQty;
-      const dprQty = dprByBoq[item.itemCode] ?? Number(item.dprQty);
+      const activityDprQty = dprByBoq[item.itemCode] ?? 0;
+      const ledgerDprQty = Number(item.dprQty ?? 0);
+      const rawDprQty = ledgerDprQty > 0 ? ledgerDprQty : activityDprQty;
+      const dprQty = Math.min(rawDprQty, revisedQty);
+      const dprOverQty = Math.max(0, rawDprQty - revisedQty);
       const executedQty = dprQty;
       const mbQty = mbByBoq[item.itemCode] ?? 0;
       const remainingQty = Math.max(0, revisedQty - mbQty);
-      const mbVariance = mbQty - revisedQty;
+      const mbVariance = mbQty > 0 ? mbQty - revisedQty : 0;
       const dprMbDeviation = mbQty - dprQty;
       const pendingMeasurementQty = boqPendingMeasurementQty(mbQty, revisedQty);
       const savingsQty = boqSavingsQty(mbQty, mbVariance);
@@ -440,6 +446,7 @@ export class ConstructionService {
         contractQty,
         revisedQty,
         dprQty,
+        dprOverQty,
         executedQty,
         mbQty,
         remainingQty,
@@ -1046,7 +1053,7 @@ export class ConstructionService {
       sortOrder,
       itemCode: boqItem.itemCode,
       plannedQty,
-      boqCumulativeQty: Number(boqItem.dprQty ?? 0),
+      boqCumulativeQty: 0,
       _synthetic: true,
     };
   }
@@ -1079,8 +1086,17 @@ export class ConstructionService {
         if (boq) {
           if (!enriched.activityCode) enriched.activityCode = boq.itemCode;
           enriched.itemCode = boq.itemCode;
-          enriched.plannedQty = sanctionedBoqQty(Number(boq.contractQty), Number(boq.revisedQty));
-          (enriched as DprActivity & { boqCumulativeQty?: number }).boqCumulativeQty = Number(boq.dprQty ?? 0);
+          const boqSanctioned = sanctionedBoqQty(Number(boq.contractQty), Number(boq.revisedQty));
+          const mode = (boq.measurementMode ?? detectMeasurementMode(boq.unit)) as BoqMeasurementMode;
+          const scopeSanctioned = mode === 'whole_job'
+            ? scopeSanctionedQty(boqSanctioned, boq.component, workPackages)
+            : boqSanctioned;
+          enriched.plannedQty = mode === 'whole_job' ? scopeSanctioned : boqSanctioned;
+          const todayQty = Number(act.quantityDone ?? 0);
+          const storedCum = act.cumulativeQty != null ? Number(act.cumulativeQty) : null;
+          (enriched as DprActivity & { boqCumulativeQty?: number }).boqCumulativeQty = storedCum != null
+            ? Math.max(0, storedCum - todayQty)
+            : 0;
           if (!enriched.unit) enriched.unit = boq.unit;
         }
         return enriched;
@@ -1507,7 +1523,7 @@ export class ConstructionService {
 
       const { deltaQty } = progressIncrementQty(
         mode,
-        boqSanctioned,
+        mode === 'whole_job' && scopeSanctioned < boqSanctioned ? scopeSanctioned : boqSanctioned,
         null,
         act.quantityDone,
       );
@@ -1594,19 +1610,24 @@ export class ConstructionService {
         continue;
       }
 
-      const deltaQty = Number(act.quantityDone ?? 0);
-      if (deltaQty <= 0) continue;
-
-      const execution = await this.dprExecutionRepo.findOne({
-        where: { projectId: dpr.projectId, scopeKey: act.executionScopeKey },
-      });
       const boqSanctioned = sanctionedBoqQty(Number(item.contractQty), Number(item.revisedQty));
       const mode = (item.measurementMode ?? detectMeasurementMode(item.unit)) as BoqMeasurementMode;
       const scopeSanctioned = mode === 'whole_job'
         ? scopeSanctionedQty(boqSanctioned, item.component, workPackages)
         : boqSanctioned;
       const boqCumulativeBefore = Number(item.dprQty ?? 0);
-      const cumulativeAfter = boqCumulativeBefore + deltaQty;
+      let deltaQty = Number(act.quantityDone ?? 0);
+      if (mode === 'whole_job') {
+        deltaQty = snapWholeJobQty(deltaQty, scopeSanctioned);
+      }
+      if (deltaQty <= 0) continue;
+
+      const execution = await this.dprExecutionRepo.findOne({
+        where: { projectId: dpr.projectId, scopeKey: act.executionScopeKey },
+      });
+      const cumulativeAfter = Math.min(boqSanctioned, boqCumulativeBefore + deltaQty);
+      const appliedDelta = cumulativeAfter - boqCumulativeBefore;
+      if (appliedDelta <= 0) continue;
       const cumulativePct = cumulativePctFromQty(cumulativeAfter, boqSanctioned);
 
       await this.dprLedgerRepo.save(this.dprLedgerRepo.create({
@@ -1616,17 +1637,20 @@ export class ConstructionService {
         dprActivityId: act.id,
         boqItemId: item.id,
         scopeKey: act.executionScopeKey,
-        deltaQty,
+        deltaQty: appliedDelta,
         deltaPct: act.progressPctToday != null ? Number(act.progressPctToday) : null,
       }));
 
       item.dprQty = cumulativeAfter;
       item.dprExecutionStatus = executionStatusFromCumulative(cumulativeAfter, boqSanctioned);
       await this.boqRepo.save(item);
-      await this.mirrorDprQtyToFinancialBoq(tenantId, dpr.projectId, item, deltaQty);
+      await this.mirrorDprQtyToFinancialBoq(tenantId, dpr.projectId, item, appliedDelta);
 
       if (execution) {
-        const scopeAfter = Number(execution.cumulativeQty) + deltaQty;
+        const scopeAfter = Math.min(
+          scopeSanctioned,
+          Number(execution.cumulativeQty) + appliedDelta,
+        );
         execution.cumulativeQty = scopeAfter;
         execution.cumulativePct = mode === 'whole_job'
           ? cumulativePctFromQty(scopeAfter, scopeSanctioned)

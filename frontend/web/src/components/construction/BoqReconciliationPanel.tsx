@@ -164,9 +164,9 @@ export default function BoqReconciliationPanel({ reconciliation, projectName }: 
                 { label: 'Contract BOQ', align: 'right' },
                 ...(hasRevisedChanges ? [{ label: 'Revised BOQ', align: 'right' as const }] : []),
                 { label: 'DPR Qty', align: 'right' },
-                { label: 'Executed', align: 'right' },
                 { label: 'MB Qty', align: 'right' },
                 { label: 'Remaining', align: 'right' },
+                { label: 'DPR Balance', align: 'right' },
                 { label: 'MB Variance', align: 'right' },
                 { label: 'Status' },
               ]}
@@ -189,16 +189,32 @@ export default function BoqReconciliationPanel({ reconciliation, projectName }: 
                   {hasRevisedChanges && (
                     <TableCell align="right">{formatQty(row.revisedQty)}</TableCell>
                   )}
-                  <TableCell align="right">{formatQty(row.dprQty)}</TableCell>
-                  <TableCell align="right">{formatQty(row.executedQty)}</TableCell>
+                  <TableCell align="right" sx={{
+                    color: (row.dprOverQty ?? 0) > 0 ? 'error.main' : 'inherit',
+                    fontWeight: (row.dprOverQty ?? 0) > 0 ? 700 : 'inherit',
+                  }}>
+                    {formatQty(row.dprQty)}
+                    {(row.dprOverQty ?? 0) > 0.0005 && (
+                      <Typography component="span" variant="caption" color="error.main" display="block">
+                        over +{formatQty(row.dprOverQty ?? 0)}
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell align="right">{formatQty(row.mbQty)}</TableCell>
                   <TableCell align="right">{formatQty(row.remainingQty)}</TableCell>
+                  <TableCell align="right" sx={{
+                    color: row.dprQty > row.revisedQty ? 'error.main' : 'inherit',
+                  }}>
+                    {formatQty(Math.max(0, row.revisedQty - row.dprQty))}
+                  </TableCell>
                   <TableCell align="right" sx={{
                     color: row.varianceType === 'excess' ? 'error.main'
                       : row.varianceType === 'savings' ? 'success.main'
                       : 'inherit',
                   }}>
-                    {row.mbVariance > 0 ? '+' : ''}{formatQty(row.mbVariance)}
+                    {row.varianceType === 'pending' ? '—' : (
+                      <>{row.mbVariance > 0 ? '+' : ''}{formatQty(row.mbVariance)}</>
+                    )}
                   </TableCell>
                   <TableCell><VarianceChip type={row.varianceType} /></TableCell>
                 </TableRow>
@@ -211,9 +227,9 @@ export default function BoqReconciliationPanel({ reconciliation, projectName }: 
                     <TableCell align="right"><strong>{formatQty(totals.revisedQty)}</strong></TableCell>
                   )}
                   <TableCell align="right"><strong>{formatQty(totals.dprQty)}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatQty(totals.executedQty)}</strong></TableCell>
                   <TableCell align="right"><strong>{formatQty(totals.mbQty)}</strong></TableCell>
                   <TableCell align="right"><strong>{formatQty(totals.remainingQty)}</strong></TableCell>
+                  <TableCell />
                   <TableCell colSpan={2} />
                 </TableRow>
               )}
