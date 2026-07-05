@@ -1,4 +1,5 @@
-export interface BoqReconRow {
+import { formatBoqRoundedRupee } from './boqAmount';
+
   id: string;
   itemCode: string;
   description: string;
@@ -93,6 +94,11 @@ export function formatQty(n: number, decimals = 3): string {
 
 export function formatCurrency(n: number): string {
   return `₹${Number(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** BOQ gross totals — round to nearest rupee (.50+ rounds up), no paise. */
+export function formatCurrencyRounded(n: number): string {
+  return `₹${formatBoqRoundedRupee(n)}`;
 }
 
 export function exportReconCsv(filename: string, headers: string[], rows: string[][]) {

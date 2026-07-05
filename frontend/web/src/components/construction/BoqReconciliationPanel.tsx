@@ -6,7 +6,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import { useState, type ReactNode } from 'react';
 import { COMPONENT_LABELS, type ProjectComponent } from '../../constants/construction';
 import {
-  exportReconCsv, formatCurrency, formatQty, parseBoqReconciliation,
+  exportReconCsv, formatCurrency, formatCurrencyRounded, formatQty, parseBoqReconciliation,
   type ReconReportTab,
 } from '../../utils/boqReconciliation';
 import ConstructionTableHead from './ConstructionTableHead';
@@ -107,13 +107,13 @@ export default function BoqReconciliationPanel({ reconciliation, projectName }: 
   const hasRevisedChanges = rows.some((r) => r.revisedQty !== r.contractQty);
 
   const summaryCards = [
-    { label: 'Contract Value (Gross)', value: formatCurrency(totals.contractValue) },
+    { label: 'Contract Value (Gross)', value: formatCurrencyRounded(totals.contractValue) },
     ...(hasRevisedChanges
-      ? [{ label: 'Revised BOQ Value', value: formatCurrency(totals.revisedValue) }]
+      ? [{ label: 'Revised BOQ Value', value: formatCurrencyRounded(totals.revisedValue) }]
       : []),
-    { label: 'Executed Value (DPR)', value: formatCurrency(totals.executedValue) },
-    { label: 'MB Value (Verified)', value: formatCurrency(totals.mbValue) },
-    { label: 'Remaining Value', value: formatCurrency(totals.remainingValue) },
+    { label: 'Executed Value (DPR)', value: formatCurrencyRounded(totals.executedValue) },
+    { label: 'MB Value (Verified)', value: formatCurrencyRounded(totals.mbValue) },
+    { label: 'Remaining Value', value: formatCurrencyRounded(totals.remainingValue) },
     { label: 'Pending Measurement Qty', value: formatQty(totals.pendingMeasurementQty) },
     { label: 'Savings Quantity', value: formatQty(totals.savingsQty) },
     { label: 'Excess Quantity', value: formatQty(totals.excessQty) },
