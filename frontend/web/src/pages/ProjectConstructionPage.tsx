@@ -1027,6 +1027,7 @@ export default function ProjectConstructionPage() {
       setError('');
       setSuccess('');
       await fn();
+      setSuccess(`${label.charAt(0).toUpperCase()}${label.slice(1)} submitted successfully.`);
       await refresh();
     } catch (err) {
       const msg = formatApiError(err, `Failed to ${label}.`);
@@ -1482,13 +1483,21 @@ export default function ProjectConstructionPage() {
         : await constructionApi.createMb(projectId, payload);
       const mbId = String((data as Record<string, unknown>).id);
       if (mbPhotos.length) {
-        for (const photo of mbPhotos) {
-          const form = new FormData();
-          form.append('file', photo);
-          form.append('resourceType', 'measurement_book');
-          form.append('resourceId', mbId);
-          form.append('docType', 'site_photo');
-          await constructionApi.uploadDocumentFile(projectId, form);
+        try {
+          for (const photo of mbPhotos) {
+            const form = new FormData();
+            form.append('file', photo);
+            form.append('resourceType', 'measurement_book');
+            form.append('resourceId', mbId);
+            form.append('docType', 'site_photo');
+            await constructionApi.uploadDocumentFile(projectId, form);
+          }
+        } catch (photoErr) {
+          setError(formatApiError(photoErr, 'MB saved but photo upload failed.'));
+          setMbDialog(false);
+          resetMbForm();
+          await refresh();
+          return;
         }
       }
       setMbDialog(false);

@@ -190,6 +190,52 @@ export class ConstructionService {
     throw err;
   }
 
+  private raiseMbPersistenceError(err: unknown): never {
+    if (
+      err instanceof BadRequestException
+      || err instanceof ForbiddenException
+      || err instanceof NotFoundException
+    ) {
+      throw err;
+    }
+    if (err instanceof QueryFailedError) {
+      const code = (err as { code?: string }).code;
+      const detail = String((err as { detail?: string }).detail ?? '');
+      const msg = String(err.message ?? '');
+      if (code === '23505' && (detail.includes('mb_number') || detail.includes('project_id'))) {
+        throw new BadRequestException(
+          'MB number already exists for this project. Edit the existing MB or use the next number.',
+        );
+      }
+      if (code === '23503') {
+        if (detail.includes('boq_item_id')) {
+          throw new BadRequestException(
+            'Invalid BOQ line — re-select the L1 Contractor BOQ item and save again.',
+          );
+        }
+        if (detail.includes('dpr_id')) {
+          throw new BadRequestException(
+            'Linked DPR no longer exists — clear Linked DPR or select a current DPR.',
+          );
+        }
+      }
+      if (
+        code === '42703'
+        || /latitude|longitude|depth_m|chainage_from|mb_entries/i.test(msg)
+      ) {
+        throw new BadRequestException(
+          'MB GPS/chainage columns are missing on this server — run migration 013 and redeploy the API.',
+        );
+      }
+      if (code === '23502' || /not-null|null value in column/i.test(msg)) {
+        throw new BadRequestException(
+          'MB entry data is incomplete — select an L1 BOQ item and enter quantity before saving.',
+        );
+      }
+    }
+    throw err;
+  }
+
   async getOverview(tenantId: string, projectId: string, user?: JwtPayload) {
     const dashboard = await this.getDashboard(tenantId, projectId, user);
     return {
@@ -1779,22 +1825,26 @@ export class ConstructionService {
   }
 
   async createMb(tenantId: string, projectId: string, userId: string, dto: CreateMbDto) {
-    const mb = this.mbRepo.create({
-      tenantId,
-      projectId,
-      dprId: dto.dprId ?? null,
-      workPackageId: dto.workPackageId ?? null,
-      mbNumber: dto.mbNumber,
-      schemeType: dto.schemeType,
-      measurementDate: dto.measurementDate,
-      siteAddress: dto.siteLocation ?? null,
-      remarks: dto.remarks ?? null,
-      status: 'draft',
-    });
-    const saved = await this.mbRepo.save(mb);
-    const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, dto.entries);
-    await this.saveMbEntries(saved.id, entries);
-    return this.getMb(tenantId, projectId, saved.id);
+    try {
+      const mb = this.mbRepo.create({
+        tenantId,
+        projectId,
+        dprId: dto.dprId ?? null,
+        workPackageId: dto.workPackageId ?? null,
+        mbNumber: dto.mbNumber,
+        schemeType: dto.schemeType,
+        measurementDate: dto.measurementDate,
+        siteAddress: dto.siteLocation ?? null,
+        remarks: dto.remarks ?? null,
+        status: 'draft',
+      });
+      const saved = await this.mbRepo.save(mb);
+      const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, dto.entries);
+      await this.saveMbEntries(saved.id, entries);
+      return this.getMb(tenantId, projectId, saved.id);
+    } catch (err) {
+      this.raiseMbPersistenceError(err);
+    }
   }
 
   async updateMb(
@@ -1804,45 +1854,69 @@ export class ConstructionService {
     id: string,
     dto: CreateMbDto,
   ) {
-    const mb = await this.mbRepo.findOne({ where: { id, tenantId, projectId } });
-    if (!mb) throw new NotFoundException('Measurement book not found');
-    if (mb.status !== 'draft' && mb.status !== 'rejected') {
-      throw new BadRequestException('Only draft or rejected MBs can be edited');
+    try {
+      const mb = await this.mbRepo.findOne({ where: { id, tenantId, projectId } });
+      if (!mb) throw new NotFoundException('Measurement book not found');
+      if (mb.status !== 'draft' && mb.status !== 'rejected') {
+        throw new BadRequestException('Only draft or rejected MBs can be edited');
+      }
+      Object.assign(mb, {
+        mbNumber: dto.mbNumber,
+        schemeType: dto.schemeType,
+        measurementDate: dto.measurementDate,
+        siteAddress: dto.siteLocation ?? null,
+        workPackageId: dto.workPackageId ?? null,
+        dprId: dto.dprId ?? null,
+        remarks: dto.remarks ?? null,
+      });
+      await this.mbRepo.save(mb);
+      const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, dto.entries);
+      await this.saveMbEntries(mb.id, entries);
+      return this.getMb(tenantId, projectId, mb.id);
+    } catch (err) {
+      this.raiseMbPersistenceError(err);
     }
-    Object.assign(mb, {
-      mbNumber: dto.mbNumber,
-      schemeType: dto.schemeType,
-      measurementDate: dto.measurementDate,
-      siteAddress: dto.siteLocation ?? null,
-      workPackageId: dto.workPackageId ?? null,
-      dprId: dto.dprId ?? null,
-      remarks: dto.remarks ?? null,
-    });
-    await this.mbRepo.save(mb);
-    const entries = await this.applyL1RatesToMbEntries(tenantId, projectId, dto.entries);
-    await this.saveMbEntries(mb.id, entries);
-    return this.getMb(tenantId, projectId, mb.id);
   }
 
   async submitMb(tenantId: string, projectId: string, user: JwtPayload, id: string) {
-    const mb = await this.mbRepo.findOne({ where: { id, tenantId, projectId }, relations: ['entries'] });
-    if (!mb) throw new NotFoundException('Measurement book not found');
-    if (!mb.entries?.length) throw new BadRequestException('Add measurement entries before submit');
-    if (mb.status !== 'draft' && mb.status !== 'rejected') {
-      throw new BadRequestException('MB already submitted');
+    try {
+      const mb = await this.mbRepo.findOne({ where: { id, tenantId, projectId }, relations: ['entries'] });
+      if (!mb) throw new NotFoundException('Measurement book not found');
+      if (!mb.entries?.length) throw new BadRequestException('Add measurement entries before submit');
+      if (mb.status !== 'draft' && mb.status !== 'rejected') {
+        throw new BadRequestException('MB already submitted');
+      }
+
+      await this.workflowsService.ensureDefinition(tenantId, 'mb_submit', {
+        name: 'Measurement Book Approval',
+        resourceType: 'measurement_book',
+        description: 'Stage 4: AE verifies MB entries, site, quantities, drawings → EE final approval.',
+        steps: [
+          { order: 1, name: 'AE Verification', role: 'ae', action: 'verify' },
+          { order: 2, name: 'EE Final Approval', role: 'ee', action: 'approve' },
+        ],
+      });
+
+      let workflowInstanceId = mb.workflowInstanceId;
+      if (!workflowInstanceId) {
+        const wf = await this.workflowsService.submit(tenantId, user, {
+          definitionCode: 'mb_submit',
+          resourceId: id,
+          title: `MB ${mb.mbNumber} — ${mb.schemeType} (${mb.measurementDate})`,
+          payload: { projectId, mbNumber: mb.mbNumber, schemeType: mb.schemeType },
+        });
+        workflowInstanceId = wf.id;
+      }
+
+      mb.status = 'ae_checked';
+      mb.workflowInstanceId = workflowInstanceId;
+      mb.jeMeasuredBy = user.sub;
+      mb.jeMeasuredAt = new Date();
+      await this.mbRepo.save(mb);
+      return this.getMb(tenantId, projectId, id);
+    } catch (err) {
+      this.raiseMbPersistenceError(err);
     }
-    const wf = await this.workflowsService.submit(tenantId, user, {
-      definitionCode: 'mb_submit',
-      resourceId: id,
-      title: `MB ${mb.mbNumber} — ${mb.schemeType} (${mb.measurementDate})`,
-      payload: { projectId, mbNumber: mb.mbNumber, schemeType: mb.schemeType },
-    });
-    mb.status = 'ae_checked';
-    mb.workflowInstanceId = wf.id;
-    mb.jeMeasuredBy = user.sub;
-    mb.jeMeasuredAt = new Date();
-    await this.mbRepo.save(mb);
-    return this.getMb(tenantId, projectId, id);
   }
 
   async listInvoices(tenantId: string, projectId: string) {
@@ -3078,25 +3152,28 @@ export class ConstructionService {
     await this.mbEntryRepo.delete({ mbId });
     if (!entries.length) return;
     await this.mbEntryRepo.save(
-      entries.map((item, index) => this.mbEntryRepo.create({
-        mbId,
-        boqItemId: item.boqItemId ?? null,
-        itemCode: item.itemCode ?? null,
-        description: item.description,
-        unit: item.unit,
-        measuredQty: item.measuredQty,
-        rate: item.rate,
-        lengthM: item.lengthM ?? null,
-        widthM: item.widthM ?? null,
-        heightM: item.heightM ?? null,
-        depthM: item.depthM ?? null,
-        nos: item.nos ?? null,
-        chainageFrom: item.chainageFrom ?? null,
-        chainageTo: item.chainageTo ?? null,
-        latitude: item.latitude ?? null,
-        longitude: item.longitude ?? null,
-        sortOrder: index,
-      })),
+      entries.map((item, index) => {
+        const row = this.mbEntryRepo.create({
+          mbId,
+          boqItemId: item.boqItemId ?? null,
+          itemCode: item.itemCode ?? null,
+          description: item.description,
+          unit: item.unit,
+          measuredQty: item.measuredQty,
+          rate: item.rate,
+          lengthM: item.lengthM ?? null,
+          widthM: item.widthM ?? null,
+          heightM: item.heightM ?? null,
+          depthM: item.depthM ?? null,
+          nos: item.nos ?? null,
+          chainageFrom: item.chainageFrom ?? null,
+          chainageTo: item.chainageTo ?? null,
+          latitude: item.latitude ?? null,
+          longitude: item.longitude ?? null,
+          sortOrder: index,
+        });
+        return row;
+      }),
     );
   }
 
