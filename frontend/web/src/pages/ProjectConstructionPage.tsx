@@ -2609,6 +2609,8 @@ export default function ProjectConstructionPage() {
                     mbNumber={String(mb.mbNumber)}
                     measurementDate={String(mb.measurementDate)}
                     workItem={summary.workItem}
+                    itemCode={summary.itemCode || undefined}
+                    extraEntryCount={summary.extraEntryCount}
                     chainage={summary.chainage}
                     qty={summary.qty}
                     coordinates={summary.coordinates}
@@ -2628,18 +2630,18 @@ export default function ProjectConstructionPage() {
               })
             )}
             table={(
-          <Table size="small" sx={{ ...constructionTableShellSx('mb'), minWidth: 960, tableLayout: 'fixed', width: 'max-content' }}>
+          <Table size="small" sx={{ ...constructionTableShellSx('mb'), minWidth: 880, tableLayout: 'fixed', width: '100%' }}>
             <ConstructionTableHead
               stage="mb"
               columns={[
-                { label: 'MB #' },
-                { label: 'Date' },
-                { label: 'Work Item' },
-                { label: 'Chainage' },
-                { label: 'Qty' },
-                { label: 'Coordinates' },
-                { label: 'Status', minWidth: 130 },
-                { label: 'Actions', minWidth: 280 },
+                { label: 'MB #', width: 52 },
+                { label: 'Date', width: 100 },
+                { label: 'Work Item', width: 260 },
+                { label: 'Chainage', width: 118 },
+                { label: 'Qty', width: 96 },
+                { label: 'Coordinates', width: 128 },
+                { label: 'Status', width: 130 },
+                { label: 'Actions', minWidth: 260 },
               ]}
             />
             <TableBody>
@@ -2661,12 +2663,40 @@ export default function ProjectConstructionPage() {
                 const mbId = String(mb.id);
                 return (
                   <TableRow key={mbId}>
-                    <TableCell>{String(mb.mbNumber)}</TableCell>
-                    <TableCell>{String(mb.measurementDate)}</TableCell>
-                    <TableCell>{summary.workItem}</TableCell>
-                    <TableCell>{summary.chainage}</TableCell>
-                    <TableCell>{summary.qty}</TableCell>
-                    <TableCell>{summary.coordinates}</TableCell>
+                    <TableCell sx={{ width: 52, fontWeight: 700 }}>{String(mb.mbNumber)}</TableCell>
+                    <TableCell sx={{ width: 100, whiteSpace: 'nowrap' }}>{String(mb.measurementDate)}</TableCell>
+                    <TableCell sx={{ width: 260, maxWidth: 260, overflow: 'hidden', verticalAlign: 'top' }}>
+                      <DprWorkItemCell
+                        itemCode={summary.itemCode || undefined}
+                        description={summary.workItem}
+                        extraLineCount={summary.extraEntryCount}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ width: 118, whiteSpace: 'nowrap' }}>{summary.chainage}</TableCell>
+                    <TableCell sx={{ width: 96, whiteSpace: 'nowrap' }}>{summary.qty}</TableCell>
+                    <TableCell sx={{ width: 128, maxWidth: 128, overflow: 'hidden', verticalAlign: 'top' }}>
+                      {summary.coordinates === '—' ? (
+                        '—'
+                      ) : (
+                        <Tooltip title={summary.coordinates}>
+                          <Typography
+                            variant="caption"
+                            component="span"
+                            sx={{
+                              display: 'block',
+                              lineHeight: 1.3,
+                              fontFamily: 'monospace',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              cursor: 'help',
+                            }}
+                          >
+                            {summary.coordinates}
+                          </Typography>
+                        </Tooltip>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <StatusChip status={status} label={mbWorkflowStepLabel(status)} />
                     </TableCell>
@@ -2712,6 +2742,7 @@ export default function ProjectConstructionPage() {
           raBills={raBills as Parameters<typeof RaBillPanel>[0]['raBills']}
           ratesFromL1Boq={ratesFromL1Boq}
           roles={roles}
+          isContractorUser={isContractorUser}
           canGenerate={canGenerateRa}
           canApprove={canApprove}
           onRefresh={refresh}
@@ -3619,10 +3650,17 @@ export default function ProjectConstructionPage() {
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
           {mbDetail && (
-            <Typography variant="body2" color="text.secondary">
-              MB {String(mbDetail.mbNumber)} — {String(mbDetail.measurementDate)}
-              {' · '}{mbEntrySummary(mbDetail).workItem}
-            </Typography>
+            <Box sx={{ maxWidth: '100%' }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                MB {String(mbDetail.mbNumber)} — {String(mbDetail.measurementDate)}
+              </Typography>
+              <DprWorkItemCell
+                itemCode={mbEntrySummary(mbDetail).itemCode || undefined}
+                description={mbEntrySummary(mbDetail).workItem}
+                extraLineCount={mbEntrySummary(mbDetail).extraEntryCount}
+                lineClamp={3}
+              />
+            </Box>
           )}
           {planningForm.drawingUploadUrl && (
             <Typography variant="caption" color="text.secondary">

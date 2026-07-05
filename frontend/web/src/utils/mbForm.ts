@@ -140,6 +140,8 @@ export function buildMbPayload(header: MbHeaderForm, entries: MbEntryRow[]) {
 
 export function mbEntrySummary(mb: Record<string, unknown>): {
   workItem: string;
+  itemCode: string;
+  extraEntryCount: number;
   chainage: string;
   qty: string;
   coordinates: string;
@@ -147,6 +149,8 @@ export function mbEntrySummary(mb: Record<string, unknown>): {
   const entries = (mb.entries as Array<Record<string, unknown>>) ?? [];
   const first = entries[0];
   const workItem = first ? String(first.description ?? '—') : '—';
+  const itemCode = first ? String(first.itemCode ?? '').trim() : '';
+  const extraEntryCount = Math.max(0, entries.length - 1);
   const chainage = first
     ? [first.chainageFrom, first.chainageTo].filter(Boolean).join(' → ') || '—'
     : '—';
@@ -154,5 +158,5 @@ export function mbEntrySummary(mb: Record<string, unknown>): {
   const coordinates = first && first.latitude != null && first.longitude != null
     ? `${first.latitude}, ${first.longitude}`
     : '—';
-  return { workItem, chainage, qty, coordinates };
+  return { workItem, itemCode, extraEntryCount, chainage, qty, coordinates };
 }

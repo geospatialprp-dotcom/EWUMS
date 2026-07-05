@@ -1,14 +1,17 @@
 import {
-  Box, Button, Card, CardContent, Chip, Divider, Stack, Typography,
+  Box, Button, Card, CardContent, Chip, Divider, Stack, Tooltip, Typography,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import SendIcon from '@mui/icons-material/Send';
+import DprWorkItemCell from './DprWorkItemCell';
 
 type MbMobileCardProps = {
   mbNumber: string;
   measurementDate: string;
   workItem: string;
+  itemCode?: string;
+  extraEntryCount?: number;
   chainage: string;
   qty: string;
   coordinates: string;
@@ -27,6 +30,8 @@ export default function MbMobileCard({
   mbNumber,
   measurementDate,
   workItem,
+  itemCode,
+  extraEntryCount = 0,
   chainage,
   qty,
   coordinates,
@@ -55,17 +60,29 @@ export default function MbMobileCard({
           <Chip size="small" label={statusLabel} color={statusColor} />
         </Stack>
 
-        <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
-          {workItem}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" display="block" mb={0.75}>
+        <Box sx={{ mb: 0.75 }}>
+          <DprWorkItemCell
+            itemCode={itemCode}
+            description={workItem}
+            extraLineCount={extraEntryCount}
+            lineClamp={3}
+          />
+        </Box>
+        <Typography variant="caption" color="text.secondary" display="block" mb={0.75} noWrap>
           Chainage: {chainage}
         </Typography>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mb={1}>
           <Chip size="small" label={`Qty ${qty}`} variant="outlined" />
           {coordinates !== '—' && (
-            <Chip size="small" label={coordinates} variant="outlined" sx={{ maxWidth: '100%' }} />
+            <Tooltip title={coordinates}>
+              <Chip
+                size="small"
+                label={coordinates}
+                variant="outlined"
+                sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+              />
+            </Tooltip>
           )}
         </Stack>
 

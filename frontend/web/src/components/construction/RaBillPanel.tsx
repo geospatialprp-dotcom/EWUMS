@@ -1,7 +1,7 @@
 import {
   Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, Grid, IconButton, Stack, Table, TableBody, TableCell,
-  TableRow, TextField, Typography,
+  TableRow, TextField, Typography, Alert,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -13,15 +13,19 @@ import { formatApiError } from '../../utils/apiError';
 import ConstructionStyledTableHead, {
   constructionSectionBarSx, constructionTableShellSx, constructionTableTheme,
 } from './ConstructionStyledTableHead';
+import DprWorkItemCell from './DprWorkItemCell';
 import {
-  RA_DONE_STATUSES, RA_STATUS_APPROVER, raPendingApprover, raWorkflowStepLabel,
+  RA_DONE_STATUSES, RA_WORKFLOW_SEQUENCE,
+  raPendingApprover, raWorkflowStepLabel,
 } from '../../constants/construction';
+import { constructionWorkflowChipSx } from '../../utils/constructionTableStyles';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { parseBilingualText, serializeBilingualText } from '../../utils/bilingualText';
 
 export interface RaBillLine {
   id?: string;
   description: string;
+  itemCode?: string | null;
   unit: string;
   boqRate: number;
   previousQty: number;
@@ -51,10 +55,18 @@ interface Props {
   raBills: RaBillRecord[];
   ratesFromL1Boq?: boolean;
   roles: string[];
+  isContractorUser?: boolean;
   canGenerate: boolean;
   canApprove: boolean;
   onRefresh: () => Promise<void>;
   onError: (msg: string) => void;
+}
+
+function canActOnRaBill(bill: RaBillRecord, roles: string[], canApprove: boolean): boolean {
+  if (RA_DONE_STATUSES.includes(bill.status)) return false;
+  const approver = raPendingApprover(bill.status);
+  if (!approver || !canApprove) return false;
+  return !roles.includes('super_admin') && roles.includes(approver);
 }
 
 function formatMoney(n: number) {
@@ -74,7 +86,8 @@ function StatusChip({ status }: { status: string }) {
 }
 
 export default function RaBillPanel({
-  projectId, raBills, ratesFromL1Boq, roles, canGenerate, canApprove, onRefresh, onError,
+  projectId, raBills, ratesFromL1Boq, roles, isContractorUser = false,
+  canGenerate, canApprove, onRefresh, onError,
 }: Props) {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [detailBill, setDetailBill] = useState<RaBillRecord | null>(null);
@@ -183,8 +196,7 @@ export default function RaBillPanel({
     }
     const approver = raPendingApprover(status);
     if (!approver || RA_DONE_STATUSES.includes(status)) return null;
-    const canAct = !roles.includes('super_admin') && roles.includes(approver);
-    if (!canApprove || !canAct) return null;
+    if (!canActOnRaBill(bill, roles, canApprove)) return null;
     return (
       <Stack direction="row" spacing={0.5} alignItems="center">
         <Typography variant="caption" color="text.secondary">{approver.toUpperCase()}</Typography>
@@ -205,19 +217,45 @@ export default function RaBillPanel({
     return Number(line.currentQty) * Number(line.boqRate);
   };
 
+  const detailApprover = detailBill ? raPendingApprover(detailBill.status) : null;
+  const detailCanAct = detailBill ? canActOnRaBill(detailBill, roles, canApprove) : false;
+
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5} gap={2} sx={constructionSectionBarSx('ra-bill')}>
-        <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('ra-bill').headerColor}>
-          Stage 6: Running Account (RA) Bill Generation
-          {ratesFromL1Boq ? ' · L1 BOQ rates' : ''}
-        </Typography>
+        <Box>
+          <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('ra-bill').headerColor}>
+            {isContractorUser
+              ? 'Stage 6: RA Bill Generation (Contractor → JE)'
+              : 'Stage 6: RA Bill Verification (JE → AE → EE → Finance)'}
+            {ratesFromL1Boq ? ' · L1 BOQ rates' : ''}
+          </Typography>
+          {!isContractorUser && (
+            <Typography variant="caption" color="text.secondary">
+              Contractor generates &amp; submits; JE/AE/EE/Accounts verify and release payment.
+            </Typography>
+          )}
+        </Box>
         {canGenerate && (
           <Button startIcon={<AddIcon />} variant="contained" size="small" onClick={openGenerate}>
             Generate RA Bill
           </Button>
         )}
       </Box>
+
+      {!isContractorUser && (
+        <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
+          {RA_WORKFLOW_SEQUENCE.map((step) => (
+            <Chip
+              key={step.status}
+              size="small"
+              variant="outlined"
+              label={`${step.step}. ${step.label}`}
+              sx={constructionWorkflowChipSx('ra-bill')}
+            />
+          ))}
+        </Box>
+      )}
 
       <Table size="small" sx={constructionTableShellSx('ra-bill')}>
         <ConstructionStyledTableHead stage="ra-bill">
@@ -309,6 +347,22 @@ export default function RaBillPanel({
               RA Bill {detailBill.raNumber} — {raWorkflowStepLabel(detailBill.status)}
             </DialogTitle>
             <DialogContent dividers>
+              {detailBill.status === 'je_review' && isContractorUser && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Submitted for <strong>JE verification</strong>. Department staff will approve — contractor cannot act here.
+                </Alert>
+              )}
+              {detailBill.status !== 'draft' && detailApprover && !detailCanAct && !isContractorUser && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Pending <strong>{detailApprover.toUpperCase()}</strong> action — your role cannot approve at this step.
+                </Alert>
+              )}
+              {detailCanAct && detailApprover && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <strong>{detailApprover.toUpperCase()}</strong> — verify L1 BOQ rates, executed qty, and amounts before approving.
+                </Alert>
+              )}
+
               <Grid container spacing={2} mb={2}>
                 {[
                   ['Gross (incl. GST)', formatMoney(detailBill.grossAmount)],
@@ -328,28 +382,34 @@ export default function RaBillPanel({
 
               <Typography variant="subtitle2" fontWeight={700} gutterBottom>Line Items</Typography>
               <Box sx={{ overflowX: 'auto' }}>
-                <Table size="small" sx={constructionTableShellSx('ra-bill')}>
+                <Table size="small" sx={{ ...constructionTableShellSx('ra-bill'), tableLayout: 'fixed', minWidth: 720, width: '100%' }}>
                   <ConstructionStyledTableHead stage="ra-bill">
-                    <TableCell>SN</TableCell>
-                    <TableCell>Item Description</TableCell>
-                    <TableCell>Unit</TableCell>
-                    <TableCell align="right">BOQ Rate</TableCell>
-                    <TableCell align="right">Executed Qty</TableCell>
-                    <TableCell align="right">Previous Qty</TableCell>
-                    <TableCell align="right">Current Qty</TableCell>
-                    <TableCell align="right">Amount</TableCell>
+                    <TableCell sx={{ width: 40 }}>SN</TableCell>
+                    <TableCell sx={{ width: 240 }}>Item Description</TableCell>
+                    <TableCell sx={{ width: 56 }}>Unit</TableCell>
+                    <TableCell align="right" sx={{ width: 96 }}>BOQ Rate</TableCell>
+                    <TableCell align="right" sx={{ width: 80 }}>Executed</TableCell>
+                    <TableCell align="right" sx={{ width: 72 }}>Previous</TableCell>
+                    <TableCell align="right" sx={{ width: 72 }}>Current</TableCell>
+                    <TableCell align="right" sx={{ width: 96 }}>Amount</TableCell>
                   </ConstructionStyledTableHead>
                   <TableBody>
                     {(detailBill.lines ?? []).map((line, idx) => (
                       <TableRow key={line.id ?? idx}>
-                        <TableCell>{idx + 1}</TableCell>
-                        <TableCell sx={{ maxWidth: 260 }}>{line.description}</TableCell>
-                        <TableCell>{line.unit}</TableCell>
-                        <TableCell align="right">{formatMoney(line.boqRate)}</TableCell>
-                        <TableCell align="right">{formatQty(line.totalQty)}</TableCell>
-                        <TableCell align="right">{formatQty(line.previousQty)}</TableCell>
-                        <TableCell align="right">{formatQty(line.currentQty)}</TableCell>
-                        <TableCell align="right">{formatMoney(lineTotal(line))}</TableCell>
+                        <TableCell sx={{ verticalAlign: 'top' }}>{idx + 1}</TableCell>
+                        <TableCell sx={{ width: 240, maxWidth: 240, overflow: 'hidden', verticalAlign: 'top' }}>
+                          <DprWorkItemCell
+                            itemCode={line.itemCode}
+                            description={line.description}
+                            lineClamp={2}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>{line.unit}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>{formatMoney(line.boqRate)}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>{formatQty(line.totalQty)}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>{formatQty(line.previousQty)}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>{formatQty(line.currentQty)}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>{formatMoney(lineTotal(line))}</TableCell>
                       </TableRow>
                     ))}
                     <TableRow sx={{ bgcolor: 'action.hover' }}>
@@ -367,13 +427,13 @@ export default function RaBillPanel({
               )}
             </DialogContent>
             <DialogActions>
-              {!RA_DONE_STATUSES.includes(detailBill.status) && raPendingApprover(detailBill.status) && (
+              {detailCanAct && detailApprover && (
                 <>
                   <Button color="error" onClick={() => { void workflowAction(detailBill.id, 'reject'); }}>
                     Reject
                   </Button>
                   <Button variant="contained" onClick={() => { void workflowAction(detailBill.id, 'approve'); }}>
-                    Approve ({RA_STATUS_APPROVER[detailBill.status]?.toUpperCase()})
+                    Approve ({detailApprover.toUpperCase()})
                   </Button>
                 </>
               )}
