@@ -411,6 +411,8 @@ export class WorkflowsService {
         const divisionId = await this.resolveInstanceDivisionId(tenantId, instance);
         if (divisionId && divisionIds.includes(divisionId)) {
           filtered.push(instance);
+        } else if (!divisionId) {
+          filtered.push(instance);
         }
       }
       return filtered;
@@ -434,6 +436,9 @@ export class WorkflowsService {
       for (const task of tasks) {
         const divisionId = await this.resolveInstanceDivisionId(tenantId, task.instance);
         if (divisionId && divisionIds.includes(divisionId)) {
+          filtered.push(task);
+        } else if (!divisionId) {
+          // Project division unknown — still show to role-matched inbox users
           filtered.push(task);
         }
       }

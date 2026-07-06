@@ -119,8 +119,8 @@ export const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | '
   ee_review: 'warning',
   ee_approved: 'success',
   je_measured: 'info',
-  ae_checked: 'info',
-  ee_checked: 'info',
+  ae_checked: 'warning',
+  ee_checked: 'warning',
   boq_finalized: 'success',
   je_verified: 'info',
   finance_released: 'success',
@@ -197,6 +197,22 @@ export function mbPendingVerifier(status: string): 'ae' | 'ee' | null {
   if (status === 'ae_checked' || status === 'je_review') return 'ae';
   if (status === 'ee_checked') return 'ee';
   return null;
+}
+
+/** Highlight MB workflow chips when any MB is at that approval stage. */
+export function mbWorkflowStepActive(stepStatus: string, mbStatuses: string[]): boolean {
+  return mbStatuses.some((status) => {
+    if (stepStatus === 'draft') return status === 'draft' || status === 'rejected';
+    if (stepStatus === 'ae_checked') return status === 'ae_checked' || status === 'je_review';
+    if (stepStatus === 'ee_checked') return status === 'ee_checked';
+    if (stepStatus === 'boq_finalized') return status === 'boq_finalized';
+    return status === stepStatus;
+  });
+}
+
+/** Highlight RA bill workflow chips for bills at that stage. */
+export function raWorkflowStepActive(stepStatus: string, billStatuses: string[]): boolean {
+  return billStatuses.some((status) => status === stepStatus);
 }
 
 /** RA Bill Stage 6 workflow — JE → AE → EE → Finance */

@@ -2329,6 +2329,19 @@ export class ConstructionService {
     if (bill.status !== 'draft' && bill.status !== 'rejected') {
       throw new BadRequestException('RA Bill already submitted');
     }
+
+    await this.workflowsService.ensureDefinition(tenantId, 'ra_bill_submit', {
+      name: 'Running Account Bill Approval',
+      resourceType: 'ra_bill',
+      description: 'Stage 6: JE → AE → EE → Accounts finance release.',
+      steps: [
+        { order: 1, name: 'JE Verification', role: 'je', action: 'verify' },
+        { order: 2, name: 'AE Check', role: 'ae', action: 'verify' },
+        { order: 3, name: 'EE Approval', role: 'ee', action: 'approve' },
+        { order: 4, name: 'Finance Release', role: 'accounts', action: 'release' },
+      ],
+    });
+
     const wf = await this.workflowsService.submit(tenantId, user, {
       definitionCode: 'ra_bill_submit',
       resourceId: id,

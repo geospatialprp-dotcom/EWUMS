@@ -16,7 +16,7 @@ import ConstructionStyledTableHead, {
 import DprWorkItemCell from './DprWorkItemCell';
 import {
   RA_DONE_STATUSES, RA_WORKFLOW_SEQUENCE,
-  raPendingApprover, raWorkflowStepLabel,
+  raPendingApprover, raWorkflowStepActive, raWorkflowStepLabel,
 } from '../../constants/construction';
 import { constructionWorkflowChipSx } from '../../utils/constructionTableStyles';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
@@ -245,16 +245,41 @@ export default function RaBillPanel({
 
       {!isContractorUser && (
         <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
-          {RA_WORKFLOW_SEQUENCE.map((step) => (
-            <Chip
-              key={step.status}
-              size="small"
-              variant="outlined"
-              label={`${step.step}. ${step.label}`}
-              sx={constructionWorkflowChipSx('ra-bill')}
-            />
-          ))}
+          {RA_WORKFLOW_SEQUENCE.map((step) => {
+            const billStatuses = raBills.map((b) => b.status);
+            const stepActive = raWorkflowStepActive(step.status, billStatuses);
+            return (
+              <Chip
+                key={step.status}
+                size="small"
+                variant={stepActive ? 'filled' : 'outlined'}
+                color={stepActive ? 'warning' : 'default'}
+                label={`${step.step}. ${step.label}`}
+                sx={constructionWorkflowChipSx('ra-bill', stepActive)}
+              />
+            );
+          })}
         </Box>
+      )}
+      {roles.includes('ae') && raBills.some((b) => b.status === 'ae_checked') && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          RA Bill pending <strong>AE Check</strong> — open View and approve (after JE verification).
+        </Alert>
+      )}
+      {roles.includes('ee') && raBills.some((b) => b.status === 'ee_checked') && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          RA Bill pending <strong>EE Approval</strong> — open View and click Approve (EE).
+        </Alert>
+      )}
+      {roles.includes('ee') && raBills.some((b) => b.status === 'ae_checked') && !raBills.some((b) => b.status === 'ee_checked') && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          RA Bill is with <strong>AE</strong> — EE approval appears after AE check.
+        </Alert>
+      )}
+      {roles.includes('ae') && raBills.some((b) => b.status === 'je_review') && !raBills.some((b) => b.status === 'ae_checked') && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          RA Bill is with <strong>JE</strong> first — AE action appears after JE approves.
+        </Alert>
       )}
 
       <Table size="small" sx={constructionTableShellSx('ra-bill')}>

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent,
-  DialogTitle, Grid, IconButton, LinearProgress, MenuItem, Table, TableBody, TableCell,
-  TableRow, TextField, Tooltip, Typography,
+  Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent,
+  DialogTitle, Divider, Grid, IconButton, LinearProgress, MenuItem, Paper,
+  Stack, Table, TableBody, TableCell, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -10,11 +10,16 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import PlaceIcon from '@mui/icons-material/Place';
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
+import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
+import LinkOutlinedIcon from '@mui/icons-material/LinkOutlined';
+import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined';
 import { constructionApi } from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import {
   GIS_ASSET_LABELS, GIS_ASSET_STATUS_LABELS, GIS_ASSET_STATUSES, GIS_ASSET_TYPES,
-  STATUS_COLORS, type GisAssetType,
+  STATUS_COLORS, mbWorkflowStepLabel, type GisAssetType,
 } from '../../constants/construction';
 import ConstructionStyledTableHead, {
   constructionSectionBarSx, constructionTableShellSx, constructionTableTheme,
@@ -59,6 +64,34 @@ function formatCoord(value: unknown): string {
   return Number(value).toFixed(6);
 }
 
+function hasGpsCoords(lat: string, lng: string): boolean {
+  const la = Number(lat);
+  const lo = Number(lng);
+  return Number.isFinite(la) && Number.isFinite(lo) && la !== 0 && lo !== 0;
+}
+
+function mapsUrl(lat: string, lng: string): string {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+function FormSection({
+  title, subtitle, children,
+}: { title: string; subtitle?: string; children: ReactNode }) {
+  return (
+    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'grey.50' }}>
+      <Typography variant="subtitle2" fontWeight={700} gutterBottom>{title}</Typography>
+      {subtitle && (
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
+          {subtitle}
+        </Typography>
+      )}
+      {children}
+    </Paper>
+  );
+}
+
+const PIPELINE_LAYERS: GisAssetType[] = ['gravity_main', 'pumping_main', 'distribution_main'];
+
 interface Props {
   projectId: string;
   canCreate: boolean;
@@ -71,6 +104,7 @@ interface Props {
 export default function GisIntegrationPanel({
   projectId, canCreate, canUpdate, onRefresh, onError, onSuccess,
 }: Props) {
+  const { isMobile } = useBreakpoint();
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState<AssetRecord[]>([]);
   const [mbs, setMbs] = useState<AssetRecord[]>([]);
@@ -181,6 +215,40 @@ export default function GisIntegrationPanel({
       { enableHighAccuracy: true, timeout: 15000 },
     );
   };
+
+  const applyMbReference = (mbNumber: string) => {
+    if (!mbNumber) {
+      setForm((prev) => ({ ...prev, mbReference: '' }));
+      return;
+    }
+    const mb = mbs.find((m) => String(m.mbNumber) === mbNumber);
+    if (!mb) {
+      setForm((prev) => ({ ...prev, mbReference: mbNumber }));
+      return;
+    }
+    const entries = (mb.entries as Array<Record<string, unknown>>) ?? [];
+    const first = entries[0];
+    const chainage = first
+      ? [first.chainageFrom, first.chainageTo].filter(Boolean).join(' → ')
+      : '';
+    setForm((prev) => ({
+      ...prev,
+      mbReference: mbNumber,
+      latitude: first?.latitude != null ? Number(first.latitude).toFixed(6) : prev.latitude,
+      longitude: first?.longitude != null ? Number(first.longitude).toFixed(6) : prev.longitude,
+      chainage: chainage || prev.chainage,
+      name: prev.name.trim() || String(first?.description ?? '').slice(0, 200),
+      installationDate: prev.installationDate
+        || (mb.measurementDate ? String(mb.measurementDate).slice(0, 10) : ''),
+    }));
+    if (first?.latitude != null && first?.longitude != null) {
+      onSuccess('GPS and chainage prefilled from selected MB.');
+    }
+  };
+
+  const gpsReady = hasGpsCoords(form.latitude, form.longitude);
+  const showChainage = PIPELINE_LAYERS.includes(form.assetType);
+  const gisTheme = constructionTableTheme('gis');
 
   const uploadPhoto = async (assetId: string) => {
     if (!photoFile) return;
@@ -419,118 +487,263 @@ export default function GisIntegrationPanel({
         </Table>
       </Box>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editingId ? 'Edit GIS Asset' : 'Register GIS Asset'}</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
-          <TextField
-            label="Asset ID"
-            value={form.assetCode}
-            onChange={(e) => setForm({ ...form, assetCode: e.target.value })}
-            required
-            placeholder="SRC-01 / GV-12+500"
-          />
-          <TextField
-            select
-            label="GIS Layer"
-            value={form.assetType}
-            onChange={(e) => setForm({ ...form, assetType: e.target.value as GisAssetType })}
-          >
-            {GIS_ASSET_TYPES.map((t) => (
-              <MenuItem key={t} value={t}>{GIS_ASSET_LABELS[t]}</MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            label="Name / Description"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <Box display="flex" gap={1} alignItems="center">
-            <TextField
-              label="Latitude"
-              value={form.latitude}
-              onChange={(e) => setForm({ ...form, latitude: e.target.value })}
-              sx={{ flex: 1 }}
-              placeholder="21.123456"
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+        scroll="paper"
+      >
+        <Box sx={{ px: 3, py: 2, background: gisTheme.panelBg, borderBottom: `2px solid ${gisTheme.panelBorder}` }}>
+          <Typography variant="overline" color={gisTheme.headerColor} fontWeight={700} letterSpacing={1}>
+            Stage 8 · GIS Asset Mapping
+          </Typography>
+          <Typography variant="h6" fontWeight={700} color={gisTheme.headerColor}>
+            {editingId ? 'Edit GIS Asset' : 'Register GIS Asset'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Link field assets to GPS coordinates, measurement book, and site photos for as-built records.
+          </Typography>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.25 }}>
+            <Chip
+              size="small"
+              icon={<PlaceIcon />}
+              label={gpsReady ? 'GPS captured' : 'GPS pending'}
+              color={gpsReady ? 'success' : 'warning'}
+              variant={gpsReady ? 'filled' : 'outlined'}
             />
-            <TextField
-              label="Longitude"
-              value={form.longitude}
-              onChange={(e) => setForm({ ...form, longitude: e.target.value })}
-              sx={{ flex: 1 }}
-              placeholder="85.123456"
+            {form.mbReference && (
+              <Chip size="small" icon={<LinkOutlinedIcon />} label={`MB ${form.mbReference}`} variant="outlined" />
+            )}
+            <Chip
+              size="small"
+              label={GIS_ASSET_STATUS_LABELS[form.status]}
+              color={STATUS_COLORS[form.status] ?? 'default'}
             />
-            <Button
-              variant="outlined"
-              startIcon={<MyLocationIcon />}
-              onClick={captureGps}
-              disabled={gpsCapturing}
-              sx={{ whiteSpace: 'nowrap' }}
-            >
-              {gpsCapturing ? 'Capturing…' : 'GPS'}
-            </Button>
-          </Box>
-          <TextField
-            label="Chainage (pipelines)"
-            value={form.chainage}
-            onChange={(e) => setForm({ ...form, chainage: e.target.value })}
-            placeholder="12+500"
-          />
-          <TextField
-            label="Installation Date"
-            type="date"
-            value={form.installationDate}
-            onChange={(e) => setForm({ ...form, installationDate: e.target.value })}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            label="Contractor"
-            value={form.contractorName}
-            onChange={(e) => setForm({ ...form, contractorName: e.target.value })}
-          />
-          <TextField
-            select
-            label="Status"
-            value={form.status}
-            onChange={(e) => setForm({ ...form, status: e.target.value as AssetForm['status'] })}
+          </Stack>
+        </Box>
+
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2.5, pb: 1 }}>
+          <FormSection
+            title="1. Asset identity"
+            subtitle="Unique ID and GIS layer for map symbology."
           >
-            {GIS_ASSET_STATUSES.map((s) => (
-              <MenuItem key={s} value={s}>{GIS_ASSET_STATUS_LABELS[s]}</MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            label="MB Reference"
-            value={form.mbReference}
-            onChange={(e) => setForm({ ...form, mbReference: e.target.value })}
+            <Grid container spacing={1.5}>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Asset ID"
+                  value={form.assetCode}
+                  onChange={(e) => setForm({ ...form, assetCode: e.target.value.toUpperCase() })}
+                  required
+                  placeholder="BFG-01"
+                  helperText="Short code on drawings / MB"
+                  InputProps={{ startAdornment: <BadgeOutlinedIcon fontSize="small" color="action" sx={{ mr: 1 }} /> }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={8}>
+                <TextField
+                  select
+                  fullWidth
+                  label="GIS Layer"
+                  value={form.assetType}
+                  onChange={(e) => setForm({ ...form, assetType: e.target.value as GisAssetType })}
+                >
+                  {GIS_ASSET_TYPES.map((t) => (
+                    <MenuItem key={t} value={t}>{GIS_ASSET_LABELS[t]}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Name / Description"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Boulder filled gallery — intake chamber"
+                  multiline
+                  minRows={2}
+                />
+              </Grid>
+            </Grid>
+          </FormSection>
+
+          <FormSection
+            title="2. Location & chainage"
+            subtitle="Capture GPS on site or copy from linked measurement book."
           >
-            <MenuItem value="">— None —</MenuItem>
-            {mbs.map((mb) => (
-              <MenuItem key={String(mb.id)} value={String(mb.mbNumber)}>
-                {String(mb.mbNumber)} — {String(mb.measurementDate ?? '').slice(0, 10)}
-              </MenuItem>
-            ))}
-          </TextField>
-          <Box>
-            <Button component="label" variant="outlined" startIcon={<PhotoCameraIcon />} size="small">
-              {photoFile ? photoFile.name : 'Upload Site Photo'}
-              <input
-                type="file"
-                hidden
-                accept="image/*"
-                onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
-              />
-            </Button>
+            <Grid container spacing={1.5} alignItems="flex-start">
+              <Grid item xs={12} sm={5}>
+                <TextField
+                  fullWidth
+                  label="Latitude"
+                  value={form.latitude}
+                  onChange={(e) => setForm({ ...form, latitude: e.target.value })}
+                  placeholder="30.286540"
+                  inputProps={{ inputMode: 'decimal' }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={5}>
+                <TextField
+                  fullWidth
+                  label="Longitude"
+                  value={form.longitude}
+                  onChange={(e) => setForm({ ...form, longitude: e.target.value })}
+                  placeholder="79.155918"
+                  inputProps={{ inputMode: 'decimal' }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={2}>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="success"
+                  startIcon={<MyLocationIcon />}
+                  onClick={captureGps}
+                  disabled={gpsCapturing}
+                  sx={{ height: 56, whiteSpace: 'nowrap' }}
+                >
+                  {gpsCapturing ? '…' : 'GPS'}
+                </Button>
+              </Grid>
+              {gpsReady && (
+                <Grid item xs={12}>
+                  <Alert
+                    severity="success"
+                    icon={<MapOutlinedIcon />}
+                    sx={{ py: 0.5, alignItems: 'center' }}
+                    action={(
+                      <Button
+                        size="small"
+                        href={mapsUrl(form.latitude, form.longitude)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open map
+                      </Button>
+                    )}
+                  >
+                    {form.latitude}, {form.longitude}
+                  </Alert>
+                </Grid>
+              )}
+              {showChainage && (
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Chainage"
+                    value={form.chainage}
+                    onChange={(e) => setForm({ ...form, chainage: e.target.value })}
+                    placeholder="0+000 → 0+050"
+                    helperText="Pipeline / gallery chainage"
+                  />
+                </Grid>
+              )}
+            </Grid>
+          </FormSection>
+
+          <FormSection
+            title="3. Work linkage"
+            subtitle="Tie asset to contractor, installation date, and verified MB."
+          >
+            <Grid container spacing={1.5}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Installation Date"
+                  value={form.installationDate}
+                  onChange={(e) => setForm({ ...form, installationDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Contractor"
+                  value={form.contractorName}
+                  onChange={(e) => setForm({ ...form, contractorName: e.target.value })}
+                  placeholder="Negi and Sons"
+                  InputProps={{ startAdornment: <EngineeringOutlinedIcon fontSize="small" color="action" sx={{ mr: 1 }} /> }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  select
+                  fullWidth
+                  label="MB Reference"
+                  value={form.mbReference}
+                  onChange={(e) => applyMbReference(e.target.value)}
+                  helperText="Selecting an MB prefills GPS, chainage, and work description"
+                >
+                  <MenuItem value="">— None —</MenuItem>
+                  {mbs.map((mb) => {
+                    const entries = (mb.entries as Array<Record<string, unknown>>) ?? [];
+                    const first = entries[0];
+                    const hasGps = first?.latitude != null && first?.longitude != null;
+                    return (
+                      <MenuItem key={String(mb.id)} value={String(mb.mbNumber)}>
+                        MB {String(mb.mbNumber)} · {String(mb.measurementDate ?? '').slice(0, 10)}
+                        {hasGps ? ' · GPS ✓' : ''}
+                        {' · '}{mbWorkflowStepLabel(String(mb.status))}
+                      </MenuItem>
+                    );
+                  })}
+                </TextField>
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.75 }}>
+                  Installation status
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {GIS_ASSET_STATUSES.map((s) => (
+                    <Chip
+                      key={s}
+                      label={GIS_ASSET_STATUS_LABELS[s]}
+                      clickable
+                      color={form.status === s ? 'primary' : 'default'}
+                      variant={form.status === s ? 'filled' : 'outlined'}
+                      onClick={() => setForm({ ...form, status: s })}
+                    />
+                  ))}
+                </Stack>
+              </Grid>
+            </Grid>
+          </FormSection>
+
+          <FormSection title="4. Site photo" subtitle="Optional geotagged photo for verification.">
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Button component="label" variant="outlined" startIcon={<PhotoCameraIcon />}>
+                {photoFile ? photoFile.name : 'Upload photo'}
+                <input
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+                />
+              </Button>
+              {photoFile && (
+                <Chip size="small" label={`${(photoFile.size / 1024).toFixed(0)} KB`} onDelete={() => setPhotoFile(null)} />
+              )}
+            </Stack>
             {editingId && photoDocs.length > 0 && (
               <Box mt={1.5}>
                 <DprPhotoGallery projectId={projectId} documents={photoDocs} />
               </Box>
             )}
-          </Box>
+          </FormSection>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={() => { void handleSave(); }} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Asset'}
+
+        <DialogActions sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider' }}>
+          <Button onClick={() => setDialogOpen(false)} disabled={saving}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => { void handleSave(); }}
+            disabled={saving || !form.assetCode.trim()}
+            startIcon={<PlaceIcon />}
+          >
+            {saving ? 'Saving…' : editingId ? 'Update Asset' : 'Save Asset'}
           </Button>
         </DialogActions>
       </Dialog>

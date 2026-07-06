@@ -58,7 +58,7 @@ import FinalBillPanel from '../components/construction/FinalBillPanel';
 import ConstructionDashboardPanel from '../components/construction/ConstructionDashboardPanel';
 import ConstructionReportsPanel from '../components/construction/ConstructionReportsPanel';
 import PageShell from '../components/layout/PageShell';
-import { canPerformOperational, hasOperationalRole, isSuperAdmin } from '../utils/operationalAccess';
+import { canPerformOperational, hasOperationalRole, isSuperAdmin, SUPER_ADMIN_VIEW_ONLY_MESSAGE } from '../utils/operationalAccess';
 import PageHeader from '../components/layout/PageHeader';
 import { styledTabsSx } from '../utils/pagePresentationStyles';
 import GisIntegrationPanel from '../components/construction/GisIntegrationPanel';
@@ -80,7 +80,7 @@ import { formatApiError } from '../utils/apiError';
 import {
   BOQ_EXCEL_SECTION_LABELS, BOQ_EXCEL_SECTION_ORDER, BOQ_TABLE_COLUMNS, COMPONENT_LABELS,
   CONSTRUCTION_PIPELINE, DPR_WEATHER_OPTIONS, DPR_WORKFLOW_SEQUENCE, dprWorkflowStepLabel, MB_WORKFLOW_SEQUENCE,
-  mbPendingVerifier, mbWorkflowStepLabel,
+  mbPendingVerifier, mbWorkflowStepActive, mbWorkflowStepLabel,
   PROJECT_COMPONENT_ORDER, STATUS_APPROVER, STATUS_COLORS, WORKFLOW_DONE_STATUSES, WORKFLOW_STAGES,
   type ProjectComponent,
 } from '../constants/construction';
@@ -778,6 +778,7 @@ export default function ProjectConstructionPage() {
     pendingGovBoq, pendingL1BoqUpload,
   ]);
   const isContractorUser = !isSuperAdmin(roles) && roles.includes('contractor');
+  const superAdminViewOnly = isSuperAdmin(roles);
   const canSubmit = !isSuperAdmin(roles) && (hasPermission('construction:submit') || isContractorUser);
   const canApprove = !isSuperAdmin(roles) && (hasPermission('construction:approve') || roles.some((r) => ['je', 'ae', 'ee', 'accounts'].includes(r)));
   const canMeasure = !isSuperAdmin(roles) && (hasPermission('construction:measure') || roles.includes('je'));
@@ -803,6 +804,40 @@ export default function ProjectConstructionPage() {
     () => (isContractorUser ? dprs.filter((d) => contractorOwnsDpr(d)) : dprs),
     [dprs, isContractorUser, user?.id, workPackages],
   );
+
+  const pendingAeMbCount = useMemo(
+    () => mbs.filter((mb) => mbPendingVerifier(String(mb.status)) === 'ae').length,
+    [mbs],
+  );
+  const pendingAeDprCount = useMemo(
+    () => visibleDprs.filter((d) => String(d.status) === 'ae_review').length,
+    [visibleDprs],
+  );
+  const pendingAeRaCount = useMemo(
+    () => raBills.filter((b) => String(b.status) === 'ae_checked').length,
+    [raBills],
+  );
+  const pendingJeDprCount = useMemo(
+    () => visibleDprs.filter((d) => String(d.status) === 'je_review').length,
+    [visibleDprs],
+  );
+  const pendingJeRaCount = useMemo(
+    () => raBills.filter((b) => String(b.status) === 'je_review').length,
+    [raBills],
+  );
+  const pendingEeMbCount = useMemo(
+    () => mbs.filter((mb) => mbPendingVerifier(String(mb.status)) === 'ee').length,
+    [mbs],
+  );
+  const pendingEeDprCount = useMemo(
+    () => visibleDprs.filter((d) => String(d.status) === 'ee_review').length,
+    [visibleDprs],
+  );
+  const pendingEeRaCount = useMemo(
+    () => raBills.filter((b) => String(b.status) === 'ee_checked').length,
+    [raBills],
+  );
+  const mbStatusList = useMemo(() => mbs.map((mb) => String(mb.status)), [mbs]);
 
   const filteredDprs = useMemo(() => {
     if (!dprWeatherFilter) return visibleDprs;
@@ -1132,15 +1167,28 @@ export default function ProjectConstructionPage() {
     const verifier = mbPendingVerifier(status);
     if (!verifier) return null;
     const canAct = !roles.includes('super_admin') && roles.includes(verifier);
-    if (!canAct) return null;
-    return (
-      <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="nowrap">
-        <Button size="small" variant="contained" color="primary"
-          onClick={() => { void openMbVerify(mbId, verifier); }}>
-          {verifier === 'ae' ? 'AE Verify' : 'EE Verify'}
-        </Button>
-      </Stack>
-    );
+    if (canAct) {
+      return (
+        <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="nowrap">
+          <Button size="small" variant="contained" color="primary"
+            onClick={() => { void openMbVerify(mbId, verifier); }}>
+            {verifier === 'ae' ? 'AE Verify' : 'EE Verify'}
+          </Button>
+        </Stack>
+      );
+    }
+    const isDeptUser = roles.some((r) => ['je', 'ae', 'ee'].includes(r));
+    if (isDeptUser || canApprove || superAdminViewOnly) {
+      return (
+        <Chip
+          size="small"
+          variant="outlined"
+          color="warning"
+          label={`Pending ${verifier.toUpperCase()}`}
+        />
+      );
+    }
+    return null;
   };
 
   const ApprovalButtons = ({ type, id, status }: { type: 'dpr' | 'mb' | 'invoice' | 'ra'; id: string; status: string }) => {
@@ -1148,7 +1196,7 @@ export default function ProjectConstructionPage() {
     const requiredRole = STATUS_APPROVER[status];
     const canAct = !roles.includes('super_admin') && (!requiredRole || roles.includes(requiredRole));
     if (!canApprove || !canAct) {
-      if (type === 'dpr' && requiredRole) {
+      if (requiredRole && (type === 'dpr' || superAdminViewOnly)) {
         return (
           <Chip
             size="small"
@@ -2289,6 +2337,21 @@ export default function ProjectConstructionPage() {
               {dprTabError}
             </Typography>
           )}
+          {roles.includes('ae') && pendingAeDprCount > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <strong>{pendingAeDprCount} DPR(s)</strong> pending AE review — use Approve on each row below.
+            </Alert>
+          )}
+          {roles.includes('ee') && pendingEeDprCount > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <strong>{pendingEeDprCount} DPR(s)</strong> pending EE approval — use Approve on each row below.
+            </Alert>
+          )}
+          {roles.includes('ee') && pendingEeDprCount === 0 && pendingAeDprCount > 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              DPR(s) are with <strong>AE</strong> — EE approval appears after AE completes review.
+            </Alert>
+          )}
           <Box
             display="flex"
             justifyContent="space-between"
@@ -2576,20 +2639,61 @@ export default function ProjectConstructionPage() {
           </Box>
           <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center" mb={1}>
             <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Pipeline:</Typography>
-            {CONSTRUCTION_PIPELINE.map((role, idx) => (
+            {CONSTRUCTION_PIPELINE.map((role, idx) => {
+              const rolePending = (
+                (role === 'JE' && visibleDprs.some((d) => String(d.status) === 'je_review'))
+                || (role === 'AE' && (pendingAeMbCount > 0 || pendingAeDprCount > 0 || pendingAeRaCount > 0))
+                || (role === 'EE' && (pendingEeMbCount > 0 || pendingEeDprCount > 0 || pendingEeRaCount > 0))
+              );
+              return (
               <Box key={role} display="flex" alignItems="center" gap={0.5}>
-                <Chip size="small" variant={['AE', 'EE'].includes(role) ? 'filled' : 'outlined'} color={['AE', 'EE'].includes(role) ? 'primary' : 'default'} label={role} />
+                <Chip
+                  size="small"
+                  variant={rolePending ? 'filled' : 'outlined'}
+                  color={rolePending ? 'primary' : 'default'}
+                  label={role}
+                />
                 {idx < CONSTRUCTION_PIPELINE.length - 1 && (
                   <Typography variant="caption" color="text.secondary">→</Typography>
                 )}
               </Box>
-            ))}
+            );})}
           </Box>
           <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
-            {MB_WORKFLOW_SEQUENCE.map((step) => (
-              <Chip key={step.status} size="small" variant="outlined" label={`${step.step}. ${step.label}`} sx={constructionWorkflowChipSx('mb')} />
-            ))}
+            {MB_WORKFLOW_SEQUENCE.map((step) => {
+              const stepActive = mbWorkflowStepActive(step.status, mbStatusList);
+              return (
+                <Chip
+                  key={step.status}
+                  size="small"
+                  variant={stepActive ? 'filled' : 'outlined'}
+                  color={stepActive ? 'warning' : 'default'}
+                  label={`${step.step}. ${step.label}`}
+                  sx={constructionWorkflowChipSx('mb', stepActive)}
+                />
+              );
+            })}
           </Box>
+          {roles.includes('ae') && pendingAeMbCount > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <strong>{pendingAeMbCount} Measurement Book(s)</strong> waiting for AE verification — click <strong>AE Verify</strong> on each row.
+            </Alert>
+          )}
+          {roles.includes('ee') && pendingEeMbCount > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <strong>{pendingEeMbCount} Measurement Book(s)</strong> waiting for EE approval — click <strong>EE Verify</strong> on each row.
+            </Alert>
+          )}
+          {roles.includes('ee') && pendingEeMbCount === 0 && pendingAeMbCount > 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              MB(s) are with <strong>AE</strong> — EE Verify appears after AE completes verification.
+            </Alert>
+          )}
+          {roles.includes('ae') && pendingAeMbCount === 0 && mbs.some((mb) => String(mb.status) === 'draft') && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              JE has draft MB(s) — AE verification appears after JE submits the measurement book.
+            </Alert>
+          )}
           <ResponsiveDataView
             mobileCards={mbs.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>
