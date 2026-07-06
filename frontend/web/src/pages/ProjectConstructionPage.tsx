@@ -795,7 +795,7 @@ export default function ProjectConstructionPage() {
   /** GIS asset registration is contractor-only on site; department reviews via MB and planning alignment. */
   const canCreateGis = isContractorUser;
   const canUpdateGis = isContractorUser;
-  const canDeleteGis = false;
+  const canDeleteGis = isContractorUser;
 
   const contractorGisName = useMemo(() => {
     if (!isContractorUser) return '';
