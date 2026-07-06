@@ -96,13 +96,17 @@ interface Props {
   projectId: string;
   canCreate: boolean;
   canUpdate: boolean;
+  canDelete?: boolean;
+  isContractorView?: boolean;
+  defaultContractorName?: string;
   onRefresh: () => Promise<void>;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
 }
 
 export default function GisIntegrationPanel({
-  projectId, canCreate, canUpdate, onRefresh, onError, onSuccess,
+  projectId, canCreate, canUpdate, canDelete = true, isContractorView = false,
+  defaultContractorName = '', onRefresh, onError, onSuccess,
 }: Props) {
   const { isMobile } = useBreakpoint();
   const [loading, setLoading] = useState(true);
@@ -159,7 +163,11 @@ export default function GisIntegrationPanel({
 
   const openCreate = () => {
     setEditingId(null);
-    setForm(emptyForm());
+    setForm({
+      ...emptyForm(),
+      contractorName: defaultContractorName,
+      status: isContractorView ? 'installed' : 'planned',
+    });
     setPhotoFile(null);
     setPhotoDocs([]);
     setDialogOpen(true);
@@ -327,9 +335,18 @@ export default function GisIntegrationPanel({
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} gap={2} flexWrap="wrap" sx={constructionSectionBarSx('gis')}>
-        <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('gis').headerColor}>
-          Stage 8: GIS Integration — Asset Mapping
-        </Typography>
+        <Box>
+          <Typography variant="subtitle1" fontWeight={700} color={constructionTableTheme('gis').headerColor}>
+            {isContractorView
+              ? 'GIS Asset Registration — Contractor'
+              : 'Stage 8: GIS Integration — Asset Mapping'}
+          </Typography>
+          {isContractorView && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+              Register valves, pipes, and structures as installed — capture GPS, photo, and MB reference on site.
+            </Typography>
+          )}
+        </Box>
         {canCreate && (
           <Button startIcon={<AddIcon />} variant="contained" size="small" onClick={openCreate}>
             Register Asset
@@ -453,23 +470,23 @@ export default function GisIntegrationPanel({
                         </Tooltip>
                       )}
                       {(canUpdate || canCreate) && (
-                        <>
-                          <Tooltip title="Edit asset">
-                            <IconButton size="small" onClick={() => { void openEdit(a); }} aria-label="Edit asset">
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete asset">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => setDeleteTarget(a)}
-                              aria-label="Delete asset"
-                            >
-                              <DeleteOutlineIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </>
+                        <Tooltip title="Edit asset">
+                          <IconButton size="small" onClick={() => { void openEdit(a); }} aria-label="Edit asset">
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {canDelete && (canUpdate || canCreate) && (
+                        <Tooltip title="Delete asset">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => setDeleteTarget(a)}
+                            aria-label="Delete asset"
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       )}
                     </Box>
                   </TableCell>

@@ -792,6 +792,20 @@ export default function ProjectConstructionPage() {
     || canUpdate
     || canCreate;
   const canGenerateRa = isContractorUser;
+  /** Contractors register GIS assets on site; department staff can also register or correct records. */
+  const canCreateGis = isContractorUser || canCreate || canSubmit;
+  const canUpdateGis = isContractorUser || canUpdate || canSubmit;
+  const canDeleteGis = !isContractorUser && canUpdate;
+
+  const contractorGisName = useMemo(() => {
+    if (!isContractorUser) return '';
+    const wpName = workPackages.length === 1
+      ? String(workPackages[0].contractorName ?? '').trim()
+      : '';
+    return wpName
+      || `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+      || String(user?.email ?? '');
+  }, [isContractorUser, workPackages, user]);
 
   const contractorOwnsDpr = (dpr: Record<string, unknown>) => {
     if (!isContractorUser) return true;
@@ -1998,8 +2012,12 @@ export default function ProjectConstructionPage() {
         )}
       />
 
-      {error && !isContractorUser && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && !isContractorUser && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+      {error && (!isContractorUser || tab === 'gis' || tab === 'dpr' || tab === 'ra-bills') && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>
+      )}
+      {success && (!isContractorUser || tab === 'gis' || tab === 'dpr' || tab === 'ra-bills') && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>
+      )}
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={styledTabsSx()}>
@@ -2010,7 +2028,7 @@ export default function ProjectConstructionPage() {
         {!isContractorUser && <Tab value="reconciliation" label="BOQ Reconciliation" />}
         {(!isContractorUser || canGenerateRa) && <Tab value="ra-bills" label="RA Bills" />}
         {!isContractorUser && <Tab value="final" label="Final Bill" />}
-        {!isContractorUser && <Tab value="gis" label="GIS Assets" />}
+        <Tab value="gis" label="GIS Assets" />
         {!isContractorUser && <Tab value="reports" label="Reports" />}
       </Tabs>
 
@@ -2867,8 +2885,11 @@ export default function ProjectConstructionPage() {
       {tab === 'gis' && (
         <GisIntegrationPanel
           projectId={projectId}
-          canCreate={canCreate || canSubmit}
-          canUpdate={canUpdate || canSubmit}
+          canCreate={canCreateGis}
+          canUpdate={canUpdateGis}
+          canDelete={canDeleteGis}
+          isContractorView={isContractorUser}
+          defaultContractorName={contractorGisName}
           onRefresh={refresh}
           onError={setError}
           onSuccess={setSuccess}
