@@ -117,6 +117,7 @@ export default function GisIntegrationPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<AssetForm>(emptyForm());
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoGeotagging, setPhotoGeotagging] = useState(false);
   const [gpsCapturing, setGpsCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [photoDocs, setPhotoDocs] = useState<AssetRecord[]>([]);
@@ -219,6 +220,35 @@ export default function GisIntegrationPanel({
       (err) => {
         setGpsCapturing(false);
         onError(err.message || 'Failed to capture GPS coordinates.');
+      },
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  };
+
+  const captureLivePhoto = (file: File) => {
+    setPhotoFile(file);
+    if (hasGpsCoords(form.latitude, form.longitude)) {
+      onSuccess('Live site photo captured — linked to current GPS coordinates.');
+      return;
+    }
+    if (!navigator.geolocation) {
+      onError('Photo captured. GPS unavailable — tap GPS to geotag this asset.');
+      return;
+    }
+    setPhotoGeotagging(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setForm((prev) => ({
+          ...prev,
+          latitude: pos.coords.latitude.toFixed(6),
+          longitude: pos.coords.longitude.toFixed(6),
+        }));
+        setPhotoGeotagging(false);
+        onSuccess('Live photo captured with GPS geotag.');
+      },
+      (err) => {
+        setPhotoGeotagging(false);
+        onError(err.message || 'Photo captured but GPS geotag failed — use GPS button.');
       },
       { enableHighAccuracy: true, timeout: 15000 },
     );
@@ -729,19 +759,54 @@ export default function GisIntegrationPanel({
             </Grid>
           </FormSection>
 
-          <FormSection title="4. Site photo" subtitle="Optional geotagged photo for verification.">
-            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-              <Button component="label" variant="outlined" startIcon={<PhotoCameraIcon />}>
-                {photoFile ? photoFile.name : 'Upload photo'}
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
-                />
-              </Button>
-              {photoFile && (
-                <Chip size="small" label={`${(photoFile.size / 1024).toFixed(0)} KB`} onDelete={() => setPhotoFile(null)} />
+          <FormSection
+            title="4. Site photo"
+            subtitle="Take a live photo on site — camera opens on mobile; GPS geotag is applied automatically."
+          >
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Button
+                  component="label"
+                  variant="outlined"
+                  color="primary"
+                  startIcon={<PhotoCameraIcon />}
+                  disabled={photoGeotagging}
+                >
+                  {photoGeotagging ? 'Geotagging…' : photoFile ? 'Retake live photo' : 'Capture live photo at site'}
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) captureLivePhoto(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </Button>
+                {photoFile && (
+                  <Chip
+                    size="small"
+                    icon={<PhotoCameraIcon />}
+                    label={`${photoFile.name} · ${(photoFile.size / 1024).toFixed(0)} KB`}
+                    color="success"
+                    onDelete={() => setPhotoFile(null)}
+                  />
+                )}
+              </Stack>
+              <Typography variant="caption" color="text.secondary">
+                Use device camera at the installation point. Coordinates from GPS are stored with the asset record for verification.
+              </Typography>
+              {photoFile && gpsReady && (
+                <Alert severity="success" icon={<PlaceIcon />} sx={{ py: 0.5 }}>
+                  Geotagged: {formatCoord(form.latitude)}, {formatCoord(form.longitude)}
+                </Alert>
+              )}
+              {photoFile && !gpsReady && !photoGeotagging && (
+                <Alert severity="warning" sx={{ py: 0.5 }}>
+                  Photo captured — GPS geotag pending. Tap <strong>GPS</strong> in section 2 or retake the photo on site.
+                </Alert>
               )}
             </Stack>
             {editingId && photoDocs.length > 0 && (
