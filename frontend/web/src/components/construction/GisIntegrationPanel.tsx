@@ -378,11 +378,15 @@ export default function GisIntegrationPanel({
     formData.append('docType', 'site_photo');
     const { data } = await constructionApi.uploadDocumentFile(projectId, formData);
     const doc = data as Record<string, unknown>;
+    const docId = String(doc.id ?? '').trim();
     const fileUrl = String(doc.fileUrl ?? doc.file_url ?? '').trim();
-    if (!fileUrl) {
-      throw new Error('Photo upload succeeded but no file URL was returned.');
+    if (!fileUrl && !docId) {
+      throw new Error('Photo upload succeeded but no document was returned.');
     }
-    await constructionApi.updateAsset(projectId, assetId, { photoUrl: fileUrl });
+    // Backend sets photoUrl on construction_asset site_photo upload; update is belt-and-suspenders.
+    if (fileUrl) {
+      await constructionApi.updateAsset(projectId, assetId, { photoUrl: fileUrl });
+    }
   };
 
   const setCapturedPhoto = (file: File): boolean => {

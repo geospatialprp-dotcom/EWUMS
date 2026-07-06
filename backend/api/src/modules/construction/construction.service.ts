@@ -2980,20 +2980,43 @@ export class ConstructionService {
     if (!file?.buffer?.length) {
       throw new BadRequestException('File is empty');
     }
+    if (!resourceType?.trim()) {
+      throw new BadRequestException('resourceType is required — retry photo capture from the GIS form.');
+    }
+    if (!resourceId?.trim()) {
+      throw new BadRequestException('resourceId is required — save the GIS asset first, then upload the photo.');
+    }
     const fileName = uniqueUploadFileName(file.originalname ?? 'photo.jpg');
     const dir = constructionUploadDir(resourceType, resourceId);
     writeUploadFile(dir, fileName, file.buffer);
     const fileUrl = constructionUploadRelativeUrl(resourceType, resourceId, fileName);
-    const saved = await this.docRepo.save(this.docRepo.create({
-      tenantId,
-      projectId,
-      resourceType,
-      resourceId,
-      docType,
-      fileName: file.originalname ?? fileName,
-      fileUrl,
-      uploadedBy: userId,
-    }));
+    let saved;
+    try {
+      saved = await this.docRepo.save(this.docRepo.create({
+        tenantId,
+        projectId,
+        resourceType,
+        resourceId,
+        docType,
+        fileName: file.originalname ?? fileName,
+        fileUrl,
+        uploadedBy: userId,
+      }));
+    } catch (err) {
+      if (err instanceof QueryFailedError) {
+        const code = (err as { code?: string }).code;
+        const msg = String(err.message ?? '');
+        if (
+          code === '23514'
+          || /construction_documents_resource_type_check/i.test(msg)
+        ) {
+          throw new BadRequestException(
+            'GIS photo upload is not set up on this server — run migration 107 (construction_asset document type).',
+          );
+        }
+      }
+      throw err;
+    }
     if (resourceType === 'construction_asset' && docType === 'site_photo') {
       await this.assetRepo.update(
         { id: resourceId, tenantId, projectId },
