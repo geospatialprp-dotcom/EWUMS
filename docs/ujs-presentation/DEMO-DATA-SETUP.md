@@ -228,6 +228,9 @@ DELETE FROM users WHERE email LIKE '%.dnn@egip.local' OR email LIKE '%.hrr@egip.
 | File | Purpose |
 |------|---------|
 | `demo-seed.sql` | SQL seed script (this folder) |
+| `CLIENT-DEMO-VIDEO-SCRIPT.md` | 7-min client video voiceover + production guide |
+| `CLIENT-DEMO-VIDEO-SCRIPT-HINDI.md` | Hindi voiceover (7 / 5 / 2 min) |
+| `CLIENT-DEMO-CLICK-CHECKLIST.md` | Step-by-step clicks for video recording |
 | `EXECUTIVE-DASHBOARD-SPEC.md` | Dashboard widget specification |
 | `PRESENTATION-OUTLINE.md` | Slide-by-slide meeting script |
 | `PILOT-PLAN-90-DAYS.md` | Formal pilot submission |

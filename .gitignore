@@ -15,5 +15,7 @@ coverage/
 docker-data/
 geoserver-data/
 backend/api/uploads/
+docs/ujs-presentation/video-build/output/
+docs/ujs-presentation/video-build/node_modules/
 *.mbtiles
 *.pbf

@@ -1,0 +1,31 @@
+{
+  "title": "EWUMS Short Demo — Hindi (2 min)",
+  "outputFile": "EWUMS-Client-Demo-2min-Hindi.mp4",
+  "baseUrl": "https://ewumsujs.com",
+  "scenes": [
+    {
+      "id": "01-platform",
+      "title": "EWUMS — एकीकृत मंच",
+      "durationSec": 25,
+      "route": "/platform",
+      "login": { "email": "admin@egip.local", "password": "Admin@123" },
+      "narration": "EWUMS उत्तराखंड जल संस्थान का एकीकृत जल उपयोगिता मंच है। DPR अनुमोदन से लेकर निर्माण, GIS, संचालन और बिलिंग तक — बारह सरकारी चरण, पूर्ण ऑडिट ट्रेल, एक ही प्रणाली।"
+    },
+    {
+      "id": "02-construction",
+      "title": "निर्माण — मैदान से भुगतान",
+      "durationSec": 35,
+      "route": "/projects",
+      "login": { "email": "contractor@egip.local", "password": "Contractor@123" },
+      "narration": "ठेकेदार मैदान से दैनिक प्रगति और GPS फ़ोटो के साथ रिपोर्ट करता है। जेई माप पुस्तक सत्यापित करता है। RA बिल जेई, एई, ईई और वित्त से गुज़रकर भुगतान तक पहुँचता है।"
+    },
+    {
+      "id": "03-map-billing",
+      "title": "मानचित्र, बिलिंग, जल मित्र",
+      "durationSec": 35,
+      "route": "/map",
+      "login": { "email": "ee.kpg@egip.local", "password": "EE@123" },
+      "narration": "हर संपत्ति GIS मानचित्र पर। बिलिंग और ERP एकीकृत। नागरिक जल मित्र से बिल और शिकायत करते हैं। एक मंच — योजना, निर्माण, संचालन, वसूली। धन्यवाद। PRP Geospatial Solutions — ewumsujs.com"
+    }
+  ]
+}

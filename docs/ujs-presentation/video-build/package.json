@@ -1,0 +1,15 @@
+{
+  "name": "ewums-demo-video-build",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "record": "node record-screen.mjs",
+    "audio": "python generate-audio.py",
+    "assemble": "python assemble-video.py",
+    "build": "powershell -ExecutionPolicy Bypass -File BUILD-DEMO-VIDEO.ps1",
+    "build:full": "powershell -ExecutionPolicy Bypass -File BUILD-DEMO-VIDEO.ps1 -WithScreen"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

@@ -13,7 +13,8 @@
 1. Copy each slide block into PowerPoint or Google Slides (one section = one slide).
 2. Hindi titles are provided where helpful for mixed Hindi–English audiences.
 3. **Live demo script** (Slides 8–10) — rehearse with `demo-seed.sql` applied.
-4. Keep backup screenshots if internet is unavailable.
+4. **Client video demo** — full voiceover in `CLIENT-DEMO-VIDEO-SCRIPT.md`; **Hindi:** `CLIENT-DEMO-VIDEO-SCRIPT-HINDI.md`; clicks in `CLIENT-DEMO-CLICK-CHECKLIST.md`.
+5. Keep backup screenshots if internet is unavailable.
 
 ---
 

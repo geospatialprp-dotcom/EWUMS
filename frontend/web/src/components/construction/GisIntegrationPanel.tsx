@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, Grid, IconButton, LinearProgress, MenuItem, Paper,
@@ -123,6 +123,21 @@ export default function GisIntegrationPanel({
   const [photoDocs, setPhotoDocs] = useState<AssetRecord[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<AssetRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const saveActionsRef = useRef<HTMLDivElement>(null);
+  const assetCodeInputRef = useRef<HTMLInputElement>(null);
+
+  const scrollToSaveActions = useCallback(() => {
+    requestAnimationFrame(() => {
+      saveActionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+  }, []);
+
+  const scrollToAssetCode = useCallback(() => {
+    requestAnimationFrame(() => {
+      assetCodeInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      assetCodeInputRef.current?.focus();
+    });
+  }, []);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -227,12 +242,15 @@ export default function GisIntegrationPanel({
 
   const captureLivePhoto = (file: File) => {
     setPhotoFile(file);
+    const afterCapture = () => scrollToSaveActions();
     if (hasGpsCoords(form.latitude, form.longitude)) {
       onSuccess('Live site photo captured — linked to current GPS coordinates.');
+      afterCapture();
       return;
     }
     if (!navigator.geolocation) {
       onError('Photo captured. GPS unavailable — tap GPS to geotag this asset.');
+      afterCapture();
       return;
     }
     setPhotoGeotagging(true);
@@ -245,10 +263,12 @@ export default function GisIntegrationPanel({
         }));
         setPhotoGeotagging(false);
         onSuccess('Live photo captured with GPS geotag.');
+        afterCapture();
       },
       (err) => {
         setPhotoGeotagging(false);
         onError(err.message || 'Photo captured but GPS geotag failed — use GPS button.');
+        afterCapture();
       },
       { enableHighAccuracy: true, timeout: 15000 },
     );
@@ -285,6 +305,7 @@ export default function GisIntegrationPanel({
   };
 
   const gpsReady = hasGpsCoords(form.latitude, form.longitude);
+  const assetCodeReady = Boolean(form.assetCode.trim());
   const showChainage = PIPELINE_LAYERS.includes(form.assetType);
   const gisTheme = constructionTableTheme('gis');
 
@@ -304,7 +325,8 @@ export default function GisIntegrationPanel({
 
   const handleSave = async () => {
     if (!form.assetCode.trim()) {
-      onError('Asset ID is required.');
+      onError('Asset ID is required — enter a code in section 1 (e.g. BFG-01).');
+      scrollToAssetCode();
       return;
     }
     setSaving(true);
@@ -541,6 +563,13 @@ export default function GisIntegrationPanel({
         fullWidth
         fullScreen={isMobile}
         scroll="paper"
+        PaperProps={{
+          sx: {
+            display: 'flex',
+            flexDirection: 'column',
+            maxHeight: isMobile ? '100dvh' : '92vh',
+          },
+        }}
       >
         <Box sx={{ px: 3, py: 2, background: gisTheme.panelBg, borderBottom: `2px solid ${gisTheme.panelBorder}` }}>
           <Typography variant="overline" color={gisTheme.headerColor} fontWeight={700} letterSpacing={1}>
@@ -571,7 +600,7 @@ export default function GisIntegrationPanel({
           </Stack>
         </Box>
 
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2.5, pb: 1 }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2.5, pb: 1, flex: '1 1 auto', overflowY: 'auto' }}>
           <FormSection
             title="1. Asset identity"
             subtitle="Unique ID and GIS layer for map symbology."
@@ -585,7 +614,9 @@ export default function GisIntegrationPanel({
                   onChange={(e) => setForm({ ...form, assetCode: e.target.value.toUpperCase() })}
                   required
                   placeholder="BFG-01"
-                  helperText="Short code on drawings / MB"
+                  helperText={assetCodeReady ? 'Short code on drawings / MB' : 'Required — enter before Save (e.g. BFG-01)'}
+                  error={!assetCodeReady && Boolean(photoFile)}
+                  inputRef={assetCodeInputRef}
                   InputProps={{ startAdornment: <BadgeOutlinedIcon fontSize="small" color="action" sx={{ mr: 1 }} /> }}
                 />
               </Grid>
@@ -798,6 +829,11 @@ export default function GisIntegrationPanel({
               <Typography variant="caption" color="text.secondary">
                 Use device camera at the installation point. Coordinates from GPS are stored with the asset record for verification.
               </Typography>
+              {photoFile && !assetCodeReady && (
+                <Alert severity="info" sx={{ py: 0.5 }}>
+                  Photo ready — scroll up to enter <strong>Asset ID</strong> in section 1, then tap <strong>Save Asset</strong> below.
+                </Alert>
+              )}
               {photoFile && gpsReady && (
                 <Alert severity="success" icon={<PlaceIcon />} sx={{ py: 0.5 }}>
                   Geotagged: {formatCoord(form.latitude)}, {formatCoord(form.longitude)}
@@ -817,15 +853,42 @@ export default function GisIntegrationPanel({
           </FormSection>
         </DialogContent>
 
-        <DialogActions sx={{ px: 3, py: 2, borderTop: 1, borderColor: 'divider' }}>
-          <Button onClick={() => setDialogOpen(false)} disabled={saving}>Cancel</Button>
+        <DialogActions
+          ref={saveActionsRef}
+          id="gis-asset-save-actions"
+          sx={{
+            px: 3,
+            py: 2,
+            flexShrink: 0,
+            position: 'sticky',
+            bottom: 0,
+            zIndex: 3,
+            bgcolor: 'background.paper',
+            borderTop: 1,
+            borderColor: 'divider',
+            boxShadow: '0 -4px 16px rgba(0,0,0,0.1)',
+            pb: isMobile ? 'calc(12px + env(safe-area-inset-bottom, 0px))' : 2,
+            flexWrap: 'wrap',
+            gap: 1,
+          }}
+        >
+          {!assetCodeReady && photoFile && (
+            <Typography variant="body2" color="warning.main" sx={{ flex: '1 1 100%', mb: 0.5 }}>
+              Enter Asset ID in section 1 to enable submission.
+            </Typography>
+          )}
+          <Box sx={{ flex: '1 1 auto' }} />
+          <Button onClick={() => setDialogOpen(false)} disabled={saving || photoGeotagging}>Cancel</Button>
           <Button
             variant="contained"
+            color="primary"
+            size={isMobile ? 'large' : 'medium'}
             onClick={() => { void handleSave(); }}
-            disabled={saving || !form.assetCode.trim()}
+            disabled={saving || photoGeotagging}
             startIcon={<PlaceIcon />}
+            sx={isMobile ? { minWidth: 160, fontWeight: 700 } : undefined}
           >
-            {saving ? 'Saving…' : editingId ? 'Update Asset' : 'Save Asset'}
+            {saving ? 'Saving…' : photoGeotagging ? 'Geotagging…' : editingId ? 'Update Asset' : 'Save Asset'}
           </Button>
         </DialogActions>
       </Dialog>
