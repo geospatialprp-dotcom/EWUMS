@@ -2362,10 +2362,39 @@ export class ConstructionService {
     return this.getRaBill(tenantId, projectId, id);
   }
 
-  listConstructionAssets(tenantId: string, projectId: string, assetType?: string) {
+  async listConstructionAssets(tenantId: string, projectId: string, assetType?: string) {
     const where: Record<string, unknown> = { tenantId, projectId };
     if (assetType) where.assetType = assetType;
-    return this.assetRepo.find({ where, order: { assetCode: 'ASC' } });
+    const assets = await this.assetRepo.find({ where, order: { assetCode: 'ASC' } });
+    if (!assets.length) return [];
+
+    const assetIds = assets.map((a) => a.id);
+    const photoDocs = await this.docRepo.find({
+      where: {
+        tenantId,
+        projectId,
+        resourceType: 'construction_asset',
+        resourceId: In(assetIds),
+        docType: 'site_photo',
+      },
+      order: { uploadedAt: 'DESC' },
+    });
+
+    const latestPhotoByAsset = new Map<string, { fileUrl: string; id: string }>();
+    for (const doc of photoDocs) {
+      if (!latestPhotoByAsset.has(doc.resourceId)) {
+        latestPhotoByAsset.set(doc.resourceId, { fileUrl: doc.fileUrl, id: doc.id });
+      }
+    }
+
+    return assets.map((asset) => {
+      const photo = latestPhotoByAsset.get(asset.id);
+      return {
+        ...asset,
+        photoUrl: asset.photoUrl || photo?.fileUrl || null,
+        photoDocId: photo?.id ?? null,
+      };
+    });
   }
 
   createConstructionAsset(tenantId: string, projectId: string, user: JwtPayload, dto: CreateConstructionAssetDto) {
@@ -2955,7 +2984,7 @@ export class ConstructionService {
     const dir = constructionUploadDir(resourceType, resourceId);
     writeUploadFile(dir, fileName, file.buffer);
     const fileUrl = constructionUploadRelativeUrl(resourceType, resourceId, fileName);
-    return this.docRepo.save(this.docRepo.create({
+    const saved = await this.docRepo.save(this.docRepo.create({
       tenantId,
       projectId,
       resourceType,
@@ -2965,6 +2994,13 @@ export class ConstructionService {
       fileUrl,
       uploadedBy: userId,
     }));
+    if (resourceType === 'construction_asset' && docType === 'site_photo') {
+      await this.assetRepo.update(
+        { id: resourceId, tenantId, projectId },
+        { photoUrl: fileUrl, updatedAt: new Date() },
+      );
+    }
+    return saved;
   }
 
   async getDocumentRecord(tenantId: string, projectId: string, docId: string) {

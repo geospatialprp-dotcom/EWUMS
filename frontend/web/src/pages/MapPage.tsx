@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Alert, Box, Drawer, Fab, Typography } from '@mui/material';
+import { Alert, Box, Drawer, Fab, IconButton, Paper, Typography } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import PlaceIcon from '@mui/icons-material/Place';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import MapViewer from '../components/map/MapViewer';
 import type { MapFlyTarget } from '../components/map/MapViewer';
@@ -62,6 +64,8 @@ import {
   OUTSIDE_DISTRICT_LAYER_MESSAGE,
   OUTSIDE_JURISDICTION_MESSAGE,
 } from '../utils/jurisdictionGeometry';
+import { parseConstructionAssetMapFocus, type ConstructionAssetMapFocus } from '../utils/mapExplorerLinks';
+import { GIS_ASSET_LABELS, type GisAssetType } from '../constants/construction';
 
 type GeoFeature = {
   type: 'Feature';
@@ -182,7 +186,8 @@ export default function MapPage() {
   const shouldFit = searchParams.get('fit') === '1';
   const basemapParam = searchParams.get('basemap') ?? '';
   const divisionParam = searchParams.get('division') ?? '';
-  const projectParam = searchParams.get('project') ?? '';
+  const projectParam = searchParams.get('project') ?? searchParams.get('projectId') ?? '';
+  const assetFocusParam = useMemo(() => parseConstructionAssetMapFocus(searchParams), [searchParams]);
   const { activeDivisionId } = useDivisionScope();
   const divisionScopeKey = useDivisionScopeKey();
   /** URL ?division= wins; otherwise use the global header Division switcher. */
@@ -246,6 +251,8 @@ export default function MapPage() {
   const [mapCenter, setMapCenter] = useState<[number, number]>(UTTARAKHAND_STATE_MAP_VIEW.center);
   const [mapZoom, setMapZoom] = useState(UTTARAKHAND_STATE_MAP_VIEW.zoom);
   const [jurisdictionRevision, setJurisdictionRevision] = useState(0);
+  const [constructionAssetFocus, setConstructionAssetFocus] = useState<ConstructionAssetMapFocus | null>(null);
+  const assetFocusAppliedRef = useRef('');
 
   const catalogBasemaps = useMemo(
     () => layers
@@ -1395,6 +1402,7 @@ export default function MapPage() {
         return;
       }
     }
+    setConstructionAssetFocus(null);
     setFlyToTarget((prev) => ({
       lon: result.lon,
       lat: result.lat,
@@ -1404,6 +1412,56 @@ export default function MapPage() {
       revision: (prev?.revision ?? 0) + 1,
     }));
   };
+
+  const clearConstructionAssetFocus = useCallback(() => {
+    setConstructionAssetFocus(null);
+    assetFocusAppliedRef.current = '';
+  }, []);
+
+  useEffect(() => {
+    if (!mapReady || !assetFocusParam) {
+      if (!assetFocusParam) setConstructionAssetFocus(null);
+      return;
+    }
+
+    const focusKey = `${assetFocusParam.lat},${assetFocusParam.lng},${assetFocusParam.assetCode}`;
+    if (assetFocusAppliedRef.current === focusKey) return;
+
+    if (mapAccess && !mapAccess.canViewAllDivisions && mapAccess.bbox) {
+      const [minLon, minLat, maxLon, maxLat] = mapAccess.bbox;
+      if (
+        assetFocusParam.lng < minLon || assetFocusParam.lng > maxLon
+        || assetFocusParam.lat < minLat || assetFocusParam.lat > maxLat
+      ) {
+        setMapError('That asset is outside your authorized jurisdiction.');
+        return;
+      }
+    }
+
+    assetFocusAppliedRef.current = focusKey;
+    setConstructionAssetFocus(assetFocusParam);
+    setActiveTool('info');
+    clearIdentify();
+
+    const applyAssetFly = () => {
+      setFlyToTarget((prev) => ({
+        lon: assetFocusParam.lng,
+        lat: assetFocusParam.lat,
+        zoom: assetFocusParam.zoom,
+        showMarker: true,
+        revision: (prev?.revision ?? 0) + 1,
+      }));
+    };
+
+    // Run after jurisdiction auto-fit so the asset pin is not overridden on first load.
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(applyAssetFly);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [mapReady, assetFocusParam, mapAccess, clearIdentify]);
 
   const handleDigitizeComplete = useCallback((geometry: GeoFeature['geometry']) => {
     if (!geometry) return;
@@ -1947,6 +2005,55 @@ export default function MapPage() {
                 >
                   <LayersOutlinedIcon />
                 </Fab>
+              )}
+              {constructionAssetFocus && (
+                <Paper
+                  elevation={4}
+                  sx={{
+                    position: 'absolute',
+                    top: { xs: 8, sm: 12 },
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 26,
+                    px: 2,
+                    py: 1.25,
+                    maxWidth: { xs: 'calc(100% - 24px)', sm: 420 },
+                    borderRadius: 2,
+                    border: 1,
+                    borderColor: 'primary.light',
+                  }}
+                >
+                  <Box display="flex" alignItems="flex-start" gap={1}>
+                    <PlaceIcon color="primary" fontSize="small" sx={{ mt: 0.25 }} />
+                    <Box flex={1} minWidth={0}>
+                      <Typography variant="subtitle2" fontWeight={700} noWrap>
+                        {constructionAssetFocus.assetCode || 'GIS Asset'}
+                      </Typography>
+                      {constructionAssetFocus.assetType && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {GIS_ASSET_LABELS[constructionAssetFocus.assetType as GisAssetType]
+                            ?? constructionAssetFocus.assetType}
+                        </Typography>
+                      )}
+                      {constructionAssetFocus.assetName && (
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {constructionAssetFocus.assetName}
+                        </Typography>
+                      )}
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25 }}>
+                        {constructionAssetFocus.lat.toFixed(6)}, {constructionAssetFocus.lng.toFixed(6)}
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={clearConstructionAssetFocus}
+                      aria-label="Close asset focus"
+                      sx={{ mt: -0.5, mr: -0.5 }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Paper>
               )}
               <MapInfoDialog
                 open={infoDialogOpen && Boolean(infoSelectedFeatureId)}

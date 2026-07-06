@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent,
+  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, Grid, IconButton, LinearProgress, MenuItem, Paper,
   Stack, Table, TableBody, TableCell, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
@@ -25,6 +26,7 @@ import ConstructionStyledTableHead, {
   constructionSectionBarSx, constructionTableShellSx, constructionTableTheme,
 } from './ConstructionStyledTableHead';
 import DprPhotoGallery from './DprPhotoGallery';
+import { buildConstructionAssetMapUrl, buildProjectGisMapExplorerUrl } from '../../utils/mapExplorerLinks';
 
 type AssetRecord = Record<string, unknown>;
 
@@ -74,6 +76,101 @@ function mapsUrl(lat: string, lng: string): string {
   return `https://www.google.com/maps?q=${lat},${lng}`;
 }
 
+function assetPhotoUrl(asset: AssetRecord): string {
+  return String(asset.photoUrl ?? asset.photo_url ?? '').trim();
+}
+
+function assetPhotoDocId(asset: AssetRecord): string {
+  return String(asset.photoDocId ?? asset.photo_doc_id ?? '').trim();
+}
+
+function assetHasPhoto(asset: AssetRecord): boolean {
+  return Boolean(assetPhotoUrl(asset) || assetPhotoDocId(asset));
+}
+
+function GisAssetPhotoThumb({
+  projectId, asset, onAddPhoto,
+}: {
+  projectId: string;
+  asset: AssetRecord;
+  onAddPhoto?: () => void;
+}) {
+  const docId = assetPhotoDocId(asset);
+  const hasPhoto = assetHasPhoto(asset);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    if (!docId) {
+      setThumbUrl(null);
+      setFailed(false);
+      return undefined;
+    }
+    void constructionApi.fetchDocumentFile(projectId, docId)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setThumbUrl(objectUrl);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [projectId, docId]);
+
+  if (!hasPhoto) {
+    if (onAddPhoto) {
+      return (
+        <Button size="small" variant="text" startIcon={<PhotoCameraIcon />} onClick={onAddPhoto} sx={{ minWidth: 0, px: 0.5 }}>
+          Add photo
+        </Button>
+      );
+    }
+    return <Typography variant="caption" color="text.secondary">—</Typography>;
+  }
+  if (!docId && assetPhotoUrl(asset)) {
+    return (
+      <Tooltip title="Photo attached">
+        <PhotoCameraIcon fontSize="small" color="success" />
+      </Tooltip>
+    );
+  }
+  if (thumbUrl) {
+    return (
+      <Tooltip title="Site photo — tap Edit to view full size">
+        <Box
+          component="img"
+          src={thumbUrl}
+          alt="Site"
+          sx={{
+            width: 44,
+            height: 44,
+            objectFit: 'cover',
+            borderRadius: 1,
+            border: 1,
+            borderColor: 'success.light',
+            display: 'block',
+          }}
+        />
+      </Tooltip>
+    );
+  }
+  if (failed) {
+    return (
+      <Tooltip title="Photo on file — preview unavailable">
+        <PhotoCameraIcon fontSize="small" color="warning" />
+      </Tooltip>
+    );
+  }
+  return <CircularProgress size={18} />;
+}
+
 function FormSection({
   title, subtitle, children,
 }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -108,6 +205,7 @@ export default function GisIntegrationPanel({
   projectId, canCreate, canUpdate, canDelete = true, isContractorView = false,
   defaultContractorName = '', onRefresh, onError, onSuccess,
 }: Props) {
+  const navigate = useNavigate();
   const { isMobile } = useBreakpoint();
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState<AssetRecord[]>([]);
@@ -317,10 +415,13 @@ export default function GisIntegrationPanel({
     formData.append('resourceId', assetId);
     formData.append('docType', 'site_photo');
     const { data } = await constructionApi.uploadDocumentFile(projectId, formData);
-    const fileUrl = String((data as Record<string, unknown>).fileUrl ?? '');
-    if (fileUrl) {
-      await constructionApi.updateAsset(projectId, assetId, { photoUrl: fileUrl });
+    const doc = data as Record<string, unknown>;
+    const fileUrl = String(doc.fileUrl ?? doc.file_url ?? '').trim();
+    if (!fileUrl) {
+      throw new Error('Photo upload succeeded but no file URL was returned.');
     }
+    // Backend sets photoUrl on upload; keep update as belt-and-suspenders.
+    await constructionApi.updateAsset(projectId, assetId, { photoUrl: fileUrl });
   };
 
   const handleSave = async () => {
@@ -351,7 +452,17 @@ export default function GisIntegrationPanel({
         assetId = String((data as Record<string, unknown>).id);
       }
       if (photoFile && assetId) {
-        await uploadPhoto(assetId);
+        try {
+          await uploadPhoto(assetId);
+        } catch (photoErr) {
+          onError(formatApiError(
+            photoErr,
+            'Asset saved but photo upload failed — open Edit, retake the live photo, and save again.',
+          ));
+          await load();
+          await onRefresh();
+          return;
+        }
       }
       setDialogOpen(false);
       onSuccess(editingId ? 'GIS asset updated.' : 'GIS asset registered.');
@@ -402,6 +513,17 @@ export default function GisIntegrationPanel({
         {canCreate && (
           <Button startIcon={<AddIcon />} variant="contained" size="small" onClick={openCreate}>
             Register Asset
+          </Button>
+        )}
+        {assets.some(isMapped) && (
+          <Button
+            startIcon={<MapOutlinedIcon />}
+            variant="outlined"
+            color="primary"
+            size="small"
+            onClick={() => navigate(buildProjectGisMapExplorerUrl(projectId, assets))}
+          >
+            Map Explorer
           </Button>
         )}
       </Box>
@@ -506,19 +628,62 @@ export default function GisIntegrationPanel({
                   </TableCell>
                   <TableCell>{String(a.mbReference ?? '—')}</TableCell>
                   <TableCell>
-                    {a.photoUrl ? (
-                      <Tooltip title="Photo attached">
-                        <PhotoCameraIcon fontSize="small" color="success" />
-                      </Tooltip>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">—</Typography>
-                    )}
+                    <GisAssetPhotoThumb
+                      projectId={projectId}
+                      asset={a}
+                      onAddPhoto={(canUpdate || canCreate) ? () => { void openEdit(a); } : undefined}
+                    />
                   </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                    <Box display="inline-flex" alignItems="center" justifyContent="flex-end" gap={0.25}>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: isMobile ? 120 : 100 }}>
+                    <Box display="inline-flex" alignItems="center" justifyContent="flex-end" gap={0.5} flexWrap="wrap">
                       {!mapped && (
                         <Tooltip title="GPS coordinates missing">
                           <PlaceIcon fontSize="small" color="warning" />
+                        </Tooltip>
+                      )}
+                      {mapped ? (
+                        isMobile ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<MapOutlinedIcon />}
+                            onClick={() => navigate(buildConstructionAssetMapUrl({
+                              projectId,
+                              assetCode: String(a.assetCode),
+                              latitude: Number(a.latitude),
+                              longitude: Number(a.longitude),
+                              assetName: a.name ? String(a.name) : undefined,
+                              assetType: String(a.assetType),
+                            }))}
+                          >
+                            Map
+                          </Button>
+                        ) : (
+                          <Tooltip title="View on map">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => navigate(buildConstructionAssetMapUrl({
+                                projectId,
+                                assetCode: String(a.assetCode),
+                                latitude: Number(a.latitude),
+                                longitude: Number(a.longitude),
+                                assetName: a.name ? String(a.name) : undefined,
+                                assetType: String(a.assetType),
+                              }))}
+                              aria-label="View on map"
+                            >
+                              <MapOutlinedIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )
+                      ) : (
+                        <Tooltip title="GPS required">
+                          <span>
+                            <IconButton size="small" disabled aria-label="View on map (GPS required)">
+                              <MapOutlinedIcon fontSize="small" />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                       )}
                       {(canUpdate || canCreate) && (

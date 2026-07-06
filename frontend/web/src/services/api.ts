@@ -641,7 +641,6 @@ export const constructionApi = {
   uploadDocumentFile: (projectId: string, formData: FormData) => api.post(
     `/projects/${projectId}/construction/documents/upload`,
     formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
   ),
   fetchDocumentFile: async (projectId: string, docId: string, download = false) => {
     const { data } = await api.get(
