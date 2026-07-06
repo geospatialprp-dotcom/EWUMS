@@ -150,6 +150,12 @@ export class ConstructionService {
     return user?.roles?.includes('contractor') ?? false;
   }
 
+  private assertContractorGisRegistration(user: JwtPayload): void {
+    if (!this.isContractor(user)) {
+      throw new ForbiddenException('GIS asset registration is performed by the contractor on site');
+    }
+  }
+
   private raiseDprPersistenceError(err: unknown): never {
     if (
       err instanceof BadRequestException
@@ -2362,7 +2368,8 @@ export class ConstructionService {
     return this.assetRepo.find({ where, order: { assetCode: 'ASC' } });
   }
 
-  createConstructionAsset(tenantId: string, projectId: string, dto: CreateConstructionAssetDto) {
+  createConstructionAsset(tenantId: string, projectId: string, user: JwtPayload, dto: CreateConstructionAssetDto) {
+    this.assertContractorGisRegistration(user);
     return this.assetRepo.save(this.assetRepo.create({
       tenantId,
       projectId,
@@ -2385,8 +2392,10 @@ export class ConstructionService {
     tenantId: string,
     projectId: string,
     assetId: string,
+    user: JwtPayload,
     dto: UpdateConstructionAssetDto,
   ) {
+    this.assertContractorGisRegistration(user);
     const asset = await this.assetRepo.findOne({ where: { id: assetId, tenantId, projectId } });
     if (!asset) throw new NotFoundException('GIS asset not found');
     if (dto.assetCode !== undefined) asset.assetCode = dto.assetCode;
@@ -2407,7 +2416,8 @@ export class ConstructionService {
     return saved;
   }
 
-  async deleteConstructionAsset(tenantId: string, projectId: string, assetId: string) {
+  async deleteConstructionAsset(tenantId: string, projectId: string, assetId: string, user: JwtPayload) {
+    this.assertContractorGisRegistration(user);
     const asset = await this.assetRepo.findOne({ where: { id: assetId, tenantId, projectId } });
     if (!asset) throw new NotFoundException('GIS asset not found');
     await this.docRepo.delete({ tenantId, projectId, resourceType: 'construction_asset', resourceId: assetId });

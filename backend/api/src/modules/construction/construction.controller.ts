@@ -470,7 +470,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Body() dto: CreateConstructionAssetDto,
   ) {
-    return this.constructionService.createConstructionAsset(user.tenantId, projectId, dto);
+    return this.constructionService.createConstructionAsset(user.tenantId, projectId, user, dto);
   }
 
   @Put('assets/:assetId')
@@ -482,7 +482,7 @@ export class ConstructionController {
     @Param('assetId') assetId: string,
     @Body() dto: UpdateConstructionAssetDto,
   ) {
-    return this.constructionService.updateConstructionAsset(user.tenantId, projectId, assetId, dto);
+    return this.constructionService.updateConstructionAsset(user.tenantId, projectId, assetId, user, dto);
   }
 
   @Delete('assets/:assetId')
@@ -493,7 +493,7 @@ export class ConstructionController {
     @Param('projectId') projectId: string,
     @Param('assetId') assetId: string,
   ) {
-    return this.constructionService.deleteConstructionAsset(user.tenantId, projectId, assetId);
+    return this.constructionService.deleteConstructionAsset(user.tenantId, projectId, assetId, user);
   }
 
   @Get('completion')

@@ -792,10 +792,10 @@ export default function ProjectConstructionPage() {
     || canUpdate
     || canCreate;
   const canGenerateRa = isContractorUser;
-  /** Contractors register GIS assets on site; department staff can also register or correct records. */
-  const canCreateGis = isContractorUser || canCreate || canSubmit;
-  const canUpdateGis = isContractorUser || canUpdate || canSubmit;
-  const canDeleteGis = !isContractorUser && canUpdate;
+  /** GIS asset registration is contractor-only on site; department reviews via MB and planning alignment. */
+  const canCreateGis = isContractorUser;
+  const canUpdateGis = isContractorUser;
+  const canDeleteGis = false;
 
   const contractorGisName = useMemo(() => {
     if (!isContractorUser) return '';
@@ -2028,7 +2028,7 @@ export default function ProjectConstructionPage() {
         {!isContractorUser && <Tab value="reconciliation" label="BOQ Reconciliation" />}
         {(!isContractorUser || canGenerateRa) && <Tab value="ra-bills" label="RA Bills" />}
         {!isContractorUser && <Tab value="final" label="Final Bill" />}
-        <Tab value="gis" label="GIS Assets" />
+        {isContractorUser && <Tab value="gis" label="GIS Assets" />}
         {!isContractorUser && <Tab value="reports" label="Reports" />}
       </Tabs>
 
@@ -2882,7 +2882,7 @@ export default function ProjectConstructionPage() {
         />
       )}
 
-      {tab === 'gis' && (
+      {tab === 'gis' && isContractorUser && (
         <GisIntegrationPanel
           projectId={projectId}
           canCreate={canCreateGis}
