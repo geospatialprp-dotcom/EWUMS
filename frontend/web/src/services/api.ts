@@ -47,6 +47,38 @@ api.interceptors.response.use(
   },
 );
 
+/** Mobile camera uploads: native fetch so multipart boundary is set correctly (axios breaks FormData). */
+async function apiFormDataPost<T>(path: string, formData: FormData): Promise<{ data: T }> {
+  const headers: Record<string, string> = {
+    'Accept-Language': acceptLanguageHeader(),
+  };
+  const token = localStorage.getItem('egip_token');
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const divisionId = activeDivisionIdGetter?.();
+  if (divisionId) headers['X-Active-Division-Id'] = divisionId;
+
+  const res = await fetch(`/api/v1${path}`, { method: 'POST', headers, body: formData });
+  if (res.status === 401) {
+    onUnauthorized?.();
+  }
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json() as { message?: string | string[] };
+      if (body.message) {
+        message = Array.isArray(body.message) ? body.message.join(', ') : body.message;
+      }
+    } catch {
+      // ignore
+    }
+    const err = new Error(message) as Error & { response?: { status: number; data: unknown } };
+    err.response = { status: res.status, data: message };
+    throw err;
+  }
+  const data = await res.json() as T;
+  return { data };
+}
+
 export interface LoginResponse {
   accessToken: string;
   user: {
@@ -642,10 +674,8 @@ export const constructionApi = {
     remarks?: string;
   }) => api.post(`/projects/${projectId}/construction/final-bill/generate`, data),
   uploadDocument: (projectId: string, data: object) => api.post(`/projects/${projectId}/construction/documents`, data),
-  uploadDocumentFile: (projectId: string, formData: FormData) => api.post(
-    `/projects/${projectId}/construction/documents/upload`,
-    formData,
-  ),
+  uploadDocumentFile: (projectId: string, formData: FormData) =>
+    apiFormDataPost(`/projects/${projectId}/construction/documents/upload`, formData),
   fetchDocumentFile: async (projectId: string, docId: string, download = false) => {
     const { data } = await api.get(
       `/projects/${projectId}/construction/documents/${docId}/file`,

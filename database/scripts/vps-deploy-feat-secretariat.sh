@@ -67,6 +67,14 @@ echo "==> 6. Optional — LA readiness for Stage 8 sanction (Tharali demo)"
 "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
   < "${ROOT}/database/scripts/vps-setup-la-tharali-demo.sql" || echo "WARN: LA setup skipped"
 
+echo "==> 7. Clear Tharali GIS assets (fresh contractor registration demo)"
+if [[ -f "${ROOT}/database/scripts/vps-clear-tharali-gis-assets.sql" ]]; then
+  "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
+    < "${ROOT}/database/scripts/vps-clear-tharali-gis-assets.sql" || echo "WARN: GIS clear failed"
+else
+  echo "WARN: vps-clear-tharali-gis-assets.sql not found — skip"
+fi
+
 echo ""
 echo "DONE."
 echo "  IMPORTANT: Push latest commits to origin/${BRANCH} before running this script."

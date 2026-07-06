@@ -134,10 +134,24 @@ function GisAssetPhotoThumb({
     }
     return <Typography variant="caption" color="text.secondary">—</Typography>;
   }
-  if (!docId && assetPhotoUrl(asset)) {
+  const directUrl = assetPhotoUrl(asset);
+  if (!docId && directUrl) {
     return (
-      <Tooltip title="Photo attached">
-        <PhotoCameraIcon fontSize="small" color="success" />
+      <Tooltip title="Site photo — tap Edit to view full size">
+        <Box
+          component="img"
+          src={directUrl}
+          alt="Site"
+          sx={{
+            width: 44,
+            height: 44,
+            objectFit: 'cover',
+            borderRadius: 1,
+            border: 1,
+            borderColor: 'success.light',
+            display: 'block',
+          }}
+        />
       </Tooltip>
     );
   }
