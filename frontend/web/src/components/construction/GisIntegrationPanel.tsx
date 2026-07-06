@@ -223,6 +223,8 @@ export default function GisIntegrationPanel({
   const [deleting, setDeleting] = useState(false);
   const saveActionsRef = useRef<HTMLDivElement>(null);
   const assetCodeInputRef = useRef<HTMLInputElement>(null);
+  const photoFileRef = useRef<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
 
   const scrollToSaveActions = useCallback(() => {
     requestAnimationFrame(() => {
@@ -236,6 +238,10 @@ export default function GisIntegrationPanel({
       assetCodeInputRef.current?.focus();
     });
   }, []);
+
+  useEffect(() => () => {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+  }, [photoPreviewUrl]);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -283,6 +289,11 @@ export default function GisIntegrationPanel({
       status: isContractorView ? 'installed' : 'planned',
     });
     setPhotoFile(null);
+    photoFileRef.current = null;
+    setPhotoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setPhotoDocs([]);
     setDialogOpen(true);
   };
@@ -302,6 +313,11 @@ export default function GisIntegrationPanel({
       status: (String(asset.status ?? 'planned') as AssetForm['status']),
     });
     setPhotoFile(null);
+    photoFileRef.current = null;
+    setPhotoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setDialogOpen(true);
     try {
       const { data } = await constructionApi.listDocuments(projectId, {
@@ -338,17 +354,60 @@ export default function GisIntegrationPanel({
     );
   };
 
-  const captureLivePhoto = (file: File) => {
+  const uploadPhoto = async (assetId: string, file?: File | null) => {
+    const uploadFile = file ?? photoFileRef.current ?? photoFile;
+    if (!uploadFile?.size) return;
+    const formData = new FormData();
+    formData.append('file', uploadFile, uploadFile.name || 'site-photo.jpg');
+    formData.append('resourceType', 'construction_asset');
+    formData.append('resourceId', assetId);
+    formData.append('docType', 'site_photo');
+    const { data } = await constructionApi.uploadDocumentFile(projectId, formData);
+    const doc = data as Record<string, unknown>;
+    const fileUrl = String(doc.fileUrl ?? doc.file_url ?? '').trim();
+    if (!fileUrl) {
+      throw new Error('Photo upload succeeded but no file URL was returned.');
+    }
+    await constructionApi.updateAsset(projectId, assetId, { photoUrl: fileUrl });
+  };
+
+  const setCapturedPhoto = (file: File): boolean => {
+    if (!file?.size) {
+      onError('Photo file is empty — retake the picture on site.');
+      return false;
+    }
+    photoFileRef.current = file;
     setPhotoFile(file);
+    setPhotoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    return true;
+  };
+
+  const captureLivePhoto = (file: File) => {
+    if (!setCapturedPhoto(file)) return;
     const afterCapture = () => scrollToSaveActions();
+    const tryImmediateUpload = async () => {
+      if (!editingId) return;
+      try {
+        await uploadPhoto(editingId, file);
+        onSuccess('Site photo uploaded to server.');
+        await load();
+      } catch (err) {
+        onError(formatApiError(err, 'Photo captured but upload failed — tap Save Asset to retry.'));
+      }
+    };
     if (hasGpsCoords(form.latitude, form.longitude)) {
       onSuccess('Live site photo captured — linked to current GPS coordinates.');
       afterCapture();
+      void tryImmediateUpload();
       return;
     }
     if (!navigator.geolocation) {
       onError('Photo captured. GPS unavailable — tap GPS to geotag this asset.');
       afterCapture();
+      void tryImmediateUpload();
       return;
     }
     setPhotoGeotagging(true);
@@ -362,11 +421,13 @@ export default function GisIntegrationPanel({
         setPhotoGeotagging(false);
         onSuccess('Live photo captured with GPS geotag.');
         afterCapture();
+        void tryImmediateUpload();
       },
       (err) => {
         setPhotoGeotagging(false);
         onError(err.message || 'Photo captured but GPS geotag failed — use GPS button.');
         afterCapture();
+        void tryImmediateUpload();
       },
       { enableHighAccuracy: true, timeout: 15000 },
     );
@@ -407,23 +468,6 @@ export default function GisIntegrationPanel({
   const showChainage = PIPELINE_LAYERS.includes(form.assetType);
   const gisTheme = constructionTableTheme('gis');
 
-  const uploadPhoto = async (assetId: string) => {
-    if (!photoFile) return;
-    const formData = new FormData();
-    formData.append('file', photoFile);
-    formData.append('resourceType', 'construction_asset');
-    formData.append('resourceId', assetId);
-    formData.append('docType', 'site_photo');
-    const { data } = await constructionApi.uploadDocumentFile(projectId, formData);
-    const doc = data as Record<string, unknown>;
-    const fileUrl = String(doc.fileUrl ?? doc.file_url ?? '').trim();
-    if (!fileUrl) {
-      throw new Error('Photo upload succeeded but no file URL was returned.');
-    }
-    // Backend sets photoUrl on upload; keep update as belt-and-suspenders.
-    await constructionApi.updateAsset(projectId, assetId, { photoUrl: fileUrl });
-  };
-
   const handleSave = async () => {
     if (!form.assetCode.trim()) {
       onError('Asset ID is required — enter a code in section 1 (e.g. BFG-01).');
@@ -451,9 +495,10 @@ export default function GisIntegrationPanel({
         const { data } = await constructionApi.createAsset(projectId, payload);
         assetId = String((data as Record<string, unknown>).id);
       }
-      if (photoFile && assetId) {
+      const pendingPhoto = photoFileRef.current ?? photoFile;
+      if (pendingPhoto?.size && assetId) {
         try {
-          await uploadPhoto(assetId);
+          await uploadPhoto(assetId, pendingPhoto);
         } catch (photoErr) {
           onError(formatApiError(
             photoErr,
@@ -987,10 +1032,33 @@ export default function GisIntegrationPanel({
                     icon={<PhotoCameraIcon />}
                     label={`${photoFile.name} · ${(photoFile.size / 1024).toFixed(0)} KB`}
                     color="success"
-                    onDelete={() => setPhotoFile(null)}
+                    onDelete={() => {
+                      photoFileRef.current = null;
+                      setPhotoFile(null);
+                      setPhotoPreviewUrl((prev) => {
+                        if (prev) URL.revokeObjectURL(prev);
+                        return null;
+                      });
+                    }}
                   />
                 )}
               </Stack>
+              {photoPreviewUrl && (
+                <Box
+                  component="img"
+                  src={photoPreviewUrl}
+                  alt="Site preview"
+                  sx={{
+                    width: '100%',
+                    maxHeight: 200,
+                    objectFit: 'contain',
+                    borderRadius: 1,
+                    border: 1,
+                    borderColor: 'success.light',
+                    bgcolor: '#111',
+                  }}
+                />
+              )}
               <Typography variant="caption" color="text.secondary">
                 Use device camera at the installation point. Coordinates from GPS are stored with the asset record for verification.
               </Typography>

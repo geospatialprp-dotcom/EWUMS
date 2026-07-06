@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors,
+  Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -563,11 +563,14 @@ export class ConstructionController {
   uploadDocumentFile(
     @CurrentUser() user: JwtPayload,
     @Param('projectId') projectId: string,
-    @UploadedFile() file: { buffer: Buffer; originalname?: string; mimetype?: string },
+    @UploadedFile() file: { buffer: Buffer; originalname?: string; mimetype?: string } | undefined,
     @Body('resourceType') resourceType: UploadDocumentDto['resourceType'],
     @Body('resourceId') resourceId: string,
     @Body('docType') docType: string,
   ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No photo file received — retry capture from mobile camera.');
+    }
     return this.constructionService.uploadDocumentFile(
       user.tenantId,
       projectId,

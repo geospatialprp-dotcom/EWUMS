@@ -27,6 +27,10 @@ api.interceptors.request.use((config) => {
     config.headers['X-Active-Division-Id'] = divisionId;
   }
   config.headers['Accept-Language'] = acceptLanguageHeader();
+  // Let the browser set multipart boundary for file uploads (mobile camera photos).
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
   return config;
 });
 
