@@ -796,7 +796,7 @@ export default function GisIntegrationPanel({
                     />
                   </TableCell>
                   <TableCell>{String(a.mbReference ?? '—')}</TableCell>
-                  <TableCell>
+                  <TableCell align="center" sx={{ width: 56, p: 0.75 }}>
                     <GisAssetPhotoThumb
                       projectId={projectId}
                       asset={a}
@@ -804,58 +804,51 @@ export default function GisIntegrationPanel({
                       onAddPhoto={(canUpdate || canCreate) ? () => { void openEdit(a); } : undefined}
                     />
                   </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: isMobile ? 120 : 100 }}>
-                    <Box display="inline-flex" alignItems="center" justifyContent="flex-end" gap={0.5} flexWrap="wrap">
+                  <TableCell
+                    align="right"
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      width: 112,
+                      minWidth: 112,
+                      p: 0.75,
+                      verticalAlign: 'middle',
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      spacing={0}
+                      alignItems="center"
+                      justifyContent="flex-end"
+                      flexWrap="nowrap"
+                    >
                       {!mapped && (
                         <Tooltip title="GPS coordinates missing">
-                          <PlaceIcon fontSize="small" color="warning" />
+                          <PlaceIcon fontSize="small" color="warning" sx={{ mr: 0.25 }} />
                         </Tooltip>
                       )}
-                      {mapped ? (
-                        isMobile ? (
-                          <Button
+                      <Tooltip title={mapped ? 'View on map' : 'GPS required'}>
+                        <span>
+                          <IconButton
                             size="small"
-                            variant="outlined"
-                            startIcon={<MapOutlinedIcon />}
-                            onClick={() => navigate(buildConstructionAssetMapUrl({
-                              projectId,
-                              assetCode: String(a.assetCode),
-                              latitude: Number(a.latitude),
-                              longitude: Number(a.longitude),
-                              assetName: a.name ? String(a.name) : undefined,
-                              assetType: String(a.assetType),
-                            }))}
-                          >
-                            Map
-                          </Button>
-                        ) : (
-                          <Tooltip title="View on map">
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              onClick={() => navigate(buildConstructionAssetMapUrl({
+                            color="primary"
+                            disabled={!mapped}
+                            onClick={() => {
+                              if (!mapped) return;
+                              navigate(buildConstructionAssetMapUrl({
                                 projectId,
                                 assetCode: String(a.assetCode),
                                 latitude: Number(a.latitude),
                                 longitude: Number(a.longitude),
                                 assetName: a.name ? String(a.name) : undefined,
                                 assetType: String(a.assetType),
-                              }))}
-                              aria-label="View on map"
-                            >
-                              <MapOutlinedIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )
-                      ) : (
-                        <Tooltip title="GPS required">
-                          <span>
-                            <IconButton size="small" disabled aria-label="View on map (GPS required)">
-                              <MapOutlinedIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      )}
+                              }));
+                            }}
+                            aria-label="View on map"
+                          >
+                            <MapOutlinedIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       {(canUpdate || canCreate) && (
                         <Tooltip title="Edit asset">
                           <IconButton size="small" onClick={() => { void openEdit(a); }} aria-label="Edit asset">
@@ -875,7 +868,7 @@ export default function GisIntegrationPanel({
                           </IconButton>
                         </Tooltip>
                       )}
-                    </Box>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               );
