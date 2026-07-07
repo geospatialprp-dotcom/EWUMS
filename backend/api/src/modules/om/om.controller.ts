@@ -190,7 +190,7 @@ export class OmController {
   }
 
   @Post('handovers/:id/submit')
-  @RequirePermissions('om:submit')
+  @RequirePermissions('om:submit', 'om:create', 'om:update')
   @ApiOperation({ summary: 'Submit handover for JE → AE → EE approval workflow' })
   submitHandover(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.omService.submitHandover(user, user.tenantId, user.sub, id);

@@ -2,7 +2,7 @@
 -- Run against production Postgres, then restart the API container.
 -- Users do NOT need to re-login: PermissionsGuard reloads permissions from DB per request.
 
--- Grant om:create + om:update to field roles (idempotent)
+-- Grant om:create + om:update + om:submit to field roles (idempotent)
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id,
   CASE WHEN r.code = 'super_admin' THEN 'organization' ELSE 'division' END
@@ -10,15 +10,15 @@ FROM roles r
 CROSS JOIN permissions p
 WHERE r.tenant_id = 'a0000000-0000-0000-0000-000000000001'
   AND p.resource = 'om'
-  AND p.action IN ('create', 'update')
-  AND r.code IN ('super_admin', 'ee', 'je', 'ae', 'om_operator')
+  AND p.action IN ('create', 'update', 'submit')
+  AND r.code IN ('super_admin', 'ee', 'je', 'ae', 'om_operator', 'contractor')
 ON CONFLICT DO NOTHING;
 
 -- EE-only quick grant (Karanprayag demo user ee.kpg@egip.local)
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT 'b0000000-0000-0000-0000-000000000008', p.id, 'division'
 FROM permissions p
-WHERE p.resource = 'om' AND p.action IN ('create', 'update')
+WHERE p.resource = 'om' AND p.action IN ('create', 'update', 'submit')
 ON CONFLICT DO NOTHING;
 
 -- Verify
