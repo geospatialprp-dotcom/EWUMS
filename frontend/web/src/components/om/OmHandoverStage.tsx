@@ -18,6 +18,8 @@ import {
 import OmHandoverDocuments from './OmHandoverDocuments';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
+import { useAuth } from '../../context/AuthContext';
+import { isContractorUser } from '../../utils/operationalAccess';
 
 type ProjectOption = { id: string; name: string; projectCode: string };
 
@@ -74,6 +76,8 @@ interface Props {
 }
 
 export default function OmHandoverStage({ handovers, onRefresh }: Props) {
+  const { user } = useAuth();
+  const canInitiateHandover = isContractorUser(user?.roles);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -237,6 +241,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
   const outputs = detail?.outputs ?? (detail?.responsibilityMatrix as { outputs?: HandoverRecord['outputs'] })?.outputs;
 
   const isLocked = detail?.status && !['draft', 'rejected'].includes(String(detail.status));
+  const formReadOnly = Boolean(isLocked) || !canInitiateHandover;
 
   return (
     <>
@@ -249,7 +254,9 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 Post-commissioning verification, document generation & O&M agency assignment
               </Typography>
             </Box>
-            <Button variant="contained" size="small" onClick={openNew}>Initiate Handover</Button>
+            <Button variant="contained" size="small" onClick={openNew} disabled={!canInitiateHandover}>
+              Initiate Handover
+            </Button>
           </Box>
         )}
       >
@@ -318,7 +325,11 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
             </Table>
           </TableContainer>
         ) : (
-          <Typography variant="body2" color="text.secondary">No handover records yet. Initiate handover after project commissioning.</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {canInitiateHandover
+              ? 'No handover records yet. Initiate handover after project commissioning.'
+              : 'No handover records yet. Contractor initiates handover after project commissioning.'}
+          </Typography>
         )}
       </SurfaceCard>
 
@@ -340,7 +351,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 <Select
                   value={form.projectId}
                   label="Project (optional)"
-                  disabled={Boolean(isLocked)}
+                  disabled={formReadOnly}
                   onChange={(e) => {
                     const pid = String(e.target.value);
                     const proj = projects.find((p) => p.id === pid) ?? null;
@@ -361,7 +372,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
               <TextField
                 fullWidth size="small" label="Scheme Name" required
                 value={form.schemeName}
-                disabled={Boolean(isLocked)}
+                disabled={formReadOnly}
                 onChange={(e) => setForm((f) => ({ ...f, schemeName: e.target.value }))}
               />
             </Grid>
@@ -375,7 +386,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
 
           <OmHandoverDocuments
             handoverId={editingId}
-            locked={Boolean(isLocked)}
+            locked={formReadOnly}
             onDocumentApproved={async () => {
               if (!editingId) return;
               const { data } = await omApi.getHandover(editingId);
@@ -407,7 +418,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                   control={(
                     <Checkbox
                       checked={Boolean(form[v.key as keyof HandoverFormState])}
-                      disabled={Boolean(isLocked)}
+                      disabled={formReadOnly}
                       onChange={(e) => setForm((f) => ({ ...f, [v.key]: e.target.checked }))}
                     />
                   )}
@@ -425,7 +436,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 <Select
                   value={form.omAgencyType}
                   label="Agency Type"
-                  disabled={Boolean(isLocked)}
+                  disabled={formReadOnly}
                   onChange={(e) => setForm((f) => ({ ...f, omAgencyType: e.target.value }))}
                 >
                   {OM_AGENCY_OPTIONS.map((o) => (
@@ -439,7 +450,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 fullWidth size="small" label="Agency Name"
                 placeholder="e.g. Uttarakhand Jal Sansthan / VWSC Name"
                 value={form.omAgencyName}
-                disabled={Boolean(isLocked)}
+                disabled={formReadOnly}
                 onChange={(e) => setForm((f) => ({ ...f, omAgencyName: e.target.value }))}
               />
             </Grid>
@@ -486,7 +497,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
         </DialogContent>
         <DialogActions sx={omDialogActionsSx}>
           <Button onClick={() => setDialogOpen(false)}>Close</Button>
-          {!isLocked && (
+          {!isLocked && canInitiateHandover && (
             <>
               <Button onClick={save} disabled={busy || !form.schemeName}>Save Draft</Button>
               <Button variant="outlined" onClick={generate} disabled={busy || verificationPct < 100 || !form.omAgencyName}>

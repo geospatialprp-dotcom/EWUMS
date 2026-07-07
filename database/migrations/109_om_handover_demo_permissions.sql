@@ -1,5 +1,4 @@
--- Handover submit + contractor demo access (Stage 1 O&M).
--- EE/AE/JE can initiate; contractor can submit handover before JE verification.
+-- Handover submit + contractor-only O&M handover initiation (Stage 1).
 
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id,

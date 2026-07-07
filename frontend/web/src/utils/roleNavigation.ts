@@ -1,5 +1,5 @@
 import { isSecretariatReviewer } from '../constants/dprPlanningWorkflow';
-import { isSuperAdmin } from './operationalAccess';
+import { isContractorUser, isSuperAdmin } from './operationalAccess';
 
 /** Landing route after login for Secretariat officials. */
 export const SECRETARIAT_HOME = '/dpr-planning';
@@ -19,5 +19,7 @@ export function isSecretariatAllowedPath(pathname: string): boolean {
 }
 
 export function getDefaultHomePath(roles?: string[] | null): string {
-  return isSecretariatScopedUser(roles) ? SECRETARIAT_HOME : '/map';
+  if (isSecretariatScopedUser(roles)) return SECRETARIAT_HOME;
+  if (isContractorUser(roles)) return '/projects';
+  return '/map';
 }

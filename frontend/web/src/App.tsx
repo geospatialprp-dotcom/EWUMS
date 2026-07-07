@@ -104,7 +104,7 @@ export default function App() {
                   <PermissionRoute permission="project:read"><PlatformModulesPage /></PermissionRoute>
                 } />
                 <Route path="/map" element={
-                  <PermissionRoute permissions={['layer:read', 'project:read']}><MapPage /></PermissionRoute>
+                  <PermissionRoute permissions={['layer:read', 'project:read', 'construction:read']}><MapPage /></PermissionRoute>
                 } />
                 <Route path="/dashboard" element={
                   <PermissionRoute permission="dashboard:read"><DashboardPage /></PermissionRoute>

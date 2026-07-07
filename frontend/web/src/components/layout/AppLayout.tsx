@@ -77,7 +77,7 @@ interface NavItem {
 
 const mainNav: NavItem[] = [
   { path: '/platform', labelKey: 'nav.platformModules', icon: <AppsOutlinedIcon />, permission: 'project:read' },
-  { path: '/map', labelKey: 'nav.mapExplorer', icon: <MapIcon />, permission: 'layer:read' },
+  { path: '/map', labelKey: 'nav.mapExplorer', icon: <MapIcon />, permission: 'project:read' },
   { path: '/dashboard', labelKey: 'nav.executiveDashboard', icon: <DashboardIcon />, permission: 'dashboard:read' },
   { path: '/assets', labelKey: 'nav.assetRegistry', icon: <InventoryIcon />, permission: 'asset:read' },
   { path: '/workflows', labelKey: 'nav.workflowCenter', icon: <InboxIcon />, permission: 'project:read' },

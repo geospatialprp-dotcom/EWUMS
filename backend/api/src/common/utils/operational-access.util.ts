@@ -5,6 +5,16 @@ export function isSuperAdmin(roles?: string[] | null): boolean {
   return roles?.includes('super_admin') ?? false;
 }
 
+export function isContractorUser(roles?: string[] | null): boolean {
+  return Boolean(roles?.includes('contractor') && !isSuperAdmin(roles));
+}
+
+export function assertContractorHandoverInitiator(user: JwtPayload): void {
+  if (!isContractorUser(user.roles)) {
+    throw new ForbiddenException('Only the contractor can initiate O&M asset handover.');
+  }
+}
+
 export function assertNotSuperAdminForOperations(user: JwtPayload, action: string): void {
   if (isSuperAdmin(user.roles)) {
     throw new ForbiddenException(

@@ -2,6 +2,10 @@ export function isSuperAdmin(roles?: string[] | null): boolean {
   return roles?.includes('super_admin') ?? false;
 }
 
+export function isContractorUser(roles?: string[] | null): boolean {
+  return Boolean(roles?.includes('contractor') && !isSuperAdmin(roles));
+}
+
 export const SUPER_ADMIN_VIEW_ONLY_MESSAGE =
   'Super Admin has view-only access; use a division login for operational tasks.';
 
