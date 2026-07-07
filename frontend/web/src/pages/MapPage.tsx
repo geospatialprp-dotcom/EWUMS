@@ -488,12 +488,13 @@ export default function MapPage() {
     }
   }, [layerJurisdiction]);
 
-  const applyMapAccessView = useCallback((access: MapAccessContext) => {
+  const applyMapAccessView = useCallback((access: MapAccessContext, options?: { skipFly?: boolean }) => {
     setMapAccess(access);
     setMapCenter(access.mapView.center);
     setMapZoom(access.mapView.zoom);
     setJurisdictionRevision((value) => value + 1);
     setFitLayerId('');
+    if (options?.skipFly) return;
     jurisdictionFlyRevisionRef.current += 1;
     setFlyToTarget({
       lon: access.mapView.center[0],
@@ -631,7 +632,7 @@ export default function MapPage() {
       if (accessResult.status === 'fulfilled') {
         const accessData = accessResult.value.data;
         if (accessData && typeof accessData === 'object' && 'mapView' in accessData) {
-          applyMapAccessView(accessData as MapAccessContext);
+          applyMapAccessView(accessData as MapAccessContext, { skipFly: Boolean(assetFocusParam) });
         } else {
           applyMapAccessView({
             accessScope: 'global',
@@ -645,7 +646,7 @@ export default function MapPage() {
             mapView: { center: UTTARAKHAND_STATE_MAP_VIEW.center, zoom: UTTARAKHAND_STATE_MAP_VIEW.zoom },
             bbox: UTTARAKHAND_STATE_MAP_VIEW.bbox,
             allowedProjectCount: null,
-          });
+          }, { skipFly: Boolean(assetFocusParam) });
         }
       } else {
         applyMapAccessView({
@@ -660,7 +661,7 @@ export default function MapPage() {
           mapView: { center: UTTARAKHAND_STATE_MAP_VIEW.center, zoom: UTTARAKHAND_STATE_MAP_VIEW.zoom },
           bbox: UTTARAKHAND_STATE_MAP_VIEW.bbox,
           allowedProjectCount: null,
-        });
+        }, { skipFly: Boolean(assetFocusParam) });
         setMapError(formatApiError(accessResult.reason, 'Could not load map jurisdiction. Showing default view.'));
       }
 
@@ -688,7 +689,7 @@ export default function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [focusLayerId, basemapParam, effectiveDivisionId, projectParam, divisionScopeKey, searchParams.get('t'), applyMapAccessView, hqGlobalView, hasMapScope]);
+  }, [focusLayerId, basemapParam, effectiveDivisionId, projectParam, divisionScopeKey, searchParams.get('t'), applyMapAccessView, hqGlobalView, hasMapScope, assetFocusParam]);
 
   useEffect(() => {
     setLayerVisibility((prev) => {
@@ -1453,13 +1454,13 @@ export default function MapPage() {
       }));
     };
 
-    // Run after jurisdiction auto-fit so the asset pin is not overridden on first load.
-    const frame = requestAnimationFrame(() => {
-      requestAnimationFrame(applyAssetFly);
-    });
+    // Run after map layout + jurisdiction setup so district bbox fit does not override the pin.
+    const t1 = window.setTimeout(applyAssetFly, 50);
+    const t2 = window.setTimeout(applyAssetFly, 600);
 
     return () => {
-      cancelAnimationFrame(frame);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
     };
   }, [mapReady, assetFocusParam, mapAccess, clearIdentify]);
 
@@ -1968,6 +1969,7 @@ export default function MapPage() {
                 jurisdictionBbox={mapAccess?.bbox ?? UTTARAKHAND_STATE_MAP_VIEW.bbox}
                 jurisdictionRevision={jurisdictionRevision}
                 jurisdictionBboxKey={jurisdictionBboxKey}
+                suppressJurisdictionFit={Boolean(assetFocusParam)}
                 center={mapCenter}
                 zoom={mapZoom}
                 activeTool={activeTool}

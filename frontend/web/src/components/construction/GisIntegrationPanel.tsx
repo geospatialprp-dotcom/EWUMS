@@ -27,7 +27,7 @@ import ConstructionStyledTableHead, {
   constructionSectionBarSx, constructionTableShellSx, constructionTableTheme,
 } from './ConstructionStyledTableHead';
 import DprPhotoGallery from './DprPhotoGallery';
-import { buildConstructionAssetMapUrl, buildProjectGisMapExplorerUrl } from '../../utils/mapExplorerLinks';
+import { buildConstructionAssetMapUrl, buildProjectGisMapExplorerUrl, normalizeConstructionGps } from '../../utils/mapExplorerLinks';
 
 type AssetRecord = Record<string, unknown>;
 
@@ -74,7 +74,16 @@ function hasGpsCoords(lat: string, lng: string): boolean {
 }
 
 function mapsUrl(lat: string, lng: string): string {
-  return `https://www.google.com/maps?q=${lat},${lng}`;
+  const { lat: normLat, lng: normLng } = normalizeConstructionGps(Number(lat), Number(lng));
+  return `https://www.google.com/maps?q=${normLat},${normLng}`;
+}
+
+function gpsFormValues(lat: number, lng: number): Pick<AssetForm, 'latitude' | 'longitude'> {
+  const { lat: normLat, lng: normLng } = normalizeConstructionGps(lat, lng);
+  return {
+    latitude: normLat.toFixed(6),
+    longitude: normLng.toFixed(6),
+  };
 }
 
 function assetPhotoUrl(asset: AssetRecord): string {
@@ -440,8 +449,7 @@ export default function GisIntegrationPanel({
       (pos) => {
         setForm((prev) => ({
           ...prev,
-          latitude: pos.coords.latitude.toFixed(6),
-          longitude: pos.coords.longitude.toFixed(6),
+          ...gpsFormValues(pos.coords.latitude, pos.coords.longitude),
         }));
         setGpsCapturing(false);
         onSuccess('GPS coordinates captured.');
@@ -530,8 +538,7 @@ export default function GisIntegrationPanel({
       (pos) => {
         setForm((prev) => ({
           ...prev,
-          latitude: pos.coords.latitude.toFixed(6),
-          longitude: pos.coords.longitude.toFixed(6),
+          ...gpsFormValues(pos.coords.latitude, pos.coords.longitude),
         }));
         setPhotoGeotagging(false);
         onSuccess('Live photo captured with GPS geotag.');
@@ -591,12 +598,17 @@ export default function GisIntegrationPanel({
     }
     setSaving(true);
     try {
+      const latNum = form.latitude ? Number(form.latitude) : undefined;
+      const lngNum = form.longitude ? Number(form.longitude) : undefined;
+      const normalizedGps = latNum != null && lngNum != null
+        ? normalizeConstructionGps(latNum, lngNum)
+        : null;
       const payload = {
         assetCode: form.assetCode.trim(),
         assetType: form.assetType,
         name: form.name.trim() || undefined,
-        latitude: form.latitude ? Number(form.latitude) : undefined,
-        longitude: form.longitude ? Number(form.longitude) : undefined,
+        latitude: normalizedGps?.lat ?? latNum,
+        longitude: normalizedGps?.lng ?? lngNum,
         chainage: form.chainage.trim() || undefined,
         installationDate: form.installationDate || undefined,
         contractorName: form.contractorName.trim() || undefined,

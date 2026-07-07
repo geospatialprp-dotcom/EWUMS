@@ -1,4 +1,17 @@
 /** Deep-link into Map Explorer for a construction GIS asset with GPS coordinates. */
+
+const UTTARAKHAND_LAT_RANGE = [28, 32] as const;
+const UTTARAKHAND_LON_RANGE = [77, 82] as const;
+
+/** Fix common mobile GPS lat/lng swap for Uttarakhand field assets. */
+export function normalizeConstructionGps(lat: number, lng: number): { lat: number; lng: number } {
+  const inLatBand = (v: number) => v >= UTTARAKHAND_LAT_RANGE[0] && v <= UTTARAKHAND_LAT_RANGE[1];
+  const inLonBand = (v: number) => v >= UTTARAKHAND_LON_RANGE[0] && v <= UTTARAKHAND_LON_RANGE[1];
+  if (inLatBand(lat) && inLonBand(lng)) return { lat, lng };
+  if (inLatBand(lng) && inLonBand(lat)) return { lat: lng, lng: lat };
+  return { lat, lng };
+}
+
 export function buildConstructionAssetMapUrl(options: {
   projectId: string;
   assetCode: string;
@@ -8,10 +21,11 @@ export function buildConstructionAssetMapUrl(options: {
   assetType?: string;
   zoom?: number;
 }): string {
+  const { lat, lng } = normalizeConstructionGps(options.latitude, options.longitude);
   const params = new URLSearchParams();
   params.set('project', options.projectId);
-  params.set('lat', String(options.latitude));
-  params.set('lng', String(options.longitude));
+  params.set('lat', String(lat));
+  params.set('lng', String(lng));
   params.set('asset', options.assetCode);
   if (options.assetName?.trim()) {
     params.set('assetName', options.assetName.trim());
@@ -61,11 +75,12 @@ export type ConstructionAssetMapFocus = {
 export function parseConstructionAssetMapFocus(
   searchParams: URLSearchParams,
 ): ConstructionAssetMapFocus | null {
-  const lat = Number(searchParams.get('lat'));
-  const lng = Number(searchParams.get('lng'));
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) {
+  const latRaw = Number(searchParams.get('lat'));
+  const lngRaw = Number(searchParams.get('lng'));
+  if (!Number.isFinite(latRaw) || !Number.isFinite(lngRaw) || latRaw === 0 || lngRaw === 0) {
     return null;
   }
+  const { lat, lng } = normalizeConstructionGps(latRaw, lngRaw);
   const assetCode = searchParams.get('asset') ?? searchParams.get('focusAsset') ?? '';
   const zoomRaw = Number(searchParams.get('zoom'));
   const zoom = Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 18;

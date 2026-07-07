@@ -118,6 +118,8 @@ interface MapViewerProps {
   jurisdictionBbox?: [number, number, number, number] | null;
   jurisdictionRevision?: number;
   jurisdictionBboxKey?: string;
+  /** When true, skip auto-fit to jurisdiction (GIS asset deep-link owns the view). */
+  suppressJurisdictionFit?: boolean;
 }
 
 export type { MapFlyTarget, MapFeaturePick, MapFocusFeature };
@@ -510,6 +512,7 @@ export default function MapViewer({
   jurisdictionBbox = null,
   jurisdictionRevision = 0,
   jurisdictionBboxKey = '',
+  suppressJurisdictionFit = false,
 }: MapViewerProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<OlMap | null>(null);
@@ -997,7 +1000,7 @@ export default function MapViewer({
   }, [fitToLayerId, fitToLayerIds, fitRevision, overlayLayers]);
 
   useEffect(() => {
-    if (!mapInstance.current || !jurisdictionBbox) return;
+    if (!mapInstance.current || !jurisdictionBbox || suppressJurisdictionFit) return;
     const map = mapInstance.current;
     let attempts = 0;
 
@@ -1009,7 +1012,7 @@ export default function MapViewer({
     };
 
     tryApply();
-  }, [jurisdictionBbox, jurisdictionRevision, jurisdictionBboxKey]);
+  }, [jurisdictionBbox, jurisdictionRevision, jurisdictionBboxKey, suppressJurisdictionFit]);
 
   useEffect(() => {
     if (!mapInstance.current || !flyToTarget) return;
