@@ -28,6 +28,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import { useAuth } from '../../context/AuthContext';
+import { isContractorUser } from '../../utils/operationalAccess';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { isSecretariatScopedUser } from '../../utils/roleNavigation';
 import { APP_BRAND } from '../../constants/branding';
@@ -130,12 +131,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const drawerWidth = drawerCollapsed ? DRAWER_WIDTH_MINI : DRAWER_WIDTH;
 
   const secretariatScoped = isSecretariatScopedUser(user?.roles);
+  const contractorScoped = isContractorUser(user?.roles);
 
   const filterNav = (items: NavItem[]) =>
     items.filter((item) => !item.permission || hasPermission(item.permission));
 
+  const filterManagementNav = (items: NavItem[]) => {
+    const allowed = filterNav(items);
+    if (!contractorScoped) return allowed;
+    return allowed.filter((item) => ['/projects', '/om'].includes(item.path));
+  };
+
   const visibleMainNav = secretariatScoped ? [] : filterNav(mainNav);
-  const visibleManagementNav = secretariatScoped ? filterNav(secretariatNav) : filterNav(managementNav);
+  const visibleManagementNav = secretariatScoped ? filterNav(secretariatNav) : filterManagementNav(managementNav);
   const visibleAdminNav = secretariatScoped ? [] : filterNav(adminNav);
 
   const renderNavItems = (items: NavItem[]) =>

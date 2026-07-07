@@ -73,9 +73,10 @@ function verificationLabel(h: HandoverRecord): string {
 interface Props {
   handovers: HandoverRecord[];
   onRefresh: () => void;
+  contractorView?: boolean;
 }
 
-export default function OmHandoverStage({ handovers, onRefresh }: Props) {
+export default function OmHandoverStage({ handovers, onRefresh, contractorView = false }: Props) {
   const { user } = useAuth();
   const canInitiateHandover = isContractorUser(user?.roles);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
@@ -245,13 +246,38 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
 
   return (
     <>
+      {contractorView && (
+        <SurfaceCard cardSx={{ mb: 2 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '0.9375rem', mb: 1 }}>Contractor handover steps</Typography>
+          <Box component="ol" sx={{ m: 0, pl: 2.5, mb: 1.5 }}>
+            {[
+              'Link commissioned scheme / project',
+              'Upload completion certificates & as-built documents (e-DMS)',
+              'Verify commissioning, GIS mapping, asset register & FHTC',
+              'Assign O&M agency (e.g. Uttarakhand Jal Sansthan)',
+              'Generate handover certificate & asset registers',
+              'Submit for Approval → JE review in Workflow Center',
+            ].map((step) => (
+              <Typography component="li" variant="body2" key={step} sx={{ mb: 0.5 }}>{step}</Typography>
+            ))}
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            JE, AE, and EE manage verification and approval after you submit. Track status below or in Workflow Center → My Submissions.
+          </Typography>
+        </SurfaceCard>
+      )}
+
       <SurfaceCard
         header={(
           <Box display="flex" justifyContent="space-between" alignItems="center" width="100%">
             <Box>
-              <Typography sx={{ fontWeight: 700, fontSize: '0.9375rem' }}>Asset Handover Register</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: '0.9375rem' }}>
+                {contractorView ? 'My Handover Submissions' : 'Asset Handover Register'}
+              </Typography>
               <Typography variant="caption" color="text.secondary">
-                Post-commissioning verification, document generation & O&M agency assignment
+                {contractorView
+                  ? 'Create, update, and submit your scheme handover package'
+                  : 'Post-commissioning verification, document generation & O&M agency assignment'}
               </Typography>
             </Box>
             <Button variant="contained" size="small" onClick={openNew} disabled={!canInitiateHandover}>

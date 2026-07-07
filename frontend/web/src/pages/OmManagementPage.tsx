@@ -40,6 +40,8 @@ import { OM_GIS_DASHBOARD_PANELS } from '../constants/omDashboard';
 import { OM_REPORT_TYPES } from '../constants/omReports';
 import { OM_BREAKDOWN_CATALOG } from '../constants/omBreakdown';
 import { useDivisionScopeKey } from '../context/DivisionContext';
+import { useAuth } from '../context/AuthContext';
+import { isContractorUser } from '../utils/operationalAccess';
 import { useTranslation } from '../context/LanguageContext';
 import { useLocalizedOmWorkflowStages, usePageCopy } from '../hooks/useLocalizedOmWorkflow';
 import {
@@ -273,6 +275,8 @@ function StageOverview({ stageKey, stages }: { stageKey: OmStageKey; stages: OmW
 }
 
 export default function OmManagementPage() {
+  const { user } = useAuth();
+  const contractorView = isContractorUser(user?.roles);
   const [tab, setTab] = useState(0);
   const [dashboard, setDashboard] = useState<Record<string, number | null>>({});
   const [handovers, setHandovers] = useState<Array<Record<string, unknown>>>([]);
@@ -344,6 +348,50 @@ export default function OmManagementPage() {
     if (key) window.history.replaceState(null, '', `#${key}`);
     scrollToStagePanel();
   };
+
+  const submittedHandovers = handovers.filter((h) => {
+    const status = String(h.status ?? '');
+    return status && !['draft', 'rejected'].includes(status);
+  }).length;
+
+  if (contractorView) {
+    return (
+      <PageShell fullHeight>
+        <PageHeader
+          eyebrow="Contractor · Post-commissioning"
+          title="Scheme Handover Submission"
+          subtitle="Upload completion documents, verify commissioning, and submit the handover package. JE and department management approve in Workflow Center."
+          accent="teal"
+          leading={<BuildCircleOutlinedIcon sx={{ fontSize: 36, color: '#0d9488', mt: 0.5 }} />}
+        />
+
+        {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+        <Alert severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
+          <strong>Your role:</strong> initiate handover, upload e-DMS documents, complete verifications, generate outputs, and submit.
+          After submit, <strong>JE → AE → EE</strong> review in <strong>Workflow Center</strong> (not on this page).
+        </Alert>
+
+        <Grid container spacing={2} mb={2.5}>
+          <Grid item xs={6} sm={4} md={3}>
+            <KpiStatCard label="My Handover Records" value={handovers.length} tone="teal" />
+          </Grid>
+          <Grid item xs={6} sm={4} md={3}>
+            <KpiStatCard label="Submitted for Review" value={submittedHandovers} tone="blue" />
+          </Grid>
+          <Grid item xs={6} sm={4} md={3}>
+            <KpiStatCard
+              label="Draft / In Progress"
+              value={Math.max(0, handovers.length - submittedHandovers)}
+              tone="amber"
+            />
+          </Grid>
+        </Grid>
+
+        <OmHandoverStage handovers={handovers} onRefresh={load} contractorView />
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell fullHeight>
