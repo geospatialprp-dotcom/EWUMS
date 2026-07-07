@@ -27,11 +27,12 @@ sudo -u "${APP_USER}" git checkout "${BRANCH}" 2>/dev/null || true
 sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
 echo "    Commit: $(sudo -u "${APP_USER}" git -C "${ROOT}" rev-parse --short HEAD) $(sudo -u "${APP_USER}" git -C "${ROOT}" log -1 --format='%s')"
 
-echo "==> 2. DB migrations (096–107)"
+echo "==> 2. DB migrations (096–108)"
 for mig in 096_project_deletion_ee_approval.sql 097_secretariat_dpr_role.sql 098_secretariat_stage8_dpr_update.sql \
   099_ee_project_create_after_tender.sql 100_super_admin_no_dpr_proposal_create.sql 101_audit_log_gps_coordinates.sql \
   102_ee_construction_planning_permissions.sql 103_dpr_ee_review_status.sql 104_dpr_whole_job_progress.sql \
-  105_mb_number_not_unique.sql 106_contractor_map_read.sql 107_construction_asset_document_type.sql; do
+  105_mb_number_not_unique.sql 106_contractor_map_read.sql 107_construction_asset_document_type.sql \
+  108_om_submit_permissions.sql; do
   if [[ -f "${ROOT}/database/migrations/${mig}" ]]; then
     echo "    Applying ${mig}..."
     if ! "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
