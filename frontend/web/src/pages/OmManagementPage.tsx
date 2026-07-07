@@ -38,6 +38,7 @@ import { OM_CONTRACT_KPIS, OM_CONTRACT_MONITORING_AREAS } from '../constants/omC
 import { OM_LIFECYCLE_CATEGORIES } from '../constants/omLifecycle';
 import { OM_GIS_DASHBOARD_PANELS } from '../constants/omDashboard';
 import { OM_REPORT_TYPES } from '../constants/omReports';
+import { OM_BREAKDOWN_CATALOG } from '../constants/omBreakdown';
 import { useDivisionScopeKey } from '../context/DivisionContext';
 import { useTranslation } from '../context/LanguageContext';
 import { useLocalizedOmWorkflowStages, usePageCopy } from '../hooks/useLocalizedOmWorkflow';
@@ -207,7 +208,7 @@ function StageOverview({ stageKey, stages }: { stageKey: OmStageKey; stages: OmW
       {stageKey === 'breakdown' && (
         <OmSectionCard title="Breakdown complaint categories" accent="operations">
           <Grid container spacing={1.5}>
-            {BD_CATALOG.map((g) => (
+            {OM_BREAKDOWN_CATALOG.map((g) => (
               <Grid item xs={12} sm={6} md={3} key={g.group}>
                 <OmInfoTile title={g.label}>
                   <Typography variant="caption" color="text.secondary">
