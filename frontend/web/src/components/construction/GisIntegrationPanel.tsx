@@ -1094,7 +1094,7 @@ export default function GisIntegrationPanel({
               {gpsAccuracyM != null && (
                 <Grid item xs={12}>
                   <Typography variant="caption" color={gpsAccuracyM <= GPS_MIN_ACCEPTABLE_ACCURACY_M ? 'success.main' : 'warning.main'}>
-                    GPS accuracy: ±{Math.round(gpsAccuracyM)} m (target: <= {GPS_MIN_ACCEPTABLE_ACCURACY_M} m)
+                    GPS accuracy: ±{Math.round(gpsAccuracyM)} m (target: {'<='} {GPS_MIN_ACCEPTABLE_ACCURACY_M} m)
                   </Typography>
                 </Grid>
               )}
