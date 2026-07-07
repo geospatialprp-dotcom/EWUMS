@@ -27,7 +27,7 @@ import ConstructionStyledTableHead, {
   constructionSectionBarSx, constructionTableShellSx, constructionTableTheme,
 } from './ConstructionStyledTableHead';
 import DprPhotoGallery from './DprPhotoGallery';
-import { buildConstructionAssetMapUrl, buildProjectGisMapExplorerUrl, normalizeConstructionGps } from '../../utils/mapExplorerLinks';
+import { buildConstructionAssetMapUrl, buildProjectGisMapExplorerUrl, normalizeConstructionGps, readAssetLatitude, readAssetLongitude } from '../../utils/mapExplorerLinks';
 
 type AssetRecord = Record<string, unknown>;
 
@@ -58,8 +58,9 @@ const emptyForm = (): AssetForm => ({
 });
 
 function isMapped(asset: AssetRecord): boolean {
-  return asset.latitude != null && asset.longitude != null
-    && String(asset.latitude) !== '' && String(asset.longitude) !== '';
+  const lat = readAssetLatitude(asset);
+  const lng = readAssetLongitude(asset);
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
 }
 
 function formatCoord(value: unknown): string {
@@ -796,8 +797,8 @@ export default function GisIntegrationPanel({
                   <TableCell>{String(a.assetCode)}</TableCell>
                   <TableCell>{GIS_ASSET_LABELS[String(a.assetType) as GisAssetType] ?? String(a.assetType)}</TableCell>
                   <TableCell>{String(a.name ?? '—')}</TableCell>
-                  <TableCell>{formatCoord(a.latitude)}</TableCell>
-                  <TableCell>{formatCoord(a.longitude)}</TableCell>
+                  <TableCell>{formatCoord(readAssetLatitude(a))}</TableCell>
+                  <TableCell>{formatCoord(readAssetLongitude(a))}</TableCell>
                   <TableCell>{a.installationDate ? String(a.installationDate).slice(0, 10) : '—'}</TableCell>
                   <TableCell>{String(a.contractorName ?? '—')}</TableCell>
                   <TableCell>
@@ -849,8 +850,8 @@ export default function GisIntegrationPanel({
                               navigate(buildConstructionAssetMapUrl({
                                 projectId,
                                 assetCode: String(a.assetCode),
-                                latitude: Number(a.latitude),
-                                longitude: Number(a.longitude),
+                                latitude: readAssetLatitude(a),
+                                longitude: readAssetLongitude(a),
                                 assetName: a.name ? String(a.name) : undefined,
                                 assetType: String(a.assetType),
                               }));

@@ -12,6 +12,14 @@ export function normalizeConstructionGps(lat: number, lng: number): { lat: numbe
   return { lat, lng };
 }
 
+export function readAssetLatitude(asset: Record<string, unknown>): number {
+  return Number(asset.latitude ?? asset.lat);
+}
+
+export function readAssetLongitude(asset: Record<string, unknown>): number {
+  return Number(asset.longitude ?? asset.lng ?? asset.lon);
+}
+
 export function buildConstructionAssetMapUrl(options: {
   projectId: string;
   assetCode: string;
@@ -43,17 +51,18 @@ export function buildProjectGisMapExplorerUrl(
   assets: Array<{ assetCode?: string; name?: string; assetType?: string; latitude?: unknown; longitude?: unknown }>,
 ): string {
   const mapped = assets.filter((a) => {
-    const lat = Number(a.latitude);
-    const lng = Number(a.longitude);
+    const lat = readAssetLatitude(a as Record<string, unknown>);
+    const lng = readAssetLongitude(a as Record<string, unknown>);
     return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
   });
   if (mapped.length >= 1) {
     const a = mapped[0];
+    const rec = a as Record<string, unknown>;
     return buildConstructionAssetMapUrl({
       projectId,
       assetCode: String(a.assetCode ?? 'asset'),
-      latitude: Number(a.latitude),
-      longitude: Number(a.longitude),
+      latitude: readAssetLatitude(rec),
+      longitude: readAssetLongitude(rec),
       assetName: a.name ? String(a.name) : undefined,
       assetType: a.assetType ? String(a.assetType) : undefined,
     });
@@ -75,8 +84,8 @@ export type ConstructionAssetMapFocus = {
 export function parseConstructionAssetMapFocus(
   searchParams: URLSearchParams,
 ): ConstructionAssetMapFocus | null {
-  const latRaw = Number(searchParams.get('lat'));
-  const lngRaw = Number(searchParams.get('lng'));
+  const latRaw = Number(searchParams.get('lat') ?? searchParams.get('latitude'));
+  const lngRaw = Number(searchParams.get('lng') ?? searchParams.get('longitude'));
   if (!Number.isFinite(latRaw) || !Number.isFinite(lngRaw) || latRaw === 0 || lngRaw === 0) {
     return null;
   }

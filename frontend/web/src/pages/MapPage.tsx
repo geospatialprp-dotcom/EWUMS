@@ -18,7 +18,7 @@ import MapInfoDialog from '../components/map/MapInfoDialog';
 import MapSpatialAnalysisPanel from '../components/map/MapSpatialAnalysisPanel';
 import DigitizeAttributeDialog from '../components/map/DigitizeAttributeDialog';
 import {
-  featureClassesApi, gisApi, projectsApi,
+  featureClassesApi, gisApi, projectsApi, constructionApi,
   type FeatureClassRecord, type LayerJurisdictionMeta, type MapAccessContext, type ProjectFeatureRecord,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -64,7 +64,7 @@ import {
   OUTSIDE_DISTRICT_LAYER_MESSAGE,
   OUTSIDE_JURISDICTION_MESSAGE,
 } from '../utils/jurisdictionGeometry';
-import { parseConstructionAssetMapFocus, type ConstructionAssetMapFocus } from '../utils/mapExplorerLinks';
+import { parseConstructionAssetMapFocus, normalizeConstructionGps, readAssetLatitude, readAssetLongitude, type ConstructionAssetMapFocus } from '../utils/mapExplorerLinks';
 import { GIS_ASSET_LABELS, type GisAssetType } from '../constants/construction';
 
 type GeoFeature = {
@@ -95,6 +95,7 @@ type LayerGroup = {
 const BASEMAP_GROUP_NAME = 'Basemaps';
 const SPATIAL_RESULTS_LAYER_ID = '__spatial_results__';
 const DISTRICT_BOUNDARIES_LAYER_ID = '__district_boundaries__';
+const CONSTRUCTION_GIS_LAYER_ID = '__construction_gis_assets__';
 
 const DISTRICT_STROKE_COLORS = [
   '#1565C0', '#C62828', '#2E7D32', '#6A1B9A', '#EF6C00',
@@ -252,6 +253,7 @@ export default function MapPage() {
   const [mapZoom, setMapZoom] = useState(UTTARAKHAND_STATE_MAP_VIEW.zoom);
   const [jurisdictionRevision, setJurisdictionRevision] = useState(0);
   const [constructionAssetFocus, setConstructionAssetFocus] = useState<ConstructionAssetMapFocus | null>(null);
+  const [constructionGisAssets, setConstructionGisAssets] = useState<Array<Record<string, unknown>>>([]);
   const assetFocusAppliedRef = useRef('');
 
   const catalogBasemaps = useMemo(
@@ -692,6 +694,22 @@ export default function MapPage() {
   }, [focusLayerId, basemapParam, effectiveDivisionId, projectParam, divisionScopeKey, searchParams.get('t'), applyMapAccessView, hqGlobalView, hasMapScope, assetFocusParam]);
 
   useEffect(() => {
+    if (!projectParam) {
+      setConstructionGisAssets([]);
+      return undefined;
+    }
+    let cancelled = false;
+    void constructionApi.listAssets(projectParam)
+      .then((res) => {
+        if (!cancelled) setConstructionGisAssets(res.data as Array<Record<string, unknown>>);
+      })
+      .catch(() => {
+        if (!cancelled) setConstructionGisAssets([]);
+      });
+    return () => { cancelled = true; };
+  }, [projectParam]);
+
+  useEffect(() => {
     setLayerVisibility((prev) => {
       const next = { ...prev };
       let changed = false;
@@ -1078,8 +1096,43 @@ export default function MapPage() {
       });
     }
 
+    if (projectParam && constructionGisAssets.length > 0) {
+      const gisFeatures = constructionGisAssets
+        .map((asset) => {
+          const lat = readAssetLatitude(asset);
+          const lng = readAssetLongitude(asset);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return null;
+          const { lat: nLat, lng: nLng } = normalizeConstructionGps(lat, lng);
+          const code = String(asset.assetCode ?? 'asset');
+          const focused = assetFocusParam?.assetCode === code;
+          return {
+            type: 'Feature' as const,
+            id: String(asset.id ?? code),
+            geometry: { type: 'Point' as const, coordinates: [nLng, nLat] },
+            properties: {
+              assetCode: code,
+              name: asset.name,
+              assetType: asset.assetType,
+              markerColor: focused ? '#D32F2F' : '#1565C0',
+              markerRadius: focused ? 11 : 8,
+            },
+          };
+        })
+        .filter((f): f is NonNullable<typeof f> => f != null);
+      if (gisFeatures.length > 0) {
+        layers.push({
+          id: CONSTRUCTION_GIS_LAYER_ID,
+          name: 'Contractor GIS Assets',
+          visible: true,
+          geometryType: 'Point',
+          style: { stroke: '#1565C0', fill: '#1565C0', width: 2, radius: 8 },
+          features: { type: 'FeatureCollection' as const, features: gisFeatures },
+        });
+      }
+    }
+
     return layers;
-  }, [featureClassLayers, layerVisibility, layerFeatures, analysisResults, mapAccess, divisionHighlightMode]);
+  }, [featureClassLayers, layerVisibility, layerFeatures, analysisResults, mapAccess, divisionHighlightMode, projectParam, constructionGisAssets, assetFocusParam]);
 
   const toggleLayer = (groupName: string, layerId: string, enabled: boolean) => {
     if (groupName === BASEMAP_GROUP_NAME) {
@@ -1421,7 +1474,10 @@ export default function MapPage() {
 
   useEffect(() => {
     if (!mapReady || !assetFocusParam) {
-      if (!assetFocusParam) setConstructionAssetFocus(null);
+      if (!assetFocusParam) {
+        setConstructionAssetFocus(null);
+        assetFocusAppliedRef.current = '';
+      }
       return;
     }
 
@@ -1444,19 +1500,21 @@ export default function MapPage() {
     setActiveTool('info');
     clearIdentify();
 
+    let flyRevision = 0;
     const applyAssetFly = () => {
-      setFlyToTarget((prev) => ({
+      flyRevision += 1;
+      setFlyToTarget({
         lon: assetFocusParam.lng,
         lat: assetFocusParam.lat,
         zoom: assetFocusParam.zoom,
         showMarker: true,
-        revision: (prev?.revision ?? 0) + 1,
-      }));
+        revision: flyRevision,
+      });
     };
 
-    // Run after map layout + jurisdiction setup so district bbox fit does not override the pin.
-    const t1 = window.setTimeout(applyAssetFly, 50);
-    const t2 = window.setTimeout(applyAssetFly, 600);
+    applyAssetFly();
+    const t1 = window.setTimeout(applyAssetFly, 400);
+    const t2 = window.setTimeout(applyAssetFly, 1200);
 
     return () => {
       window.clearTimeout(t1);
@@ -1963,7 +2021,7 @@ export default function MapPage() {
                 basemaps={basemaps}
                 activeBasemapId={activeBasemapId}
                 overlayLayers={overlayLayers}
-                fitToLayerId={mapFitLayerId}
+                fitToLayerId={assetFocusParam ? undefined : mapFitLayerId}
                 fitRevision={fitRequestId}
                 flyToTarget={flyToTarget}
                 jurisdictionBbox={mapAccess?.bbox ?? UTTARAKHAND_STATE_MAP_VIEW.bbox}

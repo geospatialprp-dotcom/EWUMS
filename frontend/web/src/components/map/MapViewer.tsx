@@ -433,10 +433,22 @@ const searchMarkerStyle = new Style({
 function flyMapToTarget(map: OlMap, target: MapFlyTarget, markerSource: VectorSource) {
   const view = map.getView();
   markerSource.clear();
-  if (target.showMarker !== false) {
+  const hasPoint = Number.isFinite(target.lon) && Number.isFinite(target.lat);
+
+  if (target.showMarker !== false && hasPoint) {
     markerSource.addFeature(new Feature({
       geometry: new Point(fromLonLat([target.lon, target.lat])),
     }));
+  }
+
+  // GIS asset deep-link / explicit zoom: always fly to the pin (not district bbox).
+  if (hasPoint && target.showMarker !== false && target.zoom != null) {
+    view.animate({
+      center: fromLonLat([target.lon, target.lat]),
+      zoom: target.zoom,
+      duration: 700,
+    });
+    return;
   }
 
   if (target.bbox) {
