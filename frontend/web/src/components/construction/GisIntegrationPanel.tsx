@@ -562,12 +562,6 @@ export default function GisIntegrationPanel({
         onError(formatApiError(err, 'Photo captured but upload failed — tap Save Asset to retry.'));
       }
     };
-    if (hasGpsCoords(form.latitude, form.longitude)) {
-      onSuccess('Live site photo captured — linked to current GPS coordinates.');
-      afterCapture();
-      void tryImmediateUpload();
-      return;
-    }
     if (!navigator.geolocation) {
       onError('Photo captured. GPS unavailable — tap GPS to geotag this asset.');
       afterCapture();
@@ -577,13 +571,18 @@ export default function GisIntegrationPanel({
     setPhotoGeotagging(true);
     captureValidatedGps(
       (coords) => {
+        const hadExistingCoords = hasGpsCoords(form.latitude, form.longitude);
         setForm((prev) => ({
           ...prev,
           ...gpsFormValues(coords.latitude, coords.longitude),
         }));
         setPhotoGeotagging(false);
         const acc = Number.isFinite(coords.accuracy) ? ` (±${Math.round(coords.accuracy)} m)` : '';
-        onSuccess(`Live photo captured with GPS geotag${acc}.`);
+        onSuccess(
+          hadExistingCoords
+            ? `Live photo recaptured with fresh GPS geotag${acc}.`
+            : `Live photo captured with GPS geotag${acc}.`,
+        );
         afterCapture();
         void tryImmediateUpload();
       },
