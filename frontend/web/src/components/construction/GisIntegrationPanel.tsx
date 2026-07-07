@@ -74,6 +74,13 @@ function hasGpsCoords(lat: string, lng: string): boolean {
   return Number.isFinite(la) && Number.isFinite(lo) && la !== 0 && lo !== 0;
 }
 
+const GPS_MIN_ACCEPTABLE_ACCURACY_M = 120;
+const GPS_CAPTURE_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 20000,
+  maximumAge: 0,
+};
+
 function mapsUrl(lat: string, lng: string): string {
   const { lat: normLat, lng: normLng } = normalizeConstructionGps(Number(lat), Number(lng));
   return `https://www.google.com/maps?q=${normLat},${normLng}`;
@@ -335,6 +342,7 @@ export default function GisIntegrationPanel({
   const photoFileRef = useRef<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [capturePreviewOpen, setCapturePreviewOpen] = useState(false);
+  const [gpsAccuracyM, setGpsAccuracyM] = useState<number | null>(null);
 
   const scrollToSaveActions = useCallback(() => {
     requestAnimationFrame(() => {
@@ -405,6 +413,7 @@ export default function GisIntegrationPanel({
       return null;
     });
     setPhotoDocs([]);
+    setGpsAccuracyM(null);
     setDialogOpen(true);
   };
 
@@ -428,6 +437,7 @@ export default function GisIntegrationPanel({
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
+    setGpsAccuracyM(null);
     setDialogOpen(true);
     try {
       const { data } = await constructionApi.listDocuments(projectId, {
@@ -440,26 +450,56 @@ export default function GisIntegrationPanel({
     }
   };
 
+  const captureValidatedGps = (
+    onReliableFix: (coords: GeolocationCoordinates) => void,
+    onWeakFix?: (coords: GeolocationCoordinates) => void,
+    onFailure?: () => void,
+  ) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const accuracy = Number(pos.coords.accuracy);
+        if (Number.isFinite(accuracy)) {
+          setGpsAccuracyM(accuracy);
+        }
+        if (Number.isFinite(accuracy) && accuracy > GPS_MIN_ACCEPTABLE_ACCURACY_M) {
+          onWeakFix?.(pos.coords);
+          onError(
+            `GPS signal is weak (±${Math.round(accuracy)} m). Move outside, enable precise location, then retake GPS/photo.`,
+          );
+          return;
+        }
+        onReliableFix(pos.coords);
+      },
+      (err) => {
+        onFailure?.();
+        onError(err.message || 'Failed to capture GPS coordinates.');
+      },
+      GPS_CAPTURE_OPTIONS,
+    );
+  };
+
   const captureGps = () => {
     if (!navigator.geolocation) {
       onError('GPS is not available in this browser.');
       return;
     }
     setGpsCapturing(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    captureValidatedGps(
+      (coords) => {
         setForm((prev) => ({
           ...prev,
-          ...gpsFormValues(pos.coords.latitude, pos.coords.longitude),
+          ...gpsFormValues(coords.latitude, coords.longitude),
         }));
         setGpsCapturing(false);
-        onSuccess('GPS coordinates captured.');
+        const acc = Number.isFinite(coords.accuracy) ? ` (±${Math.round(coords.accuracy)} m)` : '';
+        onSuccess(`GPS coordinates captured${acc}.`);
       },
-      (err) => {
+      () => {
         setGpsCapturing(false);
-        onError(err.message || 'Failed to capture GPS coordinates.');
       },
-      { enableHighAccuracy: true, timeout: 15000 },
+      () => {
+        setGpsCapturing(false);
+      },
     );
   };
 
@@ -535,24 +575,28 @@ export default function GisIntegrationPanel({
       return;
     }
     setPhotoGeotagging(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    captureValidatedGps(
+      (coords) => {
         setForm((prev) => ({
           ...prev,
-          ...gpsFormValues(pos.coords.latitude, pos.coords.longitude),
+          ...gpsFormValues(coords.latitude, coords.longitude),
         }));
         setPhotoGeotagging(false);
-        onSuccess('Live photo captured with GPS geotag.');
+        const acc = Number.isFinite(coords.accuracy) ? ` (±${Math.round(coords.accuracy)} m)` : '';
+        onSuccess(`Live photo captured with GPS geotag${acc}.`);
         afterCapture();
         void tryImmediateUpload();
       },
-      (err) => {
+      () => {
         setPhotoGeotagging(false);
-        onError(err.message || 'Photo captured but GPS geotag failed — use GPS button.');
+        onError('Photo captured but GPS fix is weak — move outside and retake for accurate geotag.');
         afterCapture();
-        void tryImmediateUpload();
       },
-      { enableHighAccuracy: true, timeout: 15000 },
+      () => {
+        setPhotoGeotagging(false);
+        onError('Photo captured but GPS geotag failed — use GPS button.');
+        afterCapture();
+      },
     );
   };
 
@@ -1045,6 +1089,13 @@ export default function GisIntegrationPanel({
                   >
                     {form.latitude}, {form.longitude}
                   </Alert>
+                </Grid>
+              )}
+              {gpsAccuracyM != null && (
+                <Grid item xs={12}>
+                  <Typography variant="caption" color={gpsAccuracyM <= GPS_MIN_ACCEPTABLE_ACCURACY_M ? 'success.main' : 'warning.main'}>
+                    GPS accuracy: ±{Math.round(gpsAccuracyM)} m (target: <= {GPS_MIN_ACCEPTABLE_ACCURACY_M} m)
+                  </Typography>
                 </Grid>
               )}
               {showChainage && (
