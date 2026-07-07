@@ -10,6 +10,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import CloseIcon from '@mui/icons-material/Close';
 import PlaceIcon from '@mui/icons-material/Place';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
@@ -88,41 +89,138 @@ function assetHasPhoto(asset: AssetRecord): boolean {
   return Boolean(assetPhotoUrl(asset) || assetPhotoDocId(asset));
 }
 
+const GIS_PHOTO_THUMB_SX = {
+  width: 44,
+  height: 44,
+  objectFit: 'cover' as const,
+  borderRadius: 1,
+  border: 1,
+  borderColor: 'success.light',
+  display: 'block',
+};
+
+function GisSitePhotoViewer({
+  open, onClose, imageUrl, title, subtitle, isMobile,
+}: {
+  open: boolean;
+  onClose: () => void;
+  imageUrl: string | null;
+  title: string;
+  subtitle?: string;
+  isMobile: boolean;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullScreen={isMobile}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{ sx: isMobile ? undefined : { maxHeight: '92vh' } }}
+    >
+      <DialogTitle sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, py: 1.5 }}>
+        <Box minWidth={0}>
+          <Typography variant="subtitle1" fontWeight={700} noWrap>{title}</Typography>
+          {subtitle && (
+            <Typography variant="caption" color="text.secondary" display="block">
+              {subtitle}
+            </Typography>
+          )}
+        </Box>
+        <IconButton onClick={onClose} aria-label="Close photo" edge="end" sx={{ mt: -0.5 }}>
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent
+        sx={{
+          p: 0,
+          bgcolor: '#111',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: isMobile ? 'calc(100dvh - 96px)' : 360,
+        }}
+      >
+        {imageUrl ? (
+          <Box
+            component="img"
+            src={imageUrl}
+            alt={title}
+            sx={{
+              maxWidth: '100%',
+              maxHeight: isMobile ? 'calc(100dvh - 120px)' : '72vh',
+              objectFit: 'contain',
+              display: 'block',
+            }}
+          />
+        ) : (
+          <CircularProgress color="inherit" sx={{ color: 'grey.400' }} />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function GisAssetPhotoThumb({
-  projectId, asset, onAddPhoto,
+  projectId, asset, onAddPhoto, isMobile,
 }: {
   projectId: string;
   asset: AssetRecord;
   onAddPhoto?: () => void;
+  isMobile: boolean;
 }) {
   const docId = assetPhotoDocId(asset);
+  const directUrl = assetPhotoUrl(asset);
   const hasPhoto = assetHasPhoto(asset);
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
+
+    const applyUrl = (url: string) => {
+      if (!cancelled) {
+        setThumbUrl(url);
+        setViewerUrl(url);
+        setFailed(false);
+      }
+    };
+
+    if (directUrl) {
+      applyUrl(directUrl);
+      return () => { cancelled = true; };
+    }
+
     if (!docId) {
       setThumbUrl(null);
+      setViewerUrl(null);
       setFailed(false);
       return undefined;
     }
+
     void constructionApi.fetchDocumentFile(projectId, docId)
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
-        setThumbUrl(objectUrl);
-        setFailed(false);
+        applyUrl(objectUrl);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
       });
+
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, docId]);
+  }, [projectId, docId, directUrl]);
+
+  const assetCode = String(asset.assetCode ?? 'Asset');
+  const geoSubtitle = isMapped(asset)
+    ? `Geotagged · ${formatCoord(asset.latitude)}, ${formatCoord(asset.longitude)}`
+    : 'Site photo';
 
   if (!hasPhoto) {
     if (onAddPhoto) {
@@ -134,55 +232,42 @@ function GisAssetPhotoThumb({
     }
     return <Typography variant="caption" color="text.secondary">—</Typography>;
   }
-  const directUrl = assetPhotoUrl(asset);
-  if (!docId && directUrl) {
-    return (
-      <Tooltip title="Site photo — tap Edit to view full size">
-        <Box
-          component="img"
-          src={directUrl}
-          alt="Site"
-          sx={{
-            width: 44,
-            height: 44,
-            objectFit: 'cover',
-            borderRadius: 1,
-            border: 1,
-            borderColor: 'success.light',
-            display: 'block',
-          }}
-        />
-      </Tooltip>
-    );
-  }
-  if (thumbUrl) {
-    return (
-      <Tooltip title="Site photo — tap Edit to view full size">
-        <Box
-          component="img"
-          src={thumbUrl}
-          alt="Site"
-          sx={{
-            width: 44,
-            height: 44,
-            objectFit: 'cover',
-            borderRadius: 1,
-            border: 1,
-            borderColor: 'success.light',
-            display: 'block',
-          }}
-        />
-      </Tooltip>
-    );
-  }
+
   if (failed) {
     return (
-      <Tooltip title="Photo on file — preview unavailable">
-        <PhotoCameraIcon fontSize="small" color="warning" />
+      <Tooltip title="Photo on file — tap to retake">
+        <IconButton size="small" color="warning" onClick={onAddPhoto} aria-label="Retake site photo">
+          <PhotoCameraIcon fontSize="small" />
+        </IconButton>
       </Tooltip>
     );
   }
-  return <CircularProgress size={18} />;
+
+  if (!thumbUrl) {
+    return <CircularProgress size={18} />;
+  }
+
+  return (
+    <>
+      <Tooltip title="Tap to view full-size geotagged photo">
+        <IconButton
+          onClick={() => setViewerOpen(true)}
+          aria-label={`View site photo for ${assetCode}`}
+          sx={{ p: 0, borderRadius: 1, '&:hover': { opacity: 0.92 } }}
+        >
+          <Box component="img" src={thumbUrl} alt={`Site photo ${assetCode}`} sx={GIS_PHOTO_THUMB_SX} />
+        </IconButton>
+      </Tooltip>
+      <GisSitePhotoViewer
+        open={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        imageUrl={viewerUrl}
+        title={`${assetCode} — site photo`}
+        subtitle={geoSubtitle}
+        isMobile={isMobile}
+      />
+    </>
+  );
 }
 
 function FormSection({
@@ -239,6 +324,7 @@ export default function GisIntegrationPanel({
   const assetCodeInputRef = useRef<HTMLInputElement>(null);
   const photoFileRef = useRef<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [capturePreviewOpen, setCapturePreviewOpen] = useState(false);
 
   const scrollToSaveActions = useCallback(() => {
     requestAnimationFrame(() => {
@@ -368,9 +454,9 @@ export default function GisIntegrationPanel({
     );
   };
 
-  const uploadPhoto = async (assetId: string, file?: File | null) => {
+  const uploadPhoto = async (assetId: string, file?: File | null): Promise<{ docId: string; fileUrl: string } | null> => {
     const uploadFile = file ?? photoFileRef.current ?? photoFile;
-    if (!uploadFile?.size) return;
+    if (!uploadFile?.size) return null;
     const formData = new FormData();
     formData.append('file', uploadFile, uploadFile.name || 'site-photo.jpg');
     formData.append('resourceType', 'construction_asset');
@@ -383,10 +469,18 @@ export default function GisIntegrationPanel({
     if (!fileUrl && !docId) {
       throw new Error('Photo upload succeeded but no document was returned.');
     }
-    // Backend sets photoUrl on construction_asset site_photo upload; update is belt-and-suspenders.
     if (fileUrl) {
       await constructionApi.updateAsset(projectId, assetId, { photoUrl: fileUrl });
     }
+    return { docId, fileUrl };
+  };
+
+  const patchAssetPhoto = (assetId: string, fileUrl: string, photoDocId?: string) => {
+    setAssets((prev) => prev.map((a) => (
+      String(a.id) === assetId
+        ? { ...a, photoUrl: fileUrl, photoDocId: photoDocId ?? a.photoDocId }
+        : a
+    )));
   };
 
   const setCapturedPhoto = (file: File): boolean => {
@@ -409,8 +503,11 @@ export default function GisIntegrationPanel({
     const tryImmediateUpload = async () => {
       if (!editingId) return;
       try {
-        await uploadPhoto(editingId, file);
-        onSuccess('Site photo uploaded to server.');
+        const uploaded = await uploadPhoto(editingId, file);
+        if (uploaded?.fileUrl) {
+          patchAssetPhoto(editingId, uploaded.fileUrl, uploaded.docId || undefined);
+        }
+        onSuccess('Site photo uploaded — tap the thumbnail in the table to view full size.');
         await load();
       } catch (err) {
         onError(formatApiError(err, 'Photo captured but upload failed — tap Save Asset to retry.'));
@@ -514,9 +611,14 @@ export default function GisIntegrationPanel({
         assetId = String((data as Record<string, unknown>).id);
       }
       const pendingPhoto = photoFileRef.current ?? photoFile;
+      let photoUploaded = false;
       if (pendingPhoto?.size && assetId) {
         try {
-          await uploadPhoto(assetId, pendingPhoto);
+          const uploaded = await uploadPhoto(assetId, pendingPhoto);
+          if (uploaded?.fileUrl) {
+            patchAssetPhoto(assetId, uploaded.fileUrl, uploaded.docId || undefined);
+            photoUploaded = true;
+          }
         } catch (photoErr) {
           onError(formatApiError(
             photoErr,
@@ -528,7 +630,11 @@ export default function GisIntegrationPanel({
         }
       }
       setDialogOpen(false);
-      onSuccess(editingId ? 'GIS asset updated.' : 'GIS asset registered.');
+      if (photoUploaded) {
+        onSuccess(editingId ? 'GIS asset updated with geotagged site photo.' : 'GIS asset registered with geotagged site photo.');
+      } else {
+        onSuccess(editingId ? 'GIS asset updated.' : 'GIS asset registered.');
+      }
       await load();
       await onRefresh();
     } catch (err) {
@@ -694,6 +800,7 @@ export default function GisIntegrationPanel({
                     <GisAssetPhotoThumb
                       projectId={projectId}
                       asset={a}
+                      isMobile={isMobile}
                       onAddPhoto={(canUpdate || canCreate) ? () => { void openEdit(a); } : undefined}
                     />
                   </TableCell>
@@ -1062,20 +1169,38 @@ export default function GisIntegrationPanel({
                 )}
               </Stack>
               {photoPreviewUrl && (
-                <Box
-                  component="img"
-                  src={photoPreviewUrl}
-                  alt="Site preview"
-                  sx={{
-                    width: '100%',
-                    maxHeight: 200,
-                    objectFit: 'contain',
-                    borderRadius: 1,
-                    border: 1,
-                    borderColor: 'success.light',
-                    bgcolor: '#111',
-                  }}
-                />
+                <>
+                  <Tooltip title="Tap to view full-size preview">
+                    <IconButton
+                      onClick={() => setCapturePreviewOpen(true)}
+                      aria-label="View captured photo full size"
+                      sx={{ p: 0, width: '100%', borderRadius: 1, display: 'block' }}
+                    >
+                      <Box
+                        component="img"
+                        src={photoPreviewUrl}
+                        alt="Site preview"
+                        sx={{
+                          width: '100%',
+                          maxHeight: 200,
+                          objectFit: 'contain',
+                          borderRadius: 1,
+                          border: 1,
+                          borderColor: 'success.light',
+                          bgcolor: '#111',
+                        }}
+                      />
+                    </IconButton>
+                  </Tooltip>
+                  <GisSitePhotoViewer
+                    open={capturePreviewOpen}
+                    onClose={() => setCapturePreviewOpen(false)}
+                    imageUrl={photoPreviewUrl}
+                    title={`${form.assetCode.trim() || 'New asset'} — captured photo`}
+                    subtitle={gpsReady ? `Geotagged · ${formatCoord(form.latitude)}, ${formatCoord(form.longitude)}` : 'Site photo preview'}
+                    isMobile={isMobile}
+                  />
+                </>
               )}
               <Typography variant="caption" color="text.secondary">
                 Use device camera at the installation point. Coordinates from GPS are stored with the asset record for verification.
