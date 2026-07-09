@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
@@ -194,6 +194,13 @@ export class OmController {
   @ApiOperation({ summary: 'Submit handover for JE → AE → EE approval workflow' })
   submitHandover(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.omService.submitHandover(user, user.tenantId, user.sub, id);
+  }
+
+  @Delete('handovers/:id')
+  @RequirePermissions('om:create', 'om:update')
+  @ApiOperation({ summary: 'Contractor removes handover to start fresh (demo reset)' })
+  deleteHandover(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.omService.deleteHandover(user, user.tenantId, id);
   }
 
   @Post('handovers/:id/workflow')

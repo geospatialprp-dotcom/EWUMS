@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ActOnTaskDto } from '../workflows/dto/workflow.dto';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { WorkflowTask } from '../workflows/entities/workflow-task.entity';
+import { WorkflowInstance } from '../workflows/entities/workflow-instance.entity';
 import { ConstructionAsset } from '../construction/entities/construction-asset.entity';
 import { ProjectCompletion } from '../construction/entities/project-completion.entity';
 import { Project } from '../projects/entities/project.entity';
@@ -304,6 +305,38 @@ export class OmService {
       projectId: resolvedProjectId,
     });
     return this.handoverRepo.save(record);
+  }
+
+  async deleteHandover(user: JwtPayload, tenantId: string, id: string) {
+    assertContractorHandoverInitiator(user);
+    const record = await this.handoverRepo.findOne({ where: { id, tenantId } });
+    if (!record) throw new NotFoundException('Handover record not found');
+    await this.scope.assertProjectAccess(user, record.projectId, tenantId);
+    if (record.status === 'handed_over') {
+      throw new BadRequestException('Completed handovers cannot be removed');
+    }
+
+    await this.handoverDocRepo.delete({ handoverId: id, tenantId });
+
+    const instancesRepo = this.handoverRepo.manager.getRepository(WorkflowInstance);
+    const wfIds = new Set<string>();
+    if (record.workflowInstanceId) wfIds.add(record.workflowInstanceId);
+    const linked = await instancesRepo.find({
+      where: { tenantId, resourceType: 'om_handover', resourceId: id },
+      select: ['id'],
+    });
+    for (const row of linked) wfIds.add(row.id);
+    if (wfIds.size > 0) {
+      await instancesRepo.delete([...wfIds]);
+    }
+
+    await this.handoverRepo.manager.query(
+      'UPDATE assets SET handover_id = NULL WHERE handover_id = $1',
+      [id],
+    );
+
+    await this.handoverRepo.delete({ id, tenantId });
+    return { deleted: true, id };
   }
 
   async generateHandoverOutputs(user: JwtPayload, tenantId: string, id: string) {

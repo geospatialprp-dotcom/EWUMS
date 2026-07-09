@@ -239,6 +239,25 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
     }
   };
 
+  const removeHandover = async (id: string, schemeName: string) => {
+    if (!window.confirm(`Remove "${schemeName}" and start a fresh handover?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await omApi.deleteHandover(id);
+      if (editingId === id) {
+        setDialogOpen(false);
+        setEditingId(null);
+        setDetail(null);
+      }
+      onRefresh();
+    } catch (err: unknown) {
+      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Remove failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const outputs = detail?.outputs ?? (detail?.responsibilityMatrix as { outputs?: HandoverRecord['outputs'] })?.outputs;
 
   const isLocked = detail?.status && !['draft', 'rejected'].includes(String(detail.status));
@@ -265,6 +284,10 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
             JE, AE, and EE manage verification and approval after you submit. Track status below or in Workflow Center → My Submissions.
           </Typography>
         </SurfaceCard>
+      )}
+
+      {error && !dialogOpen && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>
       )}
 
       <SurfaceCard
@@ -343,6 +366,17 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                       </TableCell>
                       <TableCell align="center">
                         <Button size="small" onClick={() => openEdit(String(h.id))}>Open</Button>
+                        {contractorView && String(h.status) !== 'handed_over' && (
+                          <Button
+                            size="small"
+                            color="error"
+                            sx={{ ml: 0.5 }}
+                            disabled={busy}
+                            onClick={() => removeHandover(String(h.id), String(h.schemeName))}
+                          >
+                            Remove
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   );

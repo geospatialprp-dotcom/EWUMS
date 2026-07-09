@@ -695,6 +695,7 @@ export const omApi = {
   updateHandover: (id: string, data: object) => api.patch(`/om/handovers/${id}`, data),
   generateHandover: (id: string) => api.post(`/om/handovers/${id}/generate`),
   submitHandover: (id: string) => api.post(`/om/handovers/${id}/submit`),
+  deleteHandover: (id: string) => api.delete(`/om/handovers/${id}`),
   actOnHandover: (id: string, data: { action: 'approve' | 'reject'; comments?: string }) =>
     api.post(`/om/handovers/${id}/workflow`, data),
   listHandoverDocuments: (handoverId: string) => api.get(`/om/handovers/${handoverId}/documents`),
