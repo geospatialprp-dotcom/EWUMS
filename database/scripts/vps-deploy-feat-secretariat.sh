@@ -76,6 +76,14 @@ else
   echo "WARN: vps-clear-tharali-gis-assets.sql not found — skip"
 fi
 
+echo "==> 8. Clear Tharali O&M handover (fresh contractor handover demo)"
+if [[ -f "${ROOT}/database/scripts/vps-clear-tharali-om-handover.sql" ]]; then
+  "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
+    < "${ROOT}/database/scripts/vps-clear-tharali-om-handover.sql" || echo "WARN: O&M handover clear failed"
+else
+  echo "WARN: vps-clear-tharali-om-handover.sql not found — skip"
+fi
+
 echo ""
 echo "DONE."
 echo "  IMPORTANT: Push latest commits to origin/${BRANCH} before running this script."
