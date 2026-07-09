@@ -81,6 +81,11 @@ export class OmDivisionScopeService {
     return this.divisionAccess.getAccessibleProjectIds(user, tenantId);
   }
 
+  async getProjectDivisionId(projectId: string | null | undefined): Promise<string | null> {
+    if (!projectId?.trim()) return null;
+    return this.divisionAccess.getProjectDivisionId(projectId.trim());
+  }
+
   /** Build SQL fragment + params for raw queries filtering by accessible projects. */
   async buildProjectIdSqlFilter(
     user: JwtPayload,

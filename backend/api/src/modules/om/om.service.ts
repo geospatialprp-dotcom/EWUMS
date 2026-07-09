@@ -381,6 +381,10 @@ export class OmService {
     const refreshed = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!refreshed) throw new NotFoundException('Handover record not found');
 
+    const divisionId = refreshed.projectId
+      ? await this.scope.getProjectDivisionId(refreshed.projectId)
+      : null;
+
     const wf = await this.workflowsService.submit(tenantId, user, {
       definitionCode: 'om_handover',
       resourceId: refreshed.id,
@@ -388,6 +392,7 @@ export class OmService {
       payload: {
         schemeName: refreshed.schemeName,
         projectId: refreshed.projectId,
+        divisionId,
         omAgencyType: refreshed.omAgencyType,
         omAgencyName: refreshed.omAgencyName,
       },

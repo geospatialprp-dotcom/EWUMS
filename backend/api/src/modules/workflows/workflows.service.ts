@@ -380,6 +380,15 @@ export class WorkflowsService {
         if (projectId) return this.divisionAccess.getProjectDivisionId(projectId);
       }
 
+      if (instance.resourceType === 'om_handover') {
+        const rows = await this.instancesRepo.query(
+          `SELECT project_id FROM om_handover WHERE id = $1 AND tenant_id = $2`,
+          [instance.resourceId, tenantId],
+        ) as Array<{ project_id: string | null }>;
+        const projectId = rows[0]?.project_id ?? null;
+        if (projectId) return this.divisionAccess.getProjectDivisionId(projectId);
+      }
+
       const payloadProjectId = instance.payload?.projectId ?? instance.payload?.project_id;
       if (typeof payloadProjectId === 'string' && payloadProjectId.trim()) {
         return this.divisionAccess.getProjectDivisionId(payloadProjectId.trim());
@@ -396,6 +405,46 @@ export class WorkflowsService {
     }
   }
 
+  private async resolveInstanceProjectId(
+    tenantId: string,
+    instance: Pick<WorkflowInstance, 'resourceType' | 'resourceId' | 'payload'>,
+  ): Promise<string | null> {
+    const payloadProjectId = instance.payload?.projectId ?? instance.payload?.project_id;
+    if (typeof payloadProjectId === 'string' && payloadProjectId.trim()) {
+      return payloadProjectId.trim();
+    }
+    if (!instance.resourceId) return null;
+    if (instance.resourceType === 'project') return instance.resourceId;
+    if (instance.resourceType === 'om_handover') {
+      const rows = await this.instancesRepo.query(
+        `SELECT project_id FROM om_handover WHERE id = $1 AND tenant_id = $2`,
+        [instance.resourceId, tenantId],
+      ) as Array<{ project_id: string | null }>;
+      return rows[0]?.project_id ?? null;
+    }
+    return null;
+  }
+
+  private async instanceVisibleToUser(
+    user: JwtPayload,
+    tenantId: string,
+    instance: WorkflowInstance,
+    divisionIds: string[] | null,
+  ): Promise<boolean> {
+    if (divisionIds === null) return true;
+    if (divisionIds.length === 0) return false;
+
+    const divisionId = await this.resolveInstanceDivisionId(tenantId, instance);
+    if (divisionId && divisionIds.includes(divisionId)) return true;
+    if (!divisionId) return true;
+
+    const projectId = await this.resolveInstanceProjectId(tenantId, instance);
+    if (!projectId) return false;
+    const accessible = await this.divisionAccess.getAccessibleProjectIds(user, tenantId);
+    if (accessible === null) return true;
+    return accessible.includes(projectId);
+  }
+
   private async filterInstancesByDivisionScope(
     instances: WorkflowInstance[],
     user: JwtPayload,
@@ -408,10 +457,7 @@ export class WorkflowsService {
 
       const filtered: WorkflowInstance[] = [];
       for (const instance of instances) {
-        const divisionId = await this.resolveInstanceDivisionId(tenantId, instance);
-        if (divisionId && divisionIds.includes(divisionId)) {
-          filtered.push(instance);
-        } else if (!divisionId) {
+        if (await this.instanceVisibleToUser(user, tenantId, instance, divisionIds)) {
           filtered.push(instance);
         }
       }
@@ -434,11 +480,7 @@ export class WorkflowsService {
 
       const filtered: WorkflowTask[] = [];
       for (const task of tasks) {
-        const divisionId = await this.resolveInstanceDivisionId(tenantId, task.instance);
-        if (divisionId && divisionIds.includes(divisionId)) {
-          filtered.push(task);
-        } else if (!divisionId) {
-          // Project division unknown — still show to role-matched inbox users
+        if (await this.instanceVisibleToUser(user, tenantId, task.instance, divisionIds)) {
           filtered.push(task);
         }
       }
