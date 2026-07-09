@@ -18,6 +18,7 @@ import {
   type HandoverFormState,
 } from '../../constants/omHandover';
 import OmHandoverDocuments from './OmHandoverDocuments';
+import { canActOnHandoverReview } from './OmHandoverJeApprovalBar';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import { useAuth } from '../../context/AuthContext';
@@ -79,16 +80,9 @@ const HANDOVER_APPROVER_BY_STATUS: Record<string, string> = {
   ee_review: 'ee',
 };
 
-function userMatchesHandoverReview(roles: string[] | undefined, status: string): boolean {
-  const needed = HANDOVER_APPROVER_BY_STATUS[status];
-  return Boolean(needed && roles?.includes(needed));
-}
-
-function canApproveHandover(h: HandoverRecord, roles: string[] | undefined): boolean {
-  if (!roles?.length || isContractorUser(roles)) return false;
-  if (userMatchesHandoverReview(roles, String(h.status))) return true;
-  const pendingRole = h.pendingApprovalRole;
-  return Boolean(pendingRole && roles.includes(pendingRole));
+function canApproveHandover(h: HandoverRecord, roles: string[] | undefined, email?: string | null): boolean {
+  if (isContractorUser(roles)) return false;
+  return canActOnHandoverReview(String(h.status), roles, email);
 }
 
 interface Props {
@@ -313,7 +307,11 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
   );
   const needsDeptReview = !contractorView && isSubmittedForApproval;
   const wrongReviewerSession = needsDeptReview
-    && !canApproveHandover(detail ?? { id: '', schemeName: '', status: handoverStatus }, user?.roles);
+    && !canApproveHandover(
+      { id: '', schemeName: '', status: handoverStatus },
+      user?.roles,
+      user?.email,
+    );
   const hasGeneratedOutputs = Boolean(outputs) || Boolean(detail?.handoverCertificateUrl);
   const docsReadyForHandoverApprove = docSummary.requiredTotal > 0
     ? docSummary.requiredPending === 0 && docSummary.requiredApproved === docSummary.requiredTotal
@@ -342,7 +340,7 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
         </SurfaceCard>
       )}
 
-      {!contractorView && handovers.some((h) => canApproveHandover(h, user?.roles)) && (
+      {!contractorView && handovers.some((h) => canApproveHandover(h, user?.roles, user?.email)) && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Handover submissions awaiting your approval are listed below. You can also approve from Workflow Center → Inbox.
         </Alert>
@@ -404,9 +402,14 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                 {handovers.map((h) => {
                   const vp = h.verificationProgress;
                   const allVerified = vp?.pct === 100;
-                  const showApprove = canApproveHandover(h, user?.roles);
+                  const showApprove = canApproveHandover(h, user?.roles, user?.email);
+                  const highlightRow = showApprove && String(h.status) === 'je_review';
                   return (
-                    <TableRow key={String(h.id)} hover>
+                    <TableRow
+                      key={String(h.id)}
+                      hover
+                      sx={highlightRow ? { bgcolor: '#fffbeb !important', outline: '2px solid #f59e0b' } : undefined}
+                    >
                       <TableCell sx={{ wordBreak: 'break-word' }}>{String(h.schemeName)}</TableCell>
                       <TableCell>{String(h.omAgencyName ?? h.omAgencyType ?? '—')}</TableCell>
                       <TableCell align="center">
@@ -434,11 +437,11 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                             size="small"
                             color="success"
                             variant="contained"
-                            sx={{ ml: 0.5, fontWeight: 700 }}
+                            sx={{ ml: 0.5, fontWeight: 800 }}
                             disabled={busy}
-                            onClick={() => { void openEdit(String(h.id)); }}
+                            onClick={() => actOnHandover(String(h.id), 'approve')}
                           >
-                            Review
+                            Approve Handover
                           </Button>
                         )}
                         {contractorView && String(h.status) !== 'handed_over' && (

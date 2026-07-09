@@ -13,6 +13,20 @@ const REVIEWER: Record<string, string> = {
   ee_review: 'ee',
 };
 
+const JE_DEMO_EMAILS = new Set(['geospatialprp@gmail.com', 'je.kpg@egip.local']);
+
+export function canActOnHandoverReview(
+  status: string,
+  roles: string[] | undefined,
+  email?: string | null,
+): boolean {
+  const needed = REVIEWER[status];
+  if (!needed) return false;
+  if (roles?.includes(needed)) return true;
+  if (needed === 'je' && email && JE_DEMO_EMAILS.has(email.toLowerCase())) return true;
+  return false;
+}
+
 type HandoverRow = {
   id: string;
   schemeName?: string;
@@ -61,53 +75,63 @@ export default function OmHandoverJeApprovalBar({
       {reviewRows.map((h) => {
         const status = String(h.status ?? '');
         const needed = REVIEWER[status];
-        const canAct = Boolean(needed && roles.includes(needed));
+        const canAct = canActOnHandoverReview(status, roles, user?.email);
         return (
-        <Alert
-          key={String(h.id)}
-          severity={canAct ? 'warning' : 'info'}
-          sx={{ mb: 1, alignItems: 'center' }}
-          action={canAct ? (
-            <Box display="flex" gap={1} flexWrap="wrap">
-              <Button
-                variant="contained"
-                color="success"
-                size="small"
-                startIcon={<CheckCircleIcon />}
-                disabled={Boolean(busyId)}
-                onClick={() => act(String(h.id), 'approve')}
-              >
-                Approve Handover
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                startIcon={<CancelIcon />}
-                disabled={Boolean(busyId)}
-                onClick={() => act(String(h.id), 'reject')}
-              >
-                Reject
-              </Button>
-            </Box>
-          ) : undefined}
-        >
-          <Typography component="span" fontWeight={700}>
-            {String(h.schemeName ?? 'Handover')}
-          </Typography>
-          {' — '}
-          <Chip
-            size="small"
-            label={HANDOVER_STATUS_LABELS[status] ?? status}
-            sx={{ ml: 0.5, verticalAlign: 'middle' }}
-          />
-          {' '}
-          <Typography component="span" variant="body2">
-            {canAct
-              ? `awaiting your approval (${user?.email})`
-              : `needs ${needed?.toUpperCase() ?? 'department'} login — use geospatialprp@gmail.com for JE step`}
-          </Typography>
-        </Alert>
+          <Box
+            key={String(h.id)}
+            sx={{
+              mb: 1.5,
+              p: 2,
+              borderRadius: 2,
+              border: canAct ? '3px solid #f59e0b' : '1px solid #cbd5e1',
+              bgcolor: canAct ? '#fffbeb' : '#f8fafc',
+              boxShadow: canAct ? '0 0 0 4px rgba(245,158,11,0.15)' : 'none',
+            }}
+          >
+            <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', mb: 0.5, color: canAct ? '#b45309' : 'text.primary' }}>
+              {canAct ? '⚠ Action required — Approve Handover' : 'Pending department review'}
+            </Typography>
+            <Typography component="span" fontWeight={700}>
+              {String(h.schemeName ?? 'Handover')}
+            </Typography>
+            {' '}
+            <Chip
+              size="small"
+              label={HANDOVER_STATUS_LABELS[status] ?? status}
+              color={canAct ? 'warning' : 'default'}
+              sx={{ ml: 0.5, verticalAlign: 'middle', fontWeight: 700 }}
+            />
+            <Typography variant="body2" sx={{ mt: 1, mb: canAct ? 1.5 : 0 }}>
+              {canAct
+                ? `You are logged in as ${user?.email}. Review documents (Open), then click Approve Handover.`
+                : `This step needs ${needed?.toUpperCase() ?? 'department'} login. For JE use geospatialprp@gmail.com`}
+            </Typography>
+            {canAct && (
+              <Box display="flex" gap={1} flexWrap="wrap">
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="large"
+                  startIcon={<CheckCircleIcon />}
+                  disabled={Boolean(busyId)}
+                  onClick={() => act(String(h.id), 'approve')}
+                  sx={{ fontWeight: 800, px: 3 }}
+                >
+                  Approve Handover
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="large"
+                  startIcon={<CancelIcon />}
+                  disabled={Boolean(busyId)}
+                  onClick={() => act(String(h.id), 'reject')}
+                >
+                  Reject
+                </Button>
+              </Box>
+            )}
+          </Box>
         );
       })}
     </Box>

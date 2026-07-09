@@ -31,7 +31,7 @@ export class WorkflowInstance {
   payload: Record<string, unknown>;
 
   @Column({ name: 'submitted_by', type: 'uuid', nullable: true })
-  submittedBy: string;
+  submittedBy: string | null;
 
   @Column({ name: 'submitted_at', type: 'timestamptz', nullable: true })
   submittedAt: Date;
