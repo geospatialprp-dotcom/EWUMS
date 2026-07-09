@@ -7,12 +7,12 @@ import { HANDOVER_STATUS_LABELS } from '../../constants/omHandover';
 import { useAuth } from '../../context/AuthContext';
 import { isContractorUser } from '../../utils/operationalAccess';
 
+const REVIEW_STATUSES = new Set(['je_review', 'ae_review', 'ee_review']);
 const REVIEWER: Record<string, string> = {
   je_review: 'je',
   ae_review: 'ae',
   ee_review: 'ee',
 };
-
 const JE_DEMO_EMAILS = new Set(['geospatialprp@gmail.com', 'je.kpg@egip.local']);
 
 export function canActOnHandoverReview(
@@ -27,12 +27,17 @@ export function canActOnHandoverReview(
   return false;
 }
 
+export function isHandoverAwaitingReview(status: string): boolean {
+  return REVIEW_STATUSES.has(status);
+}
+
 type HandoverRow = {
   id: string;
   schemeName?: string;
   status?: string;
 };
 
+/** Always-visible JE/AE/EE approval panel above the handover register. */
 export default function OmHandoverJeApprovalBar({
   handovers,
   onDone,
@@ -46,12 +51,7 @@ export default function OmHandoverJeApprovalBar({
 
   if (isContractorUser(user?.roles)) return null;
 
-  const roles = user?.roles ?? [];
-  const reviewRows = handovers.filter((h) => {
-    const status = String(h.status ?? '');
-    return ['je_review', 'ae_review', 'ee_review'].includes(status);
-  });
-
+  const reviewRows = handovers.filter((h) => isHandoverAwaitingReview(String(h.status ?? '')));
   if (!reviewRows.length) return null;
 
   const act = async (id: string, action: 'approve' | 'reject') => {
@@ -63,7 +63,7 @@ export default function OmHandoverJeApprovalBar({
       onDone();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setError(typeof msg === 'string' ? msg : 'Approval failed — rebuild API on VPS and login again as JE.');
+      setError(typeof msg === 'string' ? msg : 'Approval failed. Rebuild API on VPS and login as JE.');
     } finally {
       setBusyId('');
     }
@@ -74,63 +74,58 @@ export default function OmHandoverJeApprovalBar({
       {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>{error}</Alert>}
       {reviewRows.map((h) => {
         const status = String(h.status ?? '');
-        const needed = REVIEWER[status];
-        const canAct = canActOnHandoverReview(status, roles, user?.email);
+        const canAct = canActOnHandoverReview(status, user?.roles, user?.email);
         return (
           <Box
             key={String(h.id)}
             sx={{
               mb: 1.5,
-              p: 2,
+              p: 2.5,
               borderRadius: 2,
-              border: canAct ? '3px solid #f59e0b' : '1px solid #cbd5e1',
-              bgcolor: canAct ? '#fffbeb' : '#f8fafc',
-              boxShadow: canAct ? '0 0 0 4px rgba(245,158,11,0.15)' : 'none',
+              border: '3px solid #f59e0b',
+              bgcolor: '#fffbeb',
+              boxShadow: '0 0 0 4px rgba(245,158,11,0.2)',
             }}
           >
-            <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', mb: 0.5, color: canAct ? '#b45309' : 'text.primary' }}>
-              {canAct ? '⚠ Action required — Approve Handover' : 'Pending department review'}
+            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: '#b45309', mb: 0.5 }}>
+              JE / Department — Approve Handover
             </Typography>
-            <Typography component="span" fontWeight={700}>
+            <Typography fontWeight={700} component="span">
               {String(h.schemeName ?? 'Handover')}
             </Typography>
-            {' '}
             <Chip
               size="small"
               label={HANDOVER_STATUS_LABELS[status] ?? status}
-              color={canAct ? 'warning' : 'default'}
-              sx={{ ml: 0.5, verticalAlign: 'middle', fontWeight: 700 }}
+              color="warning"
+              sx={{ ml: 1, fontWeight: 700 }}
             />
-            <Typography variant="body2" sx={{ mt: 1, mb: canAct ? 1.5 : 0 }}>
-              {canAct
-                ? `You are logged in as ${user?.email}. Review documents (Open), then click Approve Handover.`
-                : `This step needs ${needed?.toUpperCase() ?? 'department'} login. For JE use geospatialprp@gmail.com`}
+            <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+              Logged in: <strong>{user?.email ?? 'unknown'}</strong>
+              {canAct ? ' — you can approve now.' : ` — need ${REVIEWER[status]?.toUpperCase() ?? 'department'} login.`}
             </Typography>
-            {canAct && (
-              <Box display="flex" gap={1} flexWrap="wrap">
-                <Button
-                  variant="contained"
-                  color="success"
-                  size="large"
-                  startIcon={<CheckCircleIcon />}
-                  disabled={Boolean(busyId)}
-                  onClick={() => act(String(h.id), 'approve')}
-                  sx={{ fontWeight: 800, px: 3 }}
-                >
-                  Approve Handover
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  size="large"
-                  startIcon={<CancelIcon />}
-                  disabled={Boolean(busyId)}
-                  onClick={() => act(String(h.id), 'reject')}
-                >
-                  Reject
-                </Button>
-              </Box>
-            )}
+            <Box display="flex" gap={1.5} flexWrap="wrap">
+              <Button
+                variant="contained"
+                color="success"
+                size="large"
+                disabled={Boolean(busyId) || !canAct}
+                startIcon={<CheckCircleIcon />}
+                onClick={() => act(String(h.id), 'approve')}
+                sx={{ fontWeight: 800, px: 4, py: 1.25, fontSize: '1rem' }}
+              >
+                Approve Handover
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                size="large"
+                disabled={Boolean(busyId) || !canAct}
+                startIcon={<CancelIcon />}
+                onClick={() => act(String(h.id), 'reject')}
+              >
+                Reject
+              </Button>
+            </Box>
           </Box>
         );
       })}

@@ -98,6 +98,7 @@ export class OmService {
     );
     return merged.map((record) => ({
       ...record,
+      verificationProgress: this.getVerificationProgress(record),
       pendingApprovalRole: record.workflowInstanceId
         ? pendingRoles.get(record.workflowInstanceId) ?? null
         : null,

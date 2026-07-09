@@ -18,7 +18,7 @@ import {
   type HandoverFormState,
 } from '../../constants/omHandover';
 import OmHandoverDocuments from './OmHandoverDocuments';
-import { canActOnHandoverReview } from './OmHandoverJeApprovalBar';
+import { canActOnHandoverReview, isHandoverAwaitingReview } from './OmHandoverJeApprovalBar';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import { useAuth } from '../../context/AuthContext';
@@ -395,14 +395,15 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                   <TableCell align="center" sx={{ width: '12%' }}>Verification</TableCell>
                   <TableCell align="center" sx={{ width: '14%' }}>Status</TableCell>
                   <TableCell align="right" sx={{ width: '12%' }}>Created</TableCell>
-                  <TableCell align="center" sx={{ width: '10%' }}>Action</TableCell>
+                  <TableCell align="center" sx={{ width: '18%' }}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {handovers.map((h) => {
                   const vp = h.verificationProgress;
                   const allVerified = vp?.pct === 100;
-                  const showApprove = canApproveHandover(h, user?.roles, user?.email);
+                  const showApprove = !contractorView && isHandoverAwaitingReview(String(h.status));
+                  const canAct = canApproveHandover(h, user?.roles, user?.email);
                   const highlightRow = showApprove && String(h.status) === 'je_review';
                   return (
                     <TableRow
@@ -431,30 +432,31 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                         {h.createdAt ? new Date(String(h.createdAt)).toLocaleDateString() : '—'}
                       </TableCell>
                       <TableCell align="center">
-                        <Button size="small" onClick={() => openEdit(String(h.id))}>Open</Button>
-                        {showApprove && (
-                          <Button
-                            size="small"
-                            color="success"
-                            variant="contained"
-                            sx={{ ml: 0.5, fontWeight: 800 }}
-                            disabled={busy}
-                            onClick={() => actOnHandover(String(h.id), 'approve')}
-                          >
-                            Approve Handover
-                          </Button>
-                        )}
-                        {contractorView && String(h.status) !== 'handed_over' && (
-                          <Button
-                            size="small"
-                            color="error"
-                            sx={{ ml: 0.5 }}
-                            disabled={busy}
-                            onClick={() => removeHandover(String(h.id), String(h.schemeName))}
-                          >
-                            Remove
-                          </Button>
-                        )}
+                        <Box display="flex" flexDirection="column" gap={0.5} alignItems="center">
+                          <Button size="small" onClick={() => openEdit(String(h.id))}>Open</Button>
+                          {showApprove && (
+                            <Button
+                              size="small"
+                              color="success"
+                              variant="contained"
+                              sx={{ fontWeight: 800, minWidth: 130 }}
+                              disabled={busy || !canAct}
+                              onClick={() => actOnHandover(String(h.id), 'approve')}
+                            >
+                              Approve Handover
+                            </Button>
+                          )}
+                          {contractorView && String(h.status) !== 'handed_over' && (
+                            <Button
+                              size="small"
+                              color="error"
+                              disabled={busy}
+                              onClick={() => removeHandover(String(h.id), String(h.schemeName))}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </Box>
                       </TableCell>
                     </TableRow>
                   );
