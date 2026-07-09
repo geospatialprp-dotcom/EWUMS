@@ -264,7 +264,9 @@ export class WorkflowsService {
     if (isSuperAdmin(roles)) {
       throw new ForbiddenException('Super Admin cannot act on workflow tasks. Use an HQ or division account.');
     }
-    await this.assertInstanceDivisionAccess(user, tenantId, task.instance);
+    if (!this.isRoleMatchedOmHandoverTask(task, roles)) {
+      await this.assertInstanceDivisionAccess(user, tenantId, task.instance);
+    }
     if (!roles.includes(task.assignedRole)) {
       throw new BadRequestException('You are not authorized to act on this task');
     }
@@ -349,6 +351,15 @@ export class WorkflowsService {
     if (!divisionId || !divisionIds.includes(divisionId)) {
       throw new ForbiddenException('This workflow belongs to another division.');
     }
+  }
+
+  /** O&M handover tasks are routed by assigned role (JE/AE/EE), not division scope. */
+  private isRoleMatchedOmHandoverTask(task: WorkflowTask, roles: string[]): boolean {
+    return (
+      task.instance?.resourceType === 'om_handover'
+      && Boolean(task.assignedRole)
+      && roles.includes(task.assignedRole)
+    );
   }
 
   private readPayloadDivisionId(payload: Record<string, unknown> | null | undefined): string | null {
@@ -476,10 +487,16 @@ export class WorkflowsService {
     try {
       const divisionIds = await this.divisionAccess.getAccessibleDivisionIds(user, tenantId);
       if (divisionIds === null) return tasks;
-      if (divisionIds.length === 0) return [];
-
+      const roles = user.roles ?? [];
+      if (divisionIds.length === 0) {
+        return tasks.filter((task) => this.isRoleMatchedOmHandoverTask(task, roles));
+      }
       const filtered: WorkflowTask[] = [];
       for (const task of tasks) {
+        if (this.isRoleMatchedOmHandoverTask(task, roles)) {
+          filtered.push(task);
+          continue;
+        }
         if (await this.instanceVisibleToUser(user, tenantId, task.instance, divisionIds)) {
           filtered.push(task);
         }

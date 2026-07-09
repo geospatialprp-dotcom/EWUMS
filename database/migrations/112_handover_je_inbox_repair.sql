@@ -1,16 +1,13 @@
--- Quick VPS fix: JE inbox empty after contractor handover submit.
--- Run:
---   docker compose -f /opt/egip/deploy/hostinger-kvm/docker-compose.prod.yml \
---     --env-file /opt/egip/deploy/hostinger-kvm/.env exec -T postgres \
---     psql -U egip -d egip -v ON_ERROR_STOP=1 \
---     < /opt/egip/database/scripts/vps-fix-handover-je-inbox.sql
+-- JE inbox + O&M handover approval repair (Tharali demo).
 
+-- JE must approve handover workflow steps (Workflow Center + O&M page).
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT 'b0000000-0000-0000-0000-000000000006', p.id, 'division'
 FROM permissions p
 WHERE p.resource = 'om' AND p.action = 'approve'
 ON CONFLICT DO NOTHING;
 
+-- Re-affirm Karanprayag demo team division assignments (empty scope = inbox filtered to 0).
 UPDATE users
 SET division_id = 'd1000000-0000-0000-0000-000000000010',
     updated_at = NOW()
@@ -23,6 +20,7 @@ INSERT INTO user_division_assignments (user_id, division_id) VALUES
 ('c0000000-0000-0000-0000-000000000010', 'd1000000-0000-0000-0000-000000000010')
 ON CONFLICT (user_id) DO UPDATE SET division_id = EXCLUDED.division_id;
 
+-- Tharali project division (belt-and-suspenders).
 UPDATE projects
 SET division_id = 'd1000000-0000-0000-0000-000000000010',
     updated_at = NOW()
@@ -32,6 +30,7 @@ WHERE tenant_id = 'a0000000-0000-0000-0000-000000000001'
     OR name ILIKE '%Tharali%'
   );
 
+-- Pending om_handover workflow payloads carry division for notifications.
 UPDATE workflow_instances wi
 SET payload = COALESCE(wi.payload, '{}'::jsonb) || jsonb_build_object(
       'divisionId', 'd1000000-0000-0000-0000-000000000010'
@@ -40,8 +39,17 @@ FROM om_handover h
 WHERE wi.tenant_id = 'a0000000-0000-0000-0000-000000000001'
   AND wi.resource_type = 'om_handover'
   AND wi.status = 'pending'
-  AND h.id = wi.resource_id;
+  AND h.id = wi.resource_id
+  AND (
+    h.scheme_name ILIKE '%Tharali%'
+    OR h.project_id IN (
+      SELECT id FROM projects
+      WHERE tenant_id = 'a0000000-0000-0000-0000-000000000001'
+        AND (project_code IN ('PRJ-TPPWSS-2026-27', 'PRJ-2026-001') OR name ILIKE '%Tharali%')
+    )
+  );
 
+-- Recreate missing pending tasks (e.g. submit succeeded but task row missing).
 INSERT INTO workflow_tasks (instance_id, step_order, step_name, assigned_role, status)
 SELECT wi.id,
        (step->>'order')::int,
@@ -61,6 +69,7 @@ WHERE wi.tenant_id = 'a0000000-0000-0000-0000-000000000001'
     WHERE wt.instance_id = wi.id AND wt.status = 'pending'
   );
 
+-- Align handover status with workflow step (EE step was mis-labelled handed_over).
 UPDATE om_handover h
 SET status = CASE wi.current_step
       WHEN 1 THEN 'je_review'
@@ -75,10 +84,11 @@ WHERE h.workflow_instance_id = wi.id
   AND wi.resource_type = 'om_handover'
   AND h.tenant_id = 'a0000000-0000-0000-0000-000000000001';
 
-SELECT wi.title, wi.status, wi.current_step, t.step_name, t.assigned_role, t.status AS task_status
-FROM workflow_tasks t
-JOIN workflow_instances wi ON wi.id = t.instance_id
-WHERE wi.resource_type = 'om_handover'
-  AND wi.status = 'pending'
-  AND t.status = 'pending'
-ORDER BY wi.submitted_at DESC;
+-- Contractor uploads should not show "awaiting dept approval" before handover submit.
+UPDATE om_handover_documents d
+SET status = 'uploaded'
+FROM om_handover h
+WHERE d.handover_id = h.id
+  AND h.status IN ('draft', 'rejected')
+  AND d.status = 'submitted'
+  AND d.source = 'upload';

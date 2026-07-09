@@ -20,6 +20,7 @@ export const HANDOVER_STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
   je_review: 'JE Review',
   ae_review: 'AE Review',
+  ee_review: 'EE Review',
   handed_over: 'Handed Over',
   rejected: 'Rejected',
 };

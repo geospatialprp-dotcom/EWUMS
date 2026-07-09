@@ -204,7 +204,7 @@ export class OmController {
   }
 
   @Post('handovers/:id/workflow')
-  @RequirePermissions('om:approve')
+  @RequirePermissions('om:approve', 'om:update', 'om:read')
   actOnHandover(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() dto: ActOnTaskDto) {
     return this.omService.actOnHandoverWorkflow(user, user.tenantId, user.sub, user.roles ?? [], id, dto);
   }
@@ -230,7 +230,7 @@ export class OmController {
   }
 
   @Patch('handovers/:handoverId/documents/:docId')
-  @RequirePermissions('om:approve')
+  @RequirePermissions('om:approve', 'om:update', 'om:read')
   @ApiOperation({ summary: 'Department approval / rejection of handover document' })
   actOnHandoverDocument(
     @CurrentUser() user: JwtPayload,

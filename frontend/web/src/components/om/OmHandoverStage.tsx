@@ -6,6 +6,8 @@ import {
   TextField, Typography,
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { omApi, projectsApi } from '../../services/api';
 import SurfaceCard from '../layout/SurfaceCard';
 import {
@@ -51,6 +53,7 @@ type HandoverRecord = Record<string, unknown> & {
   id: string;
   schemeName: string;
   status: string;
+  pendingApprovalRole?: string | null;
   omAgencyName?: string;
   omAgencyType?: string;
   createdAt?: string;
@@ -68,6 +71,24 @@ function verificationLabel(h: HandoverRecord): string {
   const vp = h.verificationProgress;
   if (vp) return `${vp.done}/${vp.total}`;
   return 'In progress';
+}
+
+const HANDOVER_APPROVER_BY_STATUS: Record<string, string> = {
+  je_review: 'je',
+  ae_review: 'ae',
+  ee_review: 'ee',
+};
+
+function userMatchesHandoverReview(roles: string[] | undefined, status: string): boolean {
+  const needed = HANDOVER_APPROVER_BY_STATUS[status];
+  return Boolean(needed && roles?.includes(needed));
+}
+
+function canApproveHandover(h: HandoverRecord, roles: string[] | undefined): boolean {
+  if (!roles?.length || isContractorUser(roles)) return false;
+  if (userMatchesHandoverReview(roles, String(h.status))) return true;
+  const pendingRole = h.pendingApprovalRole;
+  return Boolean(pendingRole && roles.includes(pendingRole));
 }
 
 interface Props {
@@ -88,6 +109,7 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
   const [prefillHint, setPrefillHint] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [docSummary, setDocSummary] = useState({ requiredTotal: 0, requiredApproved: 0, requiredPending: 0 });
 
   useEffect(() => {
     projectsApi.list()
@@ -230,7 +252,8 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
     setError('');
     try {
       await omApi.submitHandover(editingId);
-      setDialogOpen(false);
+      const { data } = await omApi.getHandover(editingId);
+      setDetail(data);
       onRefresh();
     } catch (err: unknown) {
       setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Submit failed');
@@ -258,10 +281,43 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
     }
   };
 
+  const actOnHandover = async (id: string, action: 'approve' | 'reject') => {
+    const label = action === 'approve' ? 'approve' : 'reject';
+    if (!window.confirm(`${action === 'approve' ? 'Approve' : 'Reject'} this handover submission?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await omApi.actOnHandover(id, { action, comments: '' });
+      const { data } = await omApi.getHandover(id);
+      setDetail(data);
+      onRefresh();
+    } catch (err: unknown) {
+      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? `Failed to ${label} handover`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const outputs = detail?.outputs ?? (detail?.responsibilityMatrix as { outputs?: HandoverRecord['outputs'] })?.outputs;
 
-  const isLocked = detail?.status && !['draft', 'rejected'].includes(String(detail.status));
+  const handoverStatus = String(detail?.status ?? 'draft');
+  const isSubmittedForApproval = ['je_review', 'ae_review', 'ee_review'].includes(handoverStatus);
+  const isLocked = detail?.status && !['draft', 'rejected'].includes(handoverStatus);
   const formReadOnly = Boolean(isLocked) || !canInitiateHandover;
+  const canApproveDetail = Boolean(
+    !contractorView
+    && detail
+    && isSubmittedForApproval
+    && user?.roles?.length
+    && !isContractorUser(user?.roles),
+  );
+  const needsDeptReview = !contractorView && isSubmittedForApproval;
+  const wrongReviewerSession = needsDeptReview
+    && !canApproveHandover(detail ?? { id: '', schemeName: '', status: handoverStatus }, user?.roles);
+  const hasGeneratedOutputs = Boolean(outputs) || Boolean(detail?.handoverCertificateUrl);
+  const docsReadyForHandoverApprove = docSummary.requiredTotal > 0
+    ? docSummary.requiredPending === 0 && docSummary.requiredApproved === docSummary.requiredTotal
+    : true;
 
   return (
     <>
@@ -284,6 +340,12 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
             JE, AE, and EE manage verification and approval after you submit. Track status below or in Workflow Center → My Submissions.
           </Typography>
         </SurfaceCard>
+      )}
+
+      {!contractorView && handovers.some((h) => canApproveHandover(h, user?.roles)) && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Handover submissions awaiting your approval are listed below. You can also approve from Workflow Center → Inbox.
+        </Alert>
       )}
 
       {error && !dialogOpen && (
@@ -342,6 +404,7 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                 {handovers.map((h) => {
                   const vp = h.verificationProgress;
                   const allVerified = vp?.pct === 100;
+                  const showApprove = canApproveHandover(h, user?.roles);
                   return (
                     <TableRow key={String(h.id)} hover>
                       <TableCell sx={{ wordBreak: 'break-word' }}>{String(h.schemeName)}</TableCell>
@@ -366,6 +429,18 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                       </TableCell>
                       <TableCell align="center">
                         <Button size="small" onClick={() => openEdit(String(h.id))}>Open</Button>
+                        {showApprove && (
+                          <Button
+                            size="small"
+                            color="success"
+                            variant="contained"
+                            sx={{ ml: 0.5, fontWeight: 700 }}
+                            disabled={busy}
+                            onClick={() => { void openEdit(String(h.id)); }}
+                          >
+                            Review
+                          </Button>
+                        )}
                         {contractorView && String(h.status) !== 'handed_over' && (
                           <Button
                             size="small"
@@ -402,6 +477,90 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
         />
         <DialogContent dividers sx={omDialogContentSx}>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+          {canApproveDetail && editingId && (
+            <Box
+              sx={{
+                mb: 2,
+                p: 2,
+                bgcolor: '#ecfdf5',
+                border: '2px solid #10b981',
+                borderRadius: 2,
+              }}
+            >
+              <Typography sx={{ fontWeight: 800, fontSize: '1rem', mb: 1, color: '#047857' }}>
+                Step 2 — Approve Handover ({HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus})
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1.5 }}>
+                Documents are checked. Click the green button to send to the next approver.
+              </Typography>
+              <Box display="flex" flexWrap="wrap" gap={1}>
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="large"
+                  startIcon={<CheckCircleIcon />}
+                  disabled={busy || !docsReadyForHandoverApprove}
+                  onClick={() => actOnHandover(editingId, 'approve')}
+                >
+                  Approve Handover
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="large"
+                  startIcon={<CancelIcon />}
+                  disabled={busy}
+                  onClick={() => actOnHandover(editingId, 'reject')}
+                >
+                  Reject
+                </Button>
+              </Box>
+              {!docsReadyForHandoverApprove && (
+                <Typography variant="caption" color="error" display="block" mt={1}>
+                  Approve each required document first ({docSummary.requiredApproved}/{docSummary.requiredTotal} approved).
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {wrongReviewerSession && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              This handover is in <strong>{HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus}</strong>.
+              Your login roles: <strong>{user?.roles?.join(', ') || 'none'}</strong>.
+              {' '}For JE step use <strong>geospatialprp@gmail.com</strong>, logout, login again, then hard refresh (Ctrl+Shift+R).
+            </Alert>
+          )}
+
+          {isSubmittedForApproval && canApproveDetail && !contractorView && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Review documents below, then use <strong>Approve Handover</strong> at the top or bottom of this dialog.
+            </Alert>
+          )}
+
+          {isSubmittedForApproval && contractorView && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              {contractorView
+                ? `Submitted for approval — status: ${HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus}. JE, AE, and EE act in Workflow Center or from the handover register.`
+                : `This handover is awaiting your review (${HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus}). Approve uploaded documents below and/or use Approve Handover.`}
+            </Alert>
+          )}
+
+          {handoverStatus === 'handed_over' && (
+            <Alert severity="success" sx={{ mb: 2 }}>Handover completed — scheme transferred to O&M agency.</Alert>
+          )}
+
+          {!contractorView && handoverStatus === 'draft' && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Contractor has not submitted this handover yet. Approve becomes available after they click Submit for Approval.
+            </Alert>
+          )}
+
+          {contractorView && handoverStatus === 'draft' && hasGeneratedOutputs && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              All steps complete. Click <strong>Submit for Approval</strong> at the bottom to send this package to JE.
+            </Alert>
+          )}
 
           <Typography variant="subtitle2" fontWeight={700} gutterBottom>1. Link Commissioned Project</Typography>
           <Grid container spacing={2} mb={2}>
@@ -447,6 +606,9 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
           <OmHandoverDocuments
             handoverId={editingId}
             locked={formReadOnly}
+            contractorView={contractorView}
+            deptReviewMode={canApproveDetail}
+            onDocsChanged={setDocSummary}
             onDocumentApproved={async () => {
               if (!editingId) return;
               const { data } = await omApi.getHandover(editingId);
@@ -554,16 +716,94 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
               Complete all verifications and assign agency, then generate certificate, O&M responsibility matrix, and asset registers.
             </Typography>
           )}
+
+          {canApproveDetail && editingId && (
+            <Box
+              sx={{
+                mt: 2,
+                p: 2,
+                bgcolor: '#fffbeb',
+                border: '1px solid #fcd34d',
+                borderRadius: 2,
+              }}
+            >
+              <Typography sx={{ fontWeight: 700, mb: 0.5 }}>
+                Approval required — {HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                {docsReadyForHandoverApprove
+                  ? 'All required documents approved. Click Approve Handover to forward to the next step.'
+                  : `Step 2 — approve all uploaded documents first (${docSummary.requiredApproved}/${docSummary.requiredTotal} approved).`}
+              </Typography>
+              <Box display="flex" flexWrap="wrap" gap={1}>
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="large"
+                  startIcon={<CheckCircleIcon />}
+                  disabled={busy || !docsReadyForHandoverApprove}
+                  onClick={() => actOnHandover(editingId, 'approve')}
+                >
+                  Approve Handover
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="large"
+                  startIcon={<CancelIcon />}
+                  disabled={busy}
+                  onClick={() => actOnHandover(editingId, 'reject')}
+                >
+                  Reject
+                </Button>
+              </Box>
+            </Box>
+          )}
         </DialogContent>
-        <DialogActions sx={omDialogActionsSx}>
+        <DialogActions sx={{
+          ...omDialogActionsSx,
+          ...(canApproveDetail ? {
+            position: 'sticky',
+            bottom: 0,
+            bgcolor: 'background.paper',
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            zIndex: 2,
+          } : {}),
+        }}>
           <Button onClick={() => setDialogOpen(false)}>Close</Button>
+          {canApproveDetail && editingId && (
+            <>
+              <Button
+                color="error"
+                startIcon={<CancelIcon />}
+                disabled={busy}
+                onClick={() => actOnHandover(editingId, 'reject')}
+              >
+                Reject Handover
+              </Button>
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<CheckCircleIcon />}
+                disabled={busy || !docsReadyForHandoverApprove}
+                onClick={() => actOnHandover(editingId, 'approve')}
+              >
+                Approve Handover
+              </Button>
+            </>
+          )}
           {!isLocked && canInitiateHandover && (
             <>
               <Button onClick={save} disabled={busy || !form.schemeName}>Save Draft</Button>
               <Button variant="outlined" onClick={generate} disabled={busy || verificationPct < 100 || !form.omAgencyName}>
                 Generate Outputs
               </Button>
-              <Button variant="contained" onClick={submit} disabled={busy || !outputs || !editingId}>
+              <Button
+                variant="contained"
+                onClick={submit}
+                disabled={busy || !hasGeneratedOutputs || !editingId}
+              >
                 Submit for Approval
               </Button>
             </>

@@ -15,6 +15,7 @@ import {
   type OmWorkflowStage,
 } from '../constants/omWorkflow';
 import OmHandoverStage from '../components/om/OmHandoverStage';
+import OmHandoverJeApprovalBar from '../components/om/OmHandoverJeApprovalBar';
 import OmAssetRegistrationStage from '../components/om/OmAssetRegistrationStage';
 import OmInspectionStage from '../components/om/OmInspectionStage';
 import OmPreventiveMaintenanceStage from '../components/om/OmPreventiveMaintenanceStage';
@@ -609,6 +610,7 @@ export default function OmManagementPage() {
       {activeStage.key === 'handover' && (
         <>
           <StageOverview stages={workflowStages} stageKey="handover" />
+          <OmHandoverJeApprovalBar handovers={handovers} onDone={load} />
           <OmHandoverStage handovers={handovers} onRefresh={load} />
         </>
       )}

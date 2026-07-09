@@ -14,6 +14,7 @@ export const HANDOVER_DOCUMENT_SLOTS = [
 
 export const DOC_STATUS_LABELS: Record<string, string> = {
   pending: 'Pending Upload',
+  uploaded: 'Uploaded',
   submitted: 'Awaiting Department Approval',
   approved: 'Approved',
   rejected: 'Rejected',

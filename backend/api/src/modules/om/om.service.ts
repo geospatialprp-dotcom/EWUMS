@@ -47,6 +47,7 @@ export class OmService {
     @InjectRepository(ProjectCompletion) private completionRepo: Repository<ProjectCompletion>,
     @InjectRepository(ConstructionAsset) private constructionAssetRepo: Repository<ConstructionAsset>,
     @InjectRepository(WorkflowTask) private taskRepo: Repository<WorkflowTask>,
+    @InjectRepository(WorkflowInstance) private workflowInstanceRepo: Repository<WorkflowInstance>,
     @InjectRepository(OmHandoverDocument) private handoverDocRepo: Repository<OmHandoverDocument>,
     private workflowsService: WorkflowsService,
     private scope: OmDivisionScopeService,
@@ -83,13 +84,30 @@ export class OmService {
       .where('h.tenant_id = :tenantId', { tenantId })
       .orderBy('h.created_at', 'DESC');
     await this.scope.scopeProjectQb(qb, user, tenantId, 'h', resolvedProjectId);
-    return qb.getMany();
+    const records = await qb.getMany();
+    const roleMatched = await this.loadHandoversForReviewer(user, tenantId);
+    const byId = new Map(records.map((r) => [r.id, r]));
+    for (const row of roleMatched) {
+      if (!byId.has(row.id)) byId.set(row.id, row);
+    }
+    const merged = [...byId.values()].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    const pendingRoles = await this.loadPendingApprovalRoles(
+      merged.map((r) => r.workflowInstanceId).filter((id): id is string => Boolean(id)),
+    );
+    return merged.map((record) => ({
+      ...record,
+      pendingApprovalRole: record.workflowInstanceId
+        ? pendingRoles.get(record.workflowInstanceId) ?? null
+        : null,
+    }));
   }
 
   async getHandover(user: JwtPayload, tenantId: string, id: string) {
     const record = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!record) throw new NotFoundException('Handover record not found');
-    await this.scope.assertProjectAccess(user, record.projectId, tenantId);
+    await this.assertHandoverAccess(user, record, tenantId);
     const verificationProgress = this.getVerificationProgress(record);
     const outputs = this.extractOutputs(record);
     let documents: Awaited<ReturnType<OmService['listHandoverDocuments']>> = [];
@@ -104,6 +122,9 @@ export class OmService {
       outputs,
       documents,
       allVerified: verificationProgress.pct === 100,
+      pendingApprovalRole: record.workflowInstanceId
+        ? await this.loadPendingApprovalRole(record.workflowInstanceId)
+        : null,
     };
   }
 
@@ -170,13 +191,20 @@ export class OmService {
     });
     record.fileName = saved.fileName;
     record.fileUrl = saved.fileUrl;
-    record.status = 'submitted';
+    record.status = 'uploaded';
     record.uploadedBy = userId;
     record.uploadedAt = new Date();
     record.approvedBy = null;
     record.approvedAt = null;
     record.approvalComments = null;
-    return this.handoverDocRepo.save(record);
+    const savedDoc = await this.handoverDocRepo.save(record);
+
+    if ('verificationKey' in def && def.verificationKey) {
+      Object.assign(handover, { [def.verificationKey]: true });
+      await this.handoverRepo.save(handover);
+    }
+
+    return savedDoc;
   }
 
   async actOnHandoverDocument(
@@ -190,6 +218,9 @@ export class OmService {
     const handover = await this.requireHandover(user, tenantId, handoverId);
     const doc = await this.handoverDocRepo.findOne({ where: { id: docId, tenantId, handoverId } });
     if (!doc) throw new NotFoundException('Document not found');
+    if (!['submitted', 'uploaded'].includes(doc.status)) {
+      throw new BadRequestException('Document is not pending department review');
+    }
     if (doc.status === 'approved' && dto.action === 'approve') {
       return doc;
     }
@@ -220,10 +251,25 @@ export class OmService {
     return { doc, absolutePath, mimeType: guessMimeType(doc.fileName ?? 'file.pdf') };
   }
 
+  private handoverReviewerRole(status: string): string | null {
+    const map: Record<string, string> = { je_review: 'je', ae_review: 'ae', ee_review: 'ee' };
+    return map[status] ?? null;
+  }
+
+  private userCanReviewHandoverStatus(user: JwtPayload, status: string): boolean {
+    const needed = this.handoverReviewerRole(status);
+    return Boolean(needed && user.roles?.includes(needed));
+  }
+
+  private async assertHandoverAccess(user: JwtPayload, record: OmHandover, tenantId: string): Promise<void> {
+    if (this.userCanReviewHandoverStatus(user, record.status)) return;
+    await this.scope.assertProjectAccess(user, record.projectId, tenantId);
+  }
+
   private async requireHandover(user: JwtPayload, tenantId: string, id: string) {
     const record = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!record) throw new NotFoundException('Handover record not found');
-    await this.scope.assertProjectAccess(user, record.projectId, tenantId);
+    await this.assertHandoverAccess(user, record, tenantId);
     return record;
   }
 
@@ -413,13 +459,17 @@ export class OmService {
   ) {
     const record = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!record) throw new NotFoundException('Handover record not found');
-    await this.scope.assertProjectAccess(user, record.projectId, tenantId);
-    if (!record.workflowInstanceId) throw new BadRequestException('No workflow linked to this handover');
+    if (!this.userCanReviewHandoverStatus(user, record.status)) {
+      throw new BadRequestException('You are not authorized to act on this handover step');
+    }
+    if (dto.action === 'approve') {
+      await this.assertRequiredHandoverDocsApproved(tenantId, id);
+    }
 
-    const task = await this.taskRepo.findOne({
-      where: { instanceId: record.workflowInstanceId, status: 'pending' },
-    });
-    if (!task) throw new BadRequestException('No pending approval task');
+    const task = await this.ensurePendingHandoverTask(record, tenantId);
+    if (!roles.includes(task.assignedRole)) {
+      throw new BadRequestException('You are not authorized to act on this handover step');
+    }
 
     const result = await this.workflowsService.actOnTask(tenantId, user, task.id, dto);
 
@@ -432,6 +482,138 @@ export class OmService {
     }
 
     return this.handoverRepo.save(record);
+  }
+
+  private async assertRequiredHandoverDocsApproved(tenantId: string, handoverId: string): Promise<void> {
+    const docs = await this.handoverDocRepo.find({ where: { tenantId, handoverId, source: 'upload' } });
+    const byType = new Map(docs.map((d) => [d.docType, d]));
+    const pending = HANDOVER_DOCUMENT_TYPES
+      .filter((d) => d.category === 'required')
+      .filter((d) => {
+        const doc = byType.get(d.type);
+        return !doc || doc.status !== 'approved';
+      })
+      .map((d) => d.label);
+    if (pending.length) {
+      throw new BadRequestException(
+        `Approve all required documents before handover approval: ${pending.join(', ')}`,
+      );
+    }
+  }
+
+  private async ensurePendingHandoverTask(record: OmHandover, tenantId: string): Promise<WorkflowTask> {
+    const stepByStatus: Record<string, { order: number; name: string; role: string }> = {
+      je_review: { order: 1, name: 'JE Verification', role: 'je' },
+      ae_review: { order: 2, name: 'AE Approval', role: 'ae' },
+      ee_review: { order: 3, name: 'EE Handover', role: 'ee' },
+    };
+    const step = stepByStatus[record.status];
+    if (!step) {
+      throw new BadRequestException('Handover is not awaiting department approval');
+    }
+
+    let instance: WorkflowInstance | null = null;
+    if (record.workflowInstanceId) {
+      instance = await this.workflowInstanceRepo.findOne({
+        where: { id: record.workflowInstanceId, tenantId },
+      });
+    }
+
+    if (!instance) {
+      const def = await this.workflowsService.ensureDefinition(tenantId, 'om_handover', {
+        name: 'O&M Asset Handover',
+        resourceType: 'om_handover',
+        description: 'O&M handover workflow',
+        steps: [
+          { order: 1, name: 'JE Verification', role: 'je', action: 'verify' },
+          { order: 2, name: 'AE Approval', role: 'ae', action: 'approve' },
+          { order: 3, name: 'EE Handover', role: 'ee', action: 'handover' },
+        ],
+      });
+      const divisionId = record.projectId
+        ? await this.scope.getProjectDivisionId(record.projectId)
+        : null;
+      instance = await this.workflowInstanceRepo.save(this.workflowInstanceRepo.create({
+        tenantId,
+        definitionId: def.id,
+        resourceType: 'om_handover',
+        resourceId: record.id,
+        title: `O&M Handover — ${record.schemeName}`,
+        status: 'pending',
+        currentStep: step.order,
+        payload: {
+          schemeName: record.schemeName,
+          projectId: record.projectId,
+          divisionId,
+        },
+        submittedBy: record.createdBy,
+        submittedAt: new Date(),
+      }));
+      record.workflowInstanceId = instance.id;
+      await this.handoverRepo.save(record);
+    }
+
+    if (!instance) throw new BadRequestException('Could not create workflow for this handover');
+
+    if (instance.status !== 'pending') {
+      throw new BadRequestException('Workflow already completed for this handover');
+    }
+
+    const existing = await this.taskRepo.findOne({
+      where: { instanceId: instance.id, status: 'pending' },
+    });
+    if (existing) return existing;
+
+    if (instance.currentStep !== step.order) {
+      instance.currentStep = step.order;
+      await this.workflowInstanceRepo.save(instance);
+    }
+
+    return this.taskRepo.save(this.taskRepo.create({
+      instanceId: instance.id,
+      stepOrder: step.order,
+      stepName: step.name,
+      assignedRole: step.role,
+      status: 'pending',
+    }));
+  }
+
+  private async loadHandoversForReviewer(user: JwtPayload, tenantId: string): Promise<OmHandover[]> {
+    const roles = user.roles ?? [];
+    const statuses: string[] = [];
+    if (roles.includes('je')) statuses.push('je_review');
+    if (roles.includes('ae')) statuses.push('ae_review');
+    if (roles.includes('ee')) statuses.push('ee_review');
+    if (!statuses.length) return [];
+    return this.handoverRepo
+      .createQueryBuilder('h')
+      .where('h.tenant_id = :tenantId', { tenantId })
+      .andWhere('h.status IN (:...statuses)', { statuses })
+      .orderBy('h.created_at', 'DESC')
+      .getMany();
+  }
+
+  private async loadPendingApprovalRole(workflowInstanceId: string): Promise<string | null> {
+    const task = await this.taskRepo.findOne({
+      where: { instanceId: workflowInstanceId, status: 'pending' },
+      select: ['assignedRole'],
+    });
+    return task?.assignedRole ?? null;
+  }
+
+  private async loadPendingApprovalRoles(workflowInstanceIds: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (!workflowInstanceIds.length) return map;
+    const tasks = await this.taskRepo
+      .createQueryBuilder('t')
+      .select(['t.instanceId', 't.assignedRole'])
+      .where('t.instance_id IN (:...ids)', { ids: workflowInstanceIds })
+      .andWhere('t.status = :status', { status: 'pending' })
+      .getMany();
+    for (const task of tasks) {
+      map.set(task.instanceId, task.assignedRole);
+    }
+    return map;
   }
 
   private assertAllVerified(record: OmHandover) {

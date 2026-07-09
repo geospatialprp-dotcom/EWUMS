@@ -30,12 +30,19 @@ type DocRow = {
 interface Props {
   handoverId: string | null;
   locked?: boolean;
+  contractorView?: boolean;
+  deptReviewMode?: boolean;
   onDocumentApproved?: () => void;
+  onDocsChanged?: (summary: { requiredTotal: number; requiredApproved: number; requiredPending: number }) => void;
 }
 
-export default function OmHandoverDocuments({ handoverId, locked, onDocumentApproved }: Props) {
-  const { hasPermission } = useAuth();
-  const canApprove = hasPermission('om:approve');
+export default function OmHandoverDocuments({
+  handoverId, locked, contractorView = false, deptReviewMode = false, onDocumentApproved, onDocsChanged,
+}: Props) {
+  const { user, hasPermission } = useAuth();
+  const roles = user?.roles ?? [];
+  const isDeptReviewer = roles.some((r) => ['je', 'ae', 'ee'].includes(r));
+  const canApprove = hasPermission('om:approve') || hasPermission('om:update') || isDeptReviewer;
   const [rows, setRows] = useState<DocRow[]>([]);
   const [error, setError] = useState('');
   const [busyType, setBusyType] = useState('');
@@ -44,21 +51,36 @@ export default function OmHandoverDocuments({ handoverId, locked, onDocumentAppr
 
   const load = useCallback(() => {
     if (!handoverId) {
-      setRows(HANDOVER_DOCUMENT_SLOTS.map((s) => ({
+      const empty = HANDOVER_DOCUMENT_SLOTS.map((s) => ({
         docType: s.type,
         label: s.label,
         category: s.category,
         document: null,
-      })));
+      }));
+      setRows(empty);
+      onDocsChanged?.({ requiredTotal: 0, requiredApproved: 0, requiredPending: 0 });
       return;
     }
     omApi.listHandoverDocuments(handoverId)
-      .then((r) => setRows(Array.isArray(r.data) && r.data.length ? r.data : HANDOVER_DOCUMENT_SLOTS.map((s) => ({
-        docType: s.type,
-        label: s.label,
-        category: s.category,
-        document: null,
-      }))))
+      .then((r) => {
+        const next = Array.isArray(r.data) && r.data.length ? r.data : HANDOVER_DOCUMENT_SLOTS.map((s) => ({
+          docType: s.type,
+          label: s.label,
+          category: s.category,
+          document: null,
+        }));
+        setRows(next);
+        const required = next.filter((row) => row.category === 'required');
+        const requiredApproved = required.filter((row) => row.document?.status === 'approved').length;
+        const requiredPending = required.filter(
+          (row) => row.document && ['uploaded', 'submitted'].includes(row.document.status),
+        ).length;
+        onDocsChanged?.({
+          requiredTotal: required.length,
+          requiredApproved,
+          requiredPending,
+        });
+      })
       .catch(() => {
         setRows(HANDOVER_DOCUMENT_SLOTS.map((s) => ({
           docType: s.type,
@@ -68,7 +90,7 @@ export default function OmHandoverDocuments({ handoverId, locked, onDocumentAppr
         })));
         setError('Document repository is initializing — refresh after backend restart. If upload fails, run migration 028.');
       });
-  }, [handoverId]);
+  }, [handoverId, onDocsChanged]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -124,7 +146,7 @@ export default function OmHandoverDocuments({ handoverId, locked, onDocumentAppr
 
   const statusColor = (status: string): 'default' | 'warning' | 'success' | 'error' => {
     if (status === 'approved') return 'success';
-    if (status === 'submitted') return 'warning';
+    if (status === 'submitted' || status === 'uploaded') return 'warning';
     if (status === 'rejected') return 'error';
     return 'default';
   };
@@ -140,17 +162,30 @@ export default function OmHandoverDocuments({ handoverId, locked, onDocumentAppr
   const required = rows.filter((r) => r.category === 'required');
   const generated = rows.filter((r) => r.category === 'generated');
   const approvedRequired = required.filter((r) => r.document?.status === 'approved').length;
+  const pendingRequired = required.filter(
+    (r) => r.document && ['uploaded', 'submitted'].includes(r.document.status),
+  ).length;
 
   return (
     <Box mb={2}>
       <input ref={fileRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" onChange={onFilePicked} />
       {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>{error}</Alert>}
 
+      {deptReviewMode && canApprove && (
+        <Alert severity="warning" sx={{ mb: 1.5 }}>
+          <strong>Step 1 — JE document check:</strong> download each file, then click <strong>Approve</strong> on every uploaded document ({approvedRequired}/{required.length} approved).
+          Handover approval unlocks after all required documents are approved.
+        </Alert>
+      )}
+
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
         <Box>
           <Typography variant="subtitle2" fontWeight={700}>Electronic Document Repository (e-DMS)</Typography>
           <Typography variant="caption" color="text.secondary">
-            Upload completion documents · Department verifies & approves · {approvedRequired}/{required.length} required docs approved
+            {contractorView
+              ? 'Upload completion documents · Submit handover when all verifications are complete'
+              : 'Upload completion documents · Department verifies & approves · '}
+            {!contractorView && `${approvedRequired}/${required.length} required docs approved`}
           </Typography>
         </Box>
       </Box>
@@ -213,18 +248,43 @@ export default function OmHandoverDocuments({ handoverId, locked, onDocumentAppr
                         </IconButton>
                       </Tooltip>
                     )}
-                    {canApprove && doc?.status === 'submitted' && (
+                    {canApprove && (doc?.status === 'submitted' || doc?.status === 'uploaded') && (
                       <>
-                        <Tooltip title="Approve (Department)">
-                          <IconButton size="small" color="success" onClick={() => act(doc.id, 'approve')}>
-                            <CheckCircleOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Reject">
-                          <IconButton size="small" color="error" onClick={() => act(doc.id, 'reject')}>
-                            <CancelOutlinedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {deptReviewMode ? (
+                          <>
+                            <Button
+                              size="small"
+                              color="success"
+                              variant="contained"
+                              sx={{ ml: 0.5 }}
+                              onClick={() => act(doc.id, 'approve')}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              sx={{ ml: 0.5 }}
+                              onClick={() => act(doc.id, 'reject')}
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Tooltip title="Approve (Department)">
+                              <IconButton size="small" color="success" onClick={() => act(doc.id, 'approve')}>
+                                <CheckCircleOutlineIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Reject">
+                              <IconButton size="small" color="error" onClick={() => act(doc.id, 'reject')}>
+                                <CancelOutlinedIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        )}
                       </>
                     )}
                   </TableCell>

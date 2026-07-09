@@ -8,6 +8,7 @@ import { ConstructionAsset } from '../construction/entities/construction-asset.e
 import { ProjectCompletion } from '../construction/entities/project-completion.entity';
 import { Project } from '../projects/entities/project.entity';
 import { WorkflowTask } from '../workflows/entities/workflow-task.entity';
+import { WorkflowInstance } from '../workflows/entities/workflow-instance.entity';
 import { WorkflowsModule } from '../workflows/workflows.module';
 import { OmBreakdownTicket } from './entities/om-breakdown-ticket.entity';
 import { OmHandoverDocument } from './entities/om-handover-document.entity';
@@ -118,6 +119,7 @@ import { OmDivisionScopeService } from './om-division-scope.service';
       ProjectCompletion,
       ConstructionAsset,
       WorkflowTask,
+      WorkflowInstance,
       JalMitraSession,
       JalMitraMessage,
       JalMitraKnowledgeArticle,
