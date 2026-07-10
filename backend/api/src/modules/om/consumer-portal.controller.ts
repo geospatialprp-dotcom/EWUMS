@@ -78,9 +78,13 @@ export class ConsumerPortalController {
   }
 
   @Post('applications/new-connection')
-  @ApiOperation({ summary: 'Apply for new connection (public)' })
-  applyNewConnectionPublic(@Body() dto: ConsumerPortalNewConnectionDto) {
-    return this.portalService.applyNewConnection('a0000000-0000-0000-0000-000000000001', dto);
+  @ApiOperation({ summary: 'Apply for new connection (public or logged-in consumer)' })
+  applyNewConnection(@Body() dto: ConsumerPortalNewConnectionDto, @Req() req: Request) {
+    return this.portalService.applyNewConnection(
+      'a0000000-0000-0000-0000-000000000001',
+      dto,
+      this.resolveConsumerId(req),
+    );
   }
 
   @UseGuards(JwtAuthGuard, ConsumerPortalGuard)
@@ -142,12 +146,6 @@ export class ConsumerPortalController {
   @Get('applications/:requestNo')
   getApplication(@CurrentUser() user: JwtPayload, @Param('requestNo') requestNo: string) {
     return this.portalService.getMyApplication(user.tenantId, user.consumerId!, requestNo);
-  }
-
-  @UseGuards(JwtAuthGuard, ConsumerPortalGuard)
-  @Post('applications/new-connection')
-  applyNewConnection(@CurrentUser() user: JwtPayload, @Body() dto: ConsumerPortalNewConnectionDto) {
-    return this.portalService.applyNewConnection(user.tenantId, dto, user.consumerId!);
   }
 
   @UseGuards(JwtAuthGuard, ConsumerPortalGuard)

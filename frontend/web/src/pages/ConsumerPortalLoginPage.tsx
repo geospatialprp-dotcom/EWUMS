@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Grid, InputAdornment,
+  Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+  Grid, InputAdornment,
   Stack, TextField, Typography,
 } from '@mui/material';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
@@ -13,6 +14,7 @@ import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import PinIcon from '@mui/icons-material/Pin';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import HowToRegOutlinedIcon from '@mui/icons-material/HowToRegOutlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import axios from 'axios';
@@ -59,7 +61,7 @@ const FEATURES = [
   },
 ] as const;
 
-function getLoginError(err: unknown): string {
+function getLoginError(err: unknown, fallback = 'Login failed'): string {
   if (axios.isAxiosError(err)) {
     if (!err.response) return 'Cannot connect to backend API. Start: cd backend/api && npm run start:dev';
     const msg = err.response.data?.message;
@@ -67,7 +69,7 @@ function getLoginError(err: unknown): string {
     if (Array.isArray(msg)) return msg.join(', ');
     if (err.response.status === 401) return 'FHTC number and mobile do not match our records';
   }
-  return 'Login failed';
+  return fallback;
 }
 
 function StepIndicator({
@@ -146,6 +148,15 @@ export default function ConsumerPortalLoginPage() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyForm, setApplyForm] = useState({
+    fhtcNumber: '',
+    mobile: '',
+    consumerName: '',
+    village: '',
+    ward: '',
+    notes: '',
+  });
   const { login, loginWithOtp, token, otpMode } = useConsumerPortal();
   const navigate = useNavigate();
 
@@ -202,6 +213,58 @@ export default function ConsumerPortalLoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleApplyNewConnection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!applyForm.fhtcNumber.trim() || !applyForm.mobile.trim()) {
+      setError('FHTC number and mobile are required');
+      return;
+    }
+    setError('');
+    setInfo('');
+    setLoading(true);
+    try {
+      const { data } = await consumerPortalApi.applyNewConnection({
+        fhtcNumber: applyForm.fhtcNumber.trim(),
+        mobile: applyForm.mobile.trim(),
+        consumerName: applyForm.consumerName.trim() || undefined,
+        village: applyForm.village.trim() || undefined,
+        ward: applyForm.ward.trim() || undefined,
+        notes: applyForm.notes.trim() || undefined,
+      });
+      const appNo = String(data?.application?.requestNo ?? '');
+      const fhtc = String(data?.consumer?.fhtcNumber ?? applyForm.fhtcNumber.trim());
+      const appliedMobile = applyForm.mobile.trim();
+      setFhtcNumber(fhtc);
+      setMobile(appliedMobile);
+      setApplyOpen(false);
+      setStep('credentials');
+      setInfo(
+        appNo
+          ? `Application ${appNo} submitted. Sign in below with your FHTC and mobile to track status. Division staff will approve your connection.`
+          : String(data?.message ?? 'Application submitted. You can sign in to track status.'),
+      );
+      setApplyForm({ fhtcNumber: '', mobile: '', consumerName: '', village: '', ward: '', notes: '' });
+    } catch (err) {
+      setError(getLoginError(err, 'Failed to submit application'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openApplyDialog = () => {
+    setError('');
+    setInfo('');
+    setApplyForm({
+      fhtcNumber: fhtcNumber.trim(),
+      mobile: mobile.trim(),
+      consumerName: '',
+      village: '',
+      ward: '',
+      notes: '',
+    });
+    setApplyOpen(true);
   };
 
   const primaryButtonSx = {
@@ -567,6 +630,23 @@ export default function ConsumerPortalLoginPage() {
                 </Box>
               )}
 
+              <Button
+                fullWidth
+                variant="text"
+                startIcon={<HowToRegOutlinedIcon />}
+                onClick={openApplyDialog}
+                sx={{
+                  mt: 1.5,
+                  py: 1,
+                  borderRadius: 2.5,
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  color: '#0284c7',
+                }}
+              >
+                New connection? Apply here
+              </Button>
+
               <Box
                 sx={{
                   mt: 2.5,
@@ -606,6 +686,94 @@ export default function ConsumerPortalLoginPage() {
           </Card>
         </Grid>
       </Grid>
+
+      <Dialog open={applyOpen} onClose={() => !loading && setApplyOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>Apply for New Water Connection</DialogTitle>
+        <Box component="form" onSubmit={handleApplyNewConnection}>
+          <DialogContent sx={{ pt: 0 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Submit your FHTC number and details. After submission, sign in with the same FHTC and mobile to track your application.
+              Your division office (JE/AE) will verify and activate the connection.
+            </Typography>
+            <TextField
+              fullWidth
+              required
+              label="FHTC Number"
+              margin="dense"
+              value={applyForm.fhtcNumber}
+              onChange={(e) => setApplyForm({ ...applyForm, fhtcNumber: e.target.value })}
+              placeholder="e.g. FHTC-KPG-001"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <BadgeIcon sx={{ color: '#94a3b8', fontSize: 20 }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={consumerFieldSx}
+            />
+            <TextField
+              fullWidth
+              required
+              label="Mobile Number"
+              margin="dense"
+              value={applyForm.mobile}
+              onChange={(e) => setApplyForm({ ...applyForm, mobile: e.target.value })}
+              placeholder="10-digit mobile number"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PhoneAndroidIcon sx={{ color: '#94a3b8', fontSize: 20 }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={consumerFieldSx}
+            />
+            <TextField
+              fullWidth
+              label="Applicant Name"
+              margin="dense"
+              value={applyForm.consumerName}
+              onChange={(e) => setApplyForm({ ...applyForm, consumerName: e.target.value })}
+              sx={consumerFieldSx}
+            />
+            <TextField
+              fullWidth
+              label="Village"
+              margin="dense"
+              value={applyForm.village}
+              onChange={(e) => setApplyForm({ ...applyForm, village: e.target.value })}
+              sx={consumerFieldSx}
+            />
+            <TextField
+              fullWidth
+              label="Ward / Area"
+              margin="dense"
+              value={applyForm.ward}
+              onChange={(e) => setApplyForm({ ...applyForm, ward: e.target.value })}
+              sx={consumerFieldSx}
+            />
+            <TextField
+              fullWidth
+              multiline
+              minRows={2}
+              label="Notes (optional)"
+              margin="dense"
+              value={applyForm.notes}
+              onChange={(e) => setApplyForm({ ...applyForm, notes: e.target.value })}
+              sx={consumerFieldSx}
+            />
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
+            <Button onClick={() => setApplyOpen(false)} disabled={loading} sx={{ textTransform: 'none' }}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="contained" disabled={loading} sx={{ textTransform: 'none', fontWeight: 700 }}>
+              {loading ? 'Submitting…' : 'Submit Application'}
+            </Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
     </Box>
   );
 }
