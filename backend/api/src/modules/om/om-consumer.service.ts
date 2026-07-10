@@ -55,7 +55,9 @@ export class OmConsumerService {
   async getConsumer(user: JwtPayload, tenantId: string, id: string) {
     const row = await this.consumerRepo.findOne({ where: { id, tenantId } });
     if (!row) throw new NotFoundException('Consumer not found');
-    await this.scope.assertProjectAccess(user, row.projectId, tenantId);
+    if (user.portalType !== 'consumer') {
+      await this.scope.assertProjectAccess(user, row.projectId, tenantId);
+    }
     const requests = await this.requestRepo.find({
       where: { tenantId, consumerId: id },
       order: { createdAt: 'DESC' },
@@ -115,7 +117,9 @@ export class OmConsumerService {
     assertNotSuperAdminForOperations(user, 'consumer service requests');
     const consumer = await this.consumerRepo.findOne({ where: { id: consumerId, tenantId } });
     if (!consumer) throw new NotFoundException('Consumer not found');
-    await this.scope.assertProjectAccess(user, consumer.projectId, tenantId);
+    if (user.portalType !== 'consumer' && consumer.projectId) {
+      await this.scope.assertProjectAccess(user, consumer.projectId, tenantId);
+    }
 
     const requestType = dto.requestType as OmConsumerServiceType;
     this.validateServiceRequest(consumer, requestType);

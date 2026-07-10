@@ -935,9 +935,11 @@ export class DivisionAccessService {
     );
   }
 
-  async assertProjectAccess(user: JwtPayload, projectId: string, tenantId: string): Promise<Project> {
+  async assertProjectAccess(user: JwtPayload, projectId: string | null, tenantId: string): Promise<Project> {
+    if (!projectId) throw new NotFoundException('Project not found');
     const project = await this.projectRepo.findOne({ where: { id: projectId, tenantId } });
     if (!project) throw new NotFoundException('Project not found');
+    if (user.portalType === 'consumer') return project;
     if (!(await this.isDivisionSchemaReady())) return project;
 
     if (user.roles?.includes('contractor')) {

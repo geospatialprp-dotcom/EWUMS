@@ -13,6 +13,7 @@ import { OmConsumerServiceRequest } from './entities/om-consumer-service-request
 import { OmConsumer } from './entities/om-consumer.entity';
 import { OmBillingService } from './om-billing.service';
 import { OmComplaintService } from './om-complaint.service';
+import { ConsumerPortalAuthService } from './consumer-portal-auth.service';
 import { ConsumerNotificationService } from './consumer-notification.service';
 import { OmConsumerService } from './om-consumer.service';
 import { getConsumerServiceLabel } from './constants/om-consumer-catalog';
@@ -29,6 +30,7 @@ export class ConsumerPortalService {
     private billingService: OmBillingService,
     private complaintService: OmComplaintService,
     private notifications: ConsumerNotificationService,
+    private authService: ConsumerPortalAuthService,
   ) {}
 
   getCatalog() {
@@ -301,6 +303,26 @@ export class ConsumerPortalService {
         connectionStatus: consumer.connectionStatus,
       },
       message: `Application ${request.requestNo} submitted. Track status using FHTC and mobile.`,
+    };
+  }
+
+  async applyNewConnectionAndLogin(
+    tenantId: string,
+    dto: ConsumerPortalNewConnectionDto,
+    loggedInConsumerId?: string,
+  ) {
+    const result = await this.applyNewConnection(tenantId, dto, loggedInConsumerId);
+    const consumer = await this.consumerRepo.findOne({
+      where: { id: result.consumer.id, tenantId },
+    });
+    if (!consumer) {
+      throw new BadRequestException('Application saved but sign-in failed. Use Sign in without OTP.');
+    }
+    const session = this.authService.issueTokenForConsumer(consumer);
+    return {
+      ...result,
+      accessToken: session.accessToken,
+      consumer: session.consumer,
     };
   }
 

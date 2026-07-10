@@ -19,7 +19,7 @@ import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import axios from 'axios';
-import { useConsumerPortal } from '../context/ConsumerPortalContext';
+import { useConsumerPortal, type PortalConsumer } from '../context/ConsumerPortalContext';
 import { consumerPortalApi } from '../services/portalApi';
 import LoginBrandLogo from '../components/branding/LoginBrandLogo';
 import LoginAmbientBackground from '../components/auth/LoginAmbientBackground';
@@ -62,6 +62,14 @@ const FEATURES = [
     delay: 0.3,
   },
 ] as const;
+
+function isAccountNotFoundError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const msg = err.response?.data?.message;
+  const status = err.response?.status;
+  return status === 401
+    || (typeof msg === 'string' && /no account found|apply here first/i.test(msg));
+}
 
 function getLoginError(err: unknown, fallback = 'Login failed'): string {
   if (axios.isAxiosError(err)) {
@@ -162,6 +170,7 @@ export default function ConsumerPortalLoginPage() {
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
+  const [applyError, setApplyError] = useState('');
   const [showPlotMap, setShowPlotMap] = useState(false);
   const [plotPickMessage, setPlotPickMessage] = useState('');
   const [applyForm, setApplyForm] = useState({
@@ -172,7 +181,7 @@ export default function ConsumerPortalLoginPage() {
     ward: '',
     notes: '',
   });
-  const { login, loginWithOtp, token, otpMode } = useConsumerPortal();
+  const { login, loginWithOtp, establishSession, token, otpMode } = useConsumerPortal();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -200,7 +209,12 @@ export default function ConsumerPortalLoginPage() {
         setInfo('OTP sent to your registered mobile.');
       }
     } catch (err) {
-      setError(getLoginError(err));
+      if (isAccountNotFoundError(err)) {
+        setInfo('No account yet — apply for a new connection first.');
+        openApplyDialog(true);
+      } else {
+        setError(getLoginError(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -258,14 +272,15 @@ export default function ConsumerPortalLoginPage() {
   const handleApplyNewConnection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!applyForm.fhtcNumber.trim() || !applyForm.mobile.trim()) {
-      setError('FHTC number and mobile are required');
+      setApplyError('FHTC number and mobile are required');
       return;
     }
+    setApplyError('');
     setError('');
     setInfo('');
     setLoading(true);
     try {
-      const { data } = await consumerPortalApi.applyNewConnection({
+      const { data } = await consumerPortalApi.applyNewConnectionAndLogin({
         fhtcNumber: applyForm.fhtcNumber.trim(),
         mobile: applyForm.mobile.trim(),
         consumerName: applyForm.consumerName.trim() || undefined,
@@ -273,29 +288,34 @@ export default function ConsumerPortalLoginPage() {
         ward: applyForm.ward.trim() || undefined,
         notes: applyForm.notes.trim() || undefined,
       });
+      if (data?.accessToken && data?.consumer) {
+        establishSession({
+          accessToken: String(data.accessToken),
+          consumer: data.consumer as PortalConsumer,
+        });
+        setApplyOpen(false);
+        setShowPlotMap(false);
+        setApplyForm({ fhtcNumber: '', mobile: '', consumerName: '', village: '', ward: '', notes: '' });
+        navigate('/portal', { replace: true });
+        return;
+      }
       const appNo = String(data?.application?.requestNo ?? '');
       const fhtc = String(data?.consumer?.fhtcNumber ?? applyForm.fhtcNumber.trim());
-      const appliedMobile = applyForm.mobile.trim();
       setFhtcNumber(fhtc);
-      setMobile(appliedMobile);
+      setMobile(applyForm.mobile.trim());
       setApplyOpen(false);
-      setStep('credentials');
-      setInfo(
-        appNo
-          ? `Application ${appNo} submitted. Sign in below with the same FHTC and mobile. If OTP fails, use Sign in without OTP.`
-          : String(data?.message ?? 'Application submitted. Sign in with the same FHTC and mobile to track status.'),
-      );
-      setApplyForm({ fhtcNumber: '', mobile: '', consumerName: '', village: '', ward: '', notes: '' });
+      setInfo(appNo ? `Application ${appNo} submitted. Use Sign in without OTP.` : 'Application submitted.');
     } catch (err) {
-      setError(getLoginError(err, 'Failed to submit application'));
+      setApplyError(getLoginError(err, 'Failed to submit application'));
     } finally {
       setLoading(false);
     }
   };
 
-  const openApplyDialog = () => {
+  const openApplyDialog = (fromLoginFailure = false) => {
     setError('');
-    setInfo('');
+    setApplyError('');
+    if (!fromLoginFailure) setInfo('');
     setShowPlotMap(false);
     setPlotPickMessage('');
     setApplyForm({
@@ -726,6 +746,11 @@ export default function ConsumerPortalLoginPage() {
         <DialogTitle sx={{ fontWeight: 800 }}>Apply for New Water Connection</DialogTitle>
         <Box component="form" onSubmit={handleApplyNewConnection}>
           <DialogContent sx={{ pt: 0 }}>
+            {applyError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {applyError}
+              </Alert>
+            )}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Open the satellite map — only your district boundary is shown (no plot dots).
               Zoom to your house rooftop, tap the building, and Khasra / House number auto-fills. Or type FHTC manually.

@@ -90,6 +90,16 @@ export class ConsumerPortalController {
     );
   }
 
+  @Post('applications/new-connection-and-login')
+  @ApiOperation({ summary: 'Apply for new connection and sign in (one step)' })
+  applyNewConnectionAndLogin(@Body() dto: ConsumerPortalNewConnectionDto, @Req() req: Request) {
+    return this.portalService.applyNewConnectionAndLogin(
+      'a0000000-0000-0000-0000-000000000001',
+      dto,
+      this.resolveConsumerId(req),
+    );
+  }
+
   @Get('household-plots')
   @ApiOperation({ summary: 'Household / FHTC plot points for map picker' })
   listHouseholdPlots(@Query('projectCode') projectCode?: string) {

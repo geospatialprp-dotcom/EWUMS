@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -25,10 +25,19 @@ export class ConsumerPortalAuthService {
   }
 
   async login(dto: ConsumerPortalLoginDto) {
-    if (this.otpService.getOtpMode() === 'required') {
-      throw new UnauthorizedException('OTP verification is required. Request an OTP first.');
+    try {
+      if (this.otpService.getOtpMode() === 'required') {
+        throw new UnauthorizedException('OTP verification is required. Request an OTP first.');
+      }
+      const consumer = await this.findMatchingConsumer(dto.fhtcNumber, dto.mobile);
+      return this.issueToken(consumer);
+    } catch (err) {
+      if (err instanceof UnauthorizedException || err instanceof BadRequestException) throw err;
+      throw new BadRequestException('Sign in failed. Submit New connection — Apply here first.');
     }
-    const consumer = await this.findMatchingConsumer(dto.fhtcNumber, dto.mobile);
+  }
+
+  issueTokenForConsumer(consumer: OmConsumer) {
     return this.issueToken(consumer);
   }
 
@@ -52,13 +61,17 @@ export class ConsumerPortalAuthService {
     const mobileDigits = this.otpService.normalizeMobile(mobile);
     if (!mobileDigits) throw new UnauthorizedException('Invalid mobile number');
 
-    const consumer = await this.consumerRepo.findOne({
+    const rows = await this.consumerRepo.find({
       where: { tenantId: DEMO_TENANT, fhtcNumber: fhtc },
       order: { createdAt: 'DESC' },
+      take: 1,
     });
+    const consumer = rows[0];
 
     if (!consumer?.mobile) {
-      throw new UnauthorizedException('Consumer account not found or mobile not registered');
+      throw new UnauthorizedException(
+        'No account found for this FHTC. Submit New connection — Apply here first with the same FHTC and mobile.',
+      );
     }
 
     const storedDigits = this.otpService.normalizeMobile(consumer.mobile);

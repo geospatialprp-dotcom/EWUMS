@@ -53,6 +53,7 @@ export const consumerPortalApi = {
   listApplications: () => portalApi.get('/applications'),
   getApplication: (requestNo: string) => portalApi.get(`/applications/${encodeURIComponent(requestNo)}`),
   applyNewConnection: (data: object) => portalApi.post('/applications/new-connection', data),
+  applyNewConnectionAndLogin: (data: object) => portalApi.post('/applications/new-connection-and-login', data),
   listHouseholdPlots: (projectCode?: string) =>
     portalApi.get('/household-plots', { params: projectCode ? { projectCode } : undefined }),
   resolveHouseholdPlot: (data: { latitude: number; longitude: number; projectCode?: string }) =>

@@ -42,6 +42,8 @@ type ConsumerPortalContextType = {
 
   loginWithOtp: (fhtcNumber: string, mobile: string, otp: string) => Promise<void>;
 
+  establishSession: (data: { accessToken: string; consumer: PortalConsumer }) => void;
+
   logout: () => void;
 
 };
@@ -224,11 +226,16 @@ export function ConsumerPortalProvider({ children }: { children: ReactNode }) {
 
 
 
+  const establishSession = (data: { accessToken: string; consumer: PortalConsumer }) => {
+    clearSession();
+    applyLoginResponse(data);
+  };
+
   return (
 
     <ConsumerPortalContext.Provider value={{
 
-      consumer, token, loading, otpMode, login, loginWithOtp, logout,
+      consumer, token, loading, otpMode, login, loginWithOtp, establishSession, logout,
 
     }}
 
