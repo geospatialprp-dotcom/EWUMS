@@ -22,7 +22,11 @@ import {
 } from '../../constants/omBreakdown';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
-import { useCanViewAllDivisions } from '../../utils/divisionAccess';
+import OmSchemeProjectSelect, {
+  normalizeOmProjectList,
+  useRequireOmProjectSelection,
+  type OmProjectOption,
+} from './OmSchemeProjectSelect';
 import { formatCoordinatePair } from '../../utils/coordinateFields';
 
 type TicketRow = {
@@ -51,7 +55,7 @@ type TicketRow = {
   createdAt?: string;
 };
 
-type ProjectOption = { id: string; name: string; projectCode: string };
+type ProjectOption = OmProjectOption;
 type UserOption = { id: string; email: string; firstName?: string; lastName?: string };
 
 const GROUP_TABS: OmBreakdownGroup[] = ['mechanical', 'electrical', 'pipeline', 'consumer_service'];
@@ -71,7 +75,6 @@ function userLabel(u: UserOption): string {
 }
 
 export default function OmBreakdownStage() {
-  const canViewAll = useCanViewAllDivisions();
   const [tab, setTab] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all');
   const [rows, setRows] = useState<TicketRow[]>([]);
@@ -86,6 +89,8 @@ export default function OmBreakdownStage() {
   const [workflowOpen, setWorkflowOpen] = useState<TicketRow | null>(null);
 
   const activeGroup = GROUP_TABS[tab];
+
+  useRequireOmProjectSelection(projects, selectedProject, setSelectedProject, { requireSelection: true });
 
   const [createForm, setCreateForm] = useState({
     title: '',
@@ -131,13 +136,11 @@ export default function OmBreakdownStage() {
   useEffect(() => {
     Promise.all([projectsApi.list(), usersApi.list()])
       .then(([pRes, uRes]) => {
-        const plist = (pRes.data ?? []) as ProjectOption[];
+        const plist = normalizeOmProjectList(pRes.data);
         setProjects(plist);
-        if (plist.length && !selectedProject) setSelectedProject(plist[0]);
         setUsers(uRes.data?.users ?? []);
       })
       .catch(() => setError('Failed to load reference data'));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -155,6 +158,10 @@ export default function OmBreakdownStage() {
   };
 
   const handleCreate = () => {
+    if (!selectedProject) {
+      setError('Select a scheme / project before raising a breakdown complaint');
+      return;
+    }
     if (!createForm.title.trim()) {
       setError('Title is required');
       return;
@@ -301,26 +308,18 @@ export default function OmBreakdownStage() {
           <Box display="flex" justifyContent="space-between" alignItems="center" width="100%" flexWrap="wrap" gap={1}>
             <Typography sx={{ fontWeight: 700, fontSize: '0.9375rem' }}>Breakdown Tickets</Typography>
             <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Scheme / Project</InputLabel>
-                <Select
-                  label="Scheme / Project"
-                  value={selectedProject?.id ?? ''}
-                  onChange={(e) => {
-                    const p = projects.find((x) => x.id === e.target.value) ?? null;
-                    setSelectedProject(p);
-                  }}
-                >
-                  {canViewAll && <MenuItem value="">All schemes</MenuItem>}
-                  {projects.map((p) => (
-                    <MenuItem key={p.id} value={p.id}>{p.projectCode} — {p.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <OmSchemeProjectSelect
+                projects={projects}
+                value={selectedProject?.id ?? ''}
+                allowAllSchemes={false}
+                onChange={setSelectedProject}
+                minWidth={220}
+              />
               <Button
                 variant="contained"
                 size="small"
                 startIcon={<AddOutlinedIcon />}
+                disabled={!selectedProject}
                 onClick={() => { resetCreateForm(); setCreateOpen(true); }}
               >
                 Raise Complaint
@@ -329,6 +328,12 @@ export default function OmBreakdownStage() {
           </Box>
         )}
       >
+        {!selectedProject && projects.length === 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            No schemes are available for your division. Contact HQ to link a project before raising breakdown tickets.
+          </Alert>
+        )}
+
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
           {OM_BREAKDOWN_CATALOG.map((g) => (
             <Tab key={g.group} label={g.label} />
@@ -401,6 +406,9 @@ export default function OmBreakdownStage() {
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: omDialogPaperSx }}>
         <OmDialogHeader stage={5} title="Raise Breakdown Complaint" busy={busy} />
         <DialogContent sx={omDialogContentSx}>
+          {!selectedProject && (
+            <Alert severity="warning" sx={{ mb: 2 }}>Select a scheme / project before submitting.</Alert>
+          )}
           <TextField
             fullWidth label="Title / Summary" margin="dense" required
             value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
@@ -453,7 +461,7 @@ export default function OmBreakdownStage() {
         </DialogContent>
         <DialogActions sx={omDialogActionsSx}>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={busy}>Submit Complaint</Button>
+          <Button variant="contained" onClick={handleCreate} disabled={busy || !selectedProject}>Submit Complaint</Button>
         </DialogActions>
       </Dialog>
 

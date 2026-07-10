@@ -10,7 +10,29 @@ type OmSchemeProjectSelectProps = {
   onChange: (project: OmProjectOption | null) => void;
   minWidth?: number;
   label?: string;
+  /** When false, hide "All schemes" — use for forms that require a project. */
+  allowAllSchemes?: boolean;
 };
+
+export function pickDefaultOmProject(projects: OmProjectOption[]): OmProjectOption | null {
+  if (!projects.length) return null;
+  const demo = projects.find((p) => /tharali/i.test(`${p.name} ${p.projectCode}`));
+  return demo ?? projects[0];
+}
+
+export function normalizeOmProjectList(data: unknown): OmProjectOption[] {
+  if (Array.isArray(data)) {
+    return data.map((p: OmProjectOption) => ({
+      id: String(p.id),
+      name: String(p.name ?? ''),
+      projectCode: String(p.projectCode ?? ''),
+    }));
+  }
+  if (data && typeof data === 'object' && Array.isArray((data as { items?: unknown[] }).items)) {
+    return normalizeOmProjectList((data as { items: unknown[] }).items);
+  }
+  return [];
+}
 
 export default function OmSchemeProjectSelect({
   projects,
@@ -18,9 +40,11 @@ export default function OmSchemeProjectSelect({
   onChange,
   minWidth = 220,
   label = 'Scheme / Project',
+  allowAllSchemes = true,
 }: OmSchemeProjectSelectProps) {
   const canViewAll = useCanViewAllDivisions();
-  const effectiveValue = canViewAll ? value : (value || projects[0]?.id || '');
+  const showAllSchemes = allowAllSchemes && canViewAll;
+  const effectiveValue = showAllSchemes ? value : (value || projects[0]?.id || '');
 
   return (
     <FormControl
@@ -44,7 +68,7 @@ export default function OmSchemeProjectSelect({
           onChange(id ? projects.find((project) => project.id === id) ?? null : null);
         }}
       >
-        {canViewAll && <MenuItem value="">{ALL_SCHEMES_LABEL}</MenuItem>}
+        {showAllSchemes && <MenuItem value="">{ALL_SCHEMES_LABEL}</MenuItem>}
         {projects.map((project) => (
           <MenuItem key={project.id} value={project.id}>
             {project.projectCode} — {project.name}
@@ -60,14 +84,17 @@ export function useRequireOmProjectSelection(
   projects: OmProjectOption[],
   selectedProject: OmProjectOption | null,
   setSelectedProject: (project: OmProjectOption | null) => void,
+  options?: { requireSelection?: boolean },
 ) {
   const canViewAll = useCanViewAllDivisions();
+  const requireSelection = options?.requireSelection ?? false;
   useEffect(() => {
-    if (canViewAll || !projects.length) return;
-    if (!selectedProject || !projects.some((project) => project.id === selectedProject.id)) {
-      setSelectedProject(projects[0]);
+    if (!projects.length) return;
+    const valid = selectedProject && projects.some((project) => project.id === selectedProject.id);
+    if (requireSelection || !canViewAll) {
+      if (!valid) setSelectedProject(pickDefaultOmProject(projects));
     }
-  }, [canViewAll, projects, selectedProject, setSelectedProject]);
+  }, [canViewAll, projects, selectedProject, setSelectedProject, requireSelection]);
 }
 
 export function omProjectScopeLabel(project: OmProjectOption | null, canViewAll: boolean): string {
