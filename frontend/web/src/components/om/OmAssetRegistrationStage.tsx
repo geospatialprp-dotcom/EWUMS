@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Dialog, DialogActions,
   DialogContent, FormControl, Grid, IconButton, InputLabel, MenuItem, Select, Tab, Tabs, Table,
@@ -7,11 +7,13 @@ import {
 } from '@mui/material';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import axios from 'axios';
 import { omApi, projectsApi } from '../../services/api';
 import SurfaceCard from '../layout/SurfaceCard';
+import MapViewer from '../map/MapViewer';
 import {
   OM_ASSET_CATALOG, OM_ASSET_STATUS_OPTIONS, OM_ASSET_TYPE_ABBREV, omAssetTypeLabel,
 } from '../../constants/omAssets';
@@ -21,6 +23,8 @@ import OmAssetQrCode from './OmAssetQrCode';
 import { buildOmAssetScanUrl } from '../../utils/omAssetQr';
 import { formatCoordinatePair, formatCoordinateString } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions } from '../../utils/divisionAccess';
+import { buildConstructionAssetMapUrl, buildProjectGisMapExplorerUrl } from '../../utils/mapExplorerLinks';
+import type { BasemapConfig } from '../../utils/basemapLayers';
 
 type AssetRow = Record<string, unknown> & {
   id: string;
@@ -31,6 +35,7 @@ type AssetRow = Record<string, unknown> & {
   omSubcategory?: string;
   status: string;
   qrCode?: string;
+  projectId?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   manufacturer?: string | null;
@@ -116,6 +121,7 @@ function normalizeAssetRow(raw: Record<string, unknown>): AssetRow {
     installationDate: installationDate != null ? String(installationDate).slice(0, 10) : null,
     warrantyDetails: warrantyDetails != null ? String(warrantyDetails) : null,
     designLifeYears: designLifeNum != null && Number.isFinite(designLifeNum) ? designLifeNum : null,
+    projectId: (raw.projectId ?? raw.project_id) as string | null | undefined,
     latitude: raw.latitude != null ? Number(raw.latitude) : null,
     longitude: raw.longitude != null ? Number(raw.longitude) : null,
   } as AssetRow;
@@ -140,6 +146,29 @@ function assetToForm(asset: AssetRow): AssetFormState {
 }
 
 const CATEGORIES = [...new Set(OM_ASSET_CATALOG.map((c) => c.group))];
+
+const OM_ASSET_MAP_BASEMAPS: BasemapConfig[] = [
+  {
+    id: 'osm',
+    name: 'OpenStreetMap',
+    sourceType: 'xyz',
+    sourceConfig: {
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+];
+
+function isAssetMapped(asset: AssetRow): boolean {
+  const lat = asset.latitude != null ? Number(asset.latitude) : NaN;
+  const lng = asset.longitude != null ? Number(asset.longitude) : NaN;
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+}
+
+function resolveAssetProjectId(asset: AssetRow, fallbackProjectId?: string | null): string | null {
+  const fromAsset = asset.projectId ? String(asset.projectId) : null;
+  return fromAsset ?? fallbackProjectId ?? null;
+}
 
 function getApiError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
@@ -193,6 +222,7 @@ function formatDesignLifeYears(value: number | null | undefined): string {
 type ProjectOption = { id: string; name: string; projectCode: string };
 
 export default function OmAssetRegistrationStage() {
+  const navigate = useNavigate();
   const canViewAll = useCanViewAllDivisions();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(0);
@@ -563,6 +593,72 @@ export default function OmAssetRegistrationStage() {
     .map((a) => normalizeAssetRow(a as Record<string, unknown>))
     .filter((a) => !activeCategory || a.omCategory === activeCategory);
 
+  const mappedCategoryAssets = useMemo(
+    () => categoryAssets.filter(isAssetMapped),
+    [categoryAssets],
+  );
+
+  const mapExplorerProjectId = useMemo(() => {
+    if (selectedProject?.id) return selectedProject.id;
+    const withProject = assets
+      .map((a) => normalizeAssetRow(a as Record<string, unknown>))
+      .find((a) => a.projectId && isAssetMapped(a));
+    return withProject?.projectId ? String(withProject.projectId) : null;
+  }, [selectedProject?.id, assets]);
+
+  const mapExplorerAssets = useMemo(
+    () => assets
+      .map((a) => normalizeAssetRow(a as Record<string, unknown>))
+      .filter(isAssetMapped)
+      .filter((a) => !mapExplorerProjectId || String(a.projectId) === mapExplorerProjectId),
+    [assets, mapExplorerProjectId],
+  );
+
+  const openAssetOnMap = useCallback((asset: AssetRow) => {
+    const projectId = resolveAssetProjectId(asset, selectedProject?.id ?? mapExplorerProjectId);
+    if (!projectId || !isAssetMapped(asset)) return;
+    navigate(buildConstructionAssetMapUrl({
+      projectId,
+      assetCode: String(asset.assetCode),
+      latitude: Number(asset.latitude),
+      longitude: Number(asset.longitude),
+      assetName: String(asset.name ?? ''),
+      assetType: String(asset.assetType ?? ''),
+    }));
+  }, [navigate, selectedProject?.id, mapExplorerProjectId]);
+
+  const assetRegisterMapLayers = useMemo(() => {
+    if (!mappedCategoryAssets.length) return [];
+    return [{
+      id: 'om-register-assets',
+      name: `${activeCategory.replace(' Infrastructure', '')} assets`,
+      visible: true,
+      geometryType: 'Point',
+      features: {
+        type: 'FeatureCollection' as const,
+        features: mappedCategoryAssets.map((a) => ({
+          type: 'Feature' as const,
+          id: a.id,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [Number(a.longitude), Number(a.latitude)],
+          },
+          properties: {
+            assetCode: a.assetCode,
+            name: a.name,
+            markerColor: '#1565C0',
+            label: String(a.assetCode),
+          },
+        })),
+      },
+    }];
+  }, [mappedCategoryAssets, activeCategory]);
+
+  const assetMapCenter = useMemo((): [number, number] => {
+    if (!mappedCategoryAssets.length) return [79.0, 30.0];
+    return [Number(mappedCategoryAssets[0].longitude), Number(mappedCategoryAssets[0].latitude)];
+  }, [mappedCategoryAssets]);
+
   return (
     <>
       <SurfaceCard
@@ -594,6 +690,17 @@ export default function OmAssetRegistrationStage() {
               <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} disabled={busy || !selectedProject} onClick={importFromConstruction}>
                 Import from Construction
               </Button>
+              {mapExplorerProjectId && mapExplorerAssets.length > 0 && (
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={<MapOutlinedIcon />}
+                  onClick={() => navigate(buildProjectGisMapExplorerUrl(mapExplorerProjectId, mapExplorerAssets))}
+                >
+                  Map Explorer ({mapExplorerAssets.length})
+                </Button>
+              )}
               <Button size="small" variant="contained" onClick={() => { setForm(emptyAssetForm()); setRegisterOpen(true); }}>Register Asset</Button>
             </Box>
           </Box>
@@ -612,6 +719,45 @@ export default function OmAssetRegistrationStage() {
           ))}
         </Tabs>
 
+        {mappedCategoryAssets.length > 0 && (
+          <Box mb={2}>
+            <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} mb={1}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Asset Map Explorer — {activeCategory.replace(' Infrastructure', '')}
+              </Typography>
+              {mapExplorerProjectId && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<MapOutlinedIcon />}
+                  onClick={() => navigate(buildProjectGisMapExplorerUrl(mapExplorerProjectId, mappedCategoryAssets))}
+                >
+                  Open full Map Explorer
+                </Button>
+              )}
+            </Box>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+              {mappedCategoryAssets.length} geo-tagged asset{mappedCategoryAssets.length === 1 ? '' : 's'}.
+              Click a marker below or the <strong>Map</strong> button in each table row.
+            </Typography>
+            <Box sx={{ height: 360, borderRadius: 1, overflow: 'hidden', border: 1, borderColor: 'divider' }}>
+              <MapViewer
+                basemaps={OM_ASSET_MAP_BASEMAPS}
+                activeBasemapId="osm"
+                overlayLayers={assetRegisterMapLayers}
+                fitToLayerIds={['om-register-assets']}
+                fitRevision={mappedCategoryAssets.length + tab}
+                center={assetMapCenter}
+                zoom={14}
+                onFeatureIdentify={(pick) => {
+                  const asset = mappedCategoryAssets.find((row) => row.id === pick.featureId);
+                  if (asset) openAssetOnMap(asset);
+                }}
+              />
+            </Box>
+          </Box>
+        )}
+
         {categoryAssets.length > 0 ? (
           <TableContainer sx={{ ...dataTableSx(), maxWidth: '100%', overflowX: 'auto' }}>
             <Table
@@ -619,7 +765,7 @@ export default function OmAssetRegistrationStage() {
               stickyHeader
               sx={{
                 tableLayout: 'fixed',
-                minWidth: 1420,
+                minWidth: 1400,
                 '& .MuiTableCell-root': {
                   verticalAlign: 'middle',
                   py: 1.25,
@@ -633,8 +779,9 @@ export default function OmAssetRegistrationStage() {
             >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: '16%' }}>Asset ID</TableCell>
-                  <TableCell sx={{ width: '10%' }}>Name</TableCell>
+                  <TableCell sx={{ width: '14%' }}>Asset ID</TableCell>
+                  <TableCell align="center" sx={{ width: '6%' }}>Map</TableCell>
+                  <TableCell sx={{ width: '9%' }}>Name</TableCell>
                   <TableCell sx={{ width: '10%' }}>Type</TableCell>
                   <TableCell sx={{ width: '9%' }}>Manufacturer</TableCell>
                   <TableCell sx={{ width: '7%' }}>Capacity</TableCell>
@@ -644,8 +791,7 @@ export default function OmAssetRegistrationStage() {
                   <TableCell align="right" sx={{ width: '8%' }}>Longitude</TableCell>
                   <TableCell align="center" sx={{ width: '7%' }}>Status</TableCell>
                   <TableCell sx={{ width: '8%' }}>Warranty</TableCell>
-                  <TableCell align="center" sx={{ width: '7%' }}>QR</TableCell>
-                  <TableCell align="center" sx={{ width: '6%' }}>BD</TableCell>
+                  <TableCell align="center" sx={{ width: '6%' }}>QR</TableCell>
                   <TableCell align="center" sx={{ width: '5%' }}>Edit</TableCell>
                 </TableRow>
               </TableHead>
@@ -654,6 +800,19 @@ export default function OmAssetRegistrationStage() {
                   <TableRow key={a.id} hover>
                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600, wordBreak: 'break-all' }}>
                       {a.assetCode}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        startIcon={<MapOutlinedIcon />}
+                        disabled={!isAssetMapped(a) || !resolveAssetProjectId(a, selectedProject?.id ?? mapExplorerProjectId)}
+                        onClick={() => openAssetOnMap(a)}
+                        sx={{ minWidth: 64 }}
+                      >
+                        Map
+                      </Button>
                     </TableCell>
                     <TableCell>{a.name}</TableCell>
                     <TableCell>{omAssetTypeLabel(String(a.assetType ?? ''), a.omSubcategory)}</TableCell>
@@ -695,9 +854,6 @@ export default function OmAssetRegistrationStage() {
                       </Button>
                     </TableCell>
                     <TableCell align="center">
-                      <Chip label={String(a.breakdownHistoryCount ?? 0)} size="small" variant="outlined" />
-                    </TableCell>
-                    <TableCell align="center">
                       <Tooltip title="Edit asset">
                         <IconButton size="small" onClick={() => openEdit(a)} aria-label="Edit asset">
                           <EditOutlinedIcon fontSize="small" />
@@ -714,6 +870,7 @@ export default function OmAssetRegistrationStage() {
             No assets in {activeCategory} yet. Import from construction or register manually.
           </Typography>
         )}
+
       </SurfaceCard>
 
       <Dialog open={registerOpen} onClose={() => setRegisterOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: omDialogPaperSx }}>
