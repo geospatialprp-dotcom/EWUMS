@@ -30,6 +30,21 @@ export const OM_ASSET_CATALOG = [
   { group: 'Consumer Infrastructure', subcategory: 'Consumer Meters', typeCode: 'consumer_meter' },
 ] as const;
 
+/** O&M asset lifecycle statuses (construction import may use installed / commissioned). */
+export const OM_ASSET_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'installed', label: 'Installed' },
+  { value: 'commissioned', label: 'Commissioned' },
+  { value: 'maintenance', label: 'Maintenance' },
+  { value: 'decommissioned', label: 'Decommissioned' },
+] as const;
+
+export function omAssetTypeLabel(typeCode: string, omSubcategory?: string | null): string {
+  return OM_ASSET_CATALOG.find((c) => c.typeCode === typeCode)?.subcategory
+    ?? omSubcategory
+    ?? typeCode;
+}
+
 export const OM_ASSET_TYPE_ABBREV: Record<string, string> = {
   spring_source: 'SPR',
   gadhera_source: 'GDS',

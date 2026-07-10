@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent,
-  FormControl, Grid, IconButton, InputLabel, MenuItem, Select, Tab, Tabs, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Dialog, DialogActions,
+  DialogContent, FormControl, Grid, IconButton, InputLabel, MenuItem, Select, Tab, Tabs, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import axios from 'axios';
 import { omApi, projectsApi } from '../../services/api';
 import SurfaceCard from '../layout/SurfaceCard';
-import { OM_ASSET_CATALOG, OM_ASSET_TYPE_ABBREV } from '../../constants/omAssets';
+import {
+  OM_ASSET_CATALOG, OM_ASSET_STATUS_OPTIONS, OM_ASSET_TYPE_ABBREV, omAssetTypeLabel,
+} from '../../constants/omAssets';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import OmAssetQrCode from './OmAssetQrCode';
@@ -41,6 +44,7 @@ type AssetFormState = {
   assetCode: string;
   typeCode: string;
   name: string;
+  status: string;
   manufacturer: string;
   capacity: string;
   installationDate: string;
@@ -54,6 +58,7 @@ const emptyAssetForm = (): AssetFormState => ({
   assetCode: '',
   typeCode: OM_ASSET_CATALOG[0].typeCode,
   name: '',
+  status: 'active',
   manufacturer: '',
   capacity: '',
   installationDate: '',
@@ -63,16 +68,25 @@ const emptyAssetForm = (): AssetFormState => ({
   longitude: '',
 });
 
+function resolveTypeCode(asset: AssetRow): string {
+  if (asset.assetType) return String(asset.assetType);
+  const fromSubcategory = OM_ASSET_CATALOG.find((c) => c.subcategory === asset.omSubcategory)?.typeCode;
+  return fromSubcategory ?? OM_ASSET_CATALOG[0].typeCode;
+}
+
+function normalizeAssetStatus(status: string | undefined): string {
+  const raw = String(status ?? 'active').toLowerCase();
+  if (OM_ASSET_STATUS_OPTIONS.some((o) => o.value === raw)) return raw;
+  return 'active';
+}
+
 function assetToForm(asset: AssetRow): AssetFormState {
-  const typeCode = String(
-    asset.assetType
-    ?? OM_ASSET_CATALOG.find((c) => c.subcategory === asset.omSubcategory)?.typeCode
-    ?? OM_ASSET_CATALOG[0].typeCode,
-  );
+  const typeCode = resolveTypeCode(asset);
   return {
     assetCode: String(asset.assetCode),
     typeCode,
     name: String(asset.name ?? ''),
+    status: normalizeAssetStatus(String(asset.status ?? '')),
     manufacturer: String(asset.manufacturer ?? ''),
     capacity: String(asset.capacity ?? ''),
     installationDate: asset.installationDate ? String(asset.installationDate).slice(0, 10) : '',
@@ -273,6 +287,7 @@ export default function OmAssetRegistrationStage() {
         assetCode: form.assetCode.trim(),
         typeCode: form.typeCode,
         name: form.name,
+        status: form.status,
         manufacturer: form.manufacturer || undefined,
         capacity: form.capacity || undefined,
         installationDate: form.installationDate || undefined,
@@ -295,18 +310,20 @@ export default function OmAssetRegistrationStage() {
     }
   };
 
-  const renderAssetFormFields = (mode: 'register' | 'edit') => (
+  const renderRegisterFormFields = () => (
     <Grid container spacing={2} mt={0}>
       <Grid item xs={12}>
         <TextField
           fullWidth
           size="small"
-          label={mode === 'register' ? 'Asset ID (auto-generated)' : 'Asset ID'}
-          value={mode === 'register' ? suggestedAssetCode : form.assetCode}
-          onChange={mode === 'edit' ? (e) => setForm((f) => ({ ...f, assetCode: e.target.value })) : undefined}
-          InputProps={{ readOnly: mode === 'register' }}
+          label="Asset ID (auto-generated)"
+          value={suggestedAssetCode}
+          InputProps={{ readOnly: true }}
           helperText="Format: OM-PRJ-2026-001-GDS-001"
         />
+      </Grid>
+      <Grid item xs={12} sm={6}>
+        <TextField fullWidth size="small" label="Asset Name" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
       </Grid>
       <Grid item xs={12} sm={6}>
         <FormControl fullWidth size="small">
@@ -317,9 +334,6 @@ export default function OmAssetRegistrationStage() {
             ))}
           </Select>
         </FormControl>
-      </Grid>
-      <Grid item xs={12} sm={6}>
-        <TextField fullWidth size="small" label="Asset Name" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
       </Grid>
       <Grid item xs={12} sm={6}>
         <TextField fullWidth size="small" label="Manufacturer" value={form.manufacturer} onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))} />
@@ -362,15 +376,108 @@ export default function OmAssetRegistrationStage() {
           </Typography>
         </Grid>
       )}
-      {mode === 'edit' && !form.latitude && !form.longitude && (
+      <Grid item xs={12}>
+        <TextField fullWidth size="small" label="Warranty Details" multiline rows={2} value={form.warrantyDetails} onChange={(e) => setForm((f) => ({ ...f, warrantyDetails: e.target.value }))} />
+      </Grid>
+    </Grid>
+  );
+
+  const renderEditFormFields = () => (
+    <Grid container spacing={2} mt={0}>
+      <Grid item xs={12}>
+        <TextField
+          fullWidth
+          size="small"
+          label="Asset ID"
+          value={form.assetCode}
+          onChange={(e) => setForm((f) => ({ ...f, assetCode: e.target.value }))}
+          helperText="Format: OM-PRJ-2026-001-GDS-001"
+        />
+      </Grid>
+      <Grid item xs={12}>
+        <TextField fullWidth size="small" label="Asset Name" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+      </Grid>
+      <Grid item xs={12}>
+        <FormControl fullWidth size="small">
+          <InputLabel>Asset Type</InputLabel>
+          <Select value={form.typeCode} label="Asset Type" onChange={(e) => setForm((f) => ({ ...f, typeCode: e.target.value }))}>
+            {OM_ASSET_CATALOG.map((c) => (
+              <MenuItem key={c.typeCode} value={c.typeCode}>{c.subcategory}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
+      <Grid item xs={12} sm={6}>
+        <TextField
+          fullWidth
+          size="small"
+          label="Latitude (°N)"
+          placeholder="29.589123"
+          value={form.latitude}
+          onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
+          helperText="Decimal degrees, 6 places"
+        />
+      </Grid>
+      <Grid item xs={12} sm={6}>
+        <TextField
+          fullWidth
+          size="small"
+          label="Longitude (°E)"
+          placeholder="79.330456"
+          value={form.longitude}
+          onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
+          helperText="Decimal degrees, 6 places"
+        />
+      </Grid>
+      {form.latitude && form.longitude && (
+        <Grid item xs={12}>
+          <Typography variant="caption" color="text.secondary">
+            GIS preview: {formatCoordinatePair(form.latitude, form.longitude)}
+          </Typography>
+        </Grid>
+      )}
+      {!form.latitude && !form.longitude && (
         <Grid item xs={12}>
           <Typography variant="caption" color="text.secondary">
             Leave coordinates empty to remove GIS mapping from this asset.
           </Typography>
         </Grid>
       )}
+      <Grid item xs={12} sm={6}>
+        <FormControl fullWidth size="small">
+          <InputLabel>Status</InputLabel>
+          <Select value={form.status} label="Status" onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+            {OM_ASSET_STATUS_OPTIONS.map((o) => (
+              <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
+      <Grid item xs={12} sm={6}>
+        <TextField fullWidth size="small" label="Manufacturer" value={form.manufacturer} onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))} />
+      </Grid>
+      <Grid item xs={12} sm={6}>
+        <TextField fullWidth size="small" label="Capacity" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} />
+      </Grid>
       <Grid item xs={12}>
-        <TextField fullWidth size="small" label="Warranty Details" multiline rows={2} value={form.warrantyDetails} onChange={(e) => setForm((f) => ({ ...f, warrantyDetails: e.target.value }))} />
+        <Accordion disableGutters elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="body2" fontWeight={600}>Additional details</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField fullWidth size="small" type="date" label="Installation Date" InputLabelProps={{ shrink: true }} value={form.installationDate} onChange={(e) => setForm((f) => ({ ...f, installationDate: e.target.value }))} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField fullWidth size="small" label="Design Life (years)" value={form.designLifeYears} onChange={(e) => setForm((f) => ({ ...f, designLifeYears: e.target.value }))} />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField fullWidth size="small" label="Warranty Details" multiline rows={2} value={form.warrantyDetails} onChange={(e) => setForm((f) => ({ ...f, warrantyDetails: e.target.value }))} />
+              </Grid>
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
       </Grid>
     </Grid>
   );
@@ -428,7 +535,7 @@ export default function OmAssetRegistrationStage() {
               stickyHeader
               sx={{
                 tableLayout: 'fixed',
-                minWidth: 980,
+                minWidth: 1180,
                 '& .MuiTableCell-root': {
                   verticalAlign: 'middle',
                   py: 1.25,
@@ -442,15 +549,17 @@ export default function OmAssetRegistrationStage() {
             >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: '20%' }}>Asset ID</TableCell>
-                  <TableCell sx={{ width: '12%' }}>Name</TableCell>
-                  <TableCell sx={{ width: '14%' }}>Type</TableCell>
-                  <TableCell align="right" sx={{ width: '11%' }}>Latitude</TableCell>
-                  <TableCell align="right" sx={{ width: '11%' }}>Longitude</TableCell>
+                  <TableCell sx={{ width: '16%' }}>Asset ID</TableCell>
+                  <TableCell sx={{ width: '10%' }}>Name</TableCell>
+                  <TableCell sx={{ width: '10%' }}>Type</TableCell>
+                  <TableCell sx={{ width: '9%' }}>Manufacturer</TableCell>
+                  <TableCell sx={{ width: '7%' }}>Capacity</TableCell>
+                  <TableCell align="right" sx={{ width: '9%' }}>Latitude</TableCell>
+                  <TableCell align="right" sx={{ width: '9%' }}>Longitude</TableCell>
                   <TableCell align="center" sx={{ width: '8%' }}>Status</TableCell>
                   <TableCell align="center" sx={{ width: '7%' }}>QR</TableCell>
                   <TableCell align="center" sx={{ width: '6%' }}>BD</TableCell>
-                  <TableCell align="center" sx={{ width: '6%' }}>Edit</TableCell>
+                  <TableCell align="center" sx={{ width: '5%' }}>Edit</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -460,7 +569,9 @@ export default function OmAssetRegistrationStage() {
                       {a.assetCode}
                     </TableCell>
                     <TableCell>{a.name}</TableCell>
-                    <TableCell>{a.omSubcategory}</TableCell>
+                    <TableCell>{omAssetTypeLabel(String(a.assetType ?? ''), a.omSubcategory)}</TableCell>
+                    <TableCell>{a.manufacturer || '—'}</TableCell>
+                    <TableCell>{a.capacity || '—'}</TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatCoordinateString(a.latitude) ?? '—'}
                     </TableCell>
@@ -511,7 +622,7 @@ export default function OmAssetRegistrationStage() {
               Select a scheme / project first — asset IDs follow the format OM-{'{scheme}'}-{'{type}'}-{'{seq}'}.
             </Alert>
           )}
-          {renderAssetFormFields('register')}
+          {renderRegisterFormFields()}
         </DialogContent>
         <DialogActions sx={omDialogActionsSx}>
           <Button onClick={() => setRegisterOpen(false)}>Cancel</Button>
@@ -526,7 +637,7 @@ export default function OmAssetRegistrationStage() {
           {editLoading ? (
             <Typography variant="body2" color="text.secondary" py={2}>Loading asset details…</Typography>
           ) : (
-            renderAssetFormFields('edit')
+            renderEditFormFields()
           )}
         </DialogContent>
         <DialogActions sx={omDialogActionsSx}>
