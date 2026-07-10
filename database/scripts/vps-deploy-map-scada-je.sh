@@ -29,6 +29,9 @@ run_sql "Migration 114 — JE map division scope (no full state)" \
 run_sql "Re-affirm KPG JE account (je role + Karanprayag)" \
   "${ROOT}/database/scripts/vps-fix-kpg-je-handover.sql"
 
+run_sql "Consumer portal OTP table + demo login repair" \
+  "${ROOT}/database/scripts/vps-fix-consumer-portal-otp.sql"
+
 cd "${DEPLOY}"
 echo "==> Building web + api (5-10 min)..."
 if ! "${COMPOSE[@]}" build --no-cache web api; then

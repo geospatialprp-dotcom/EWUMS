@@ -53,7 +53,7 @@ export class ConsumerPortalAuthService {
     if (!mobileDigits) throw new UnauthorizedException('Invalid mobile number');
 
     const consumer = await this.consumerRepo.findOne({
-      where: { fhtcNumber: fhtc },
+      where: { tenantId: DEMO_TENANT, fhtcNumber: fhtc },
       order: { createdAt: 'DESC' },
     });
 

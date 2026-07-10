@@ -69,7 +69,12 @@ function getLoginError(err: unknown, fallback = 'Login failed'): string {
     const msg = err.response.data?.message;
     if (typeof msg === 'string') return msg;
     if (Array.isArray(msg)) return msg.join(', ');
-    if (err.response.status === 401) return 'FHTC number and mobile do not match our records';
+    if (err.response.status === 401) {
+      return 'FHTC number and mobile do not match our records. Apply for a new connection first if this is a new household.';
+    }
+    if (err.response.status === 500) {
+      return 'Server error. Try Sign in without OTP, or apply again with the same FHTC and mobile.';
+    }
   }
   return fallback;
 }
@@ -142,8 +147,8 @@ function StepIndicator({
 }
 
 export default function ConsumerPortalLoginPage() {
-  const [fhtcNumber, setFhtcNumber] = useState('FHTC-DEMO-001');
-  const [mobile, setMobile] = useState('9876543210');
+  const [fhtcNumber, setFhtcNumber] = useState('');
+  const [mobile, setMobile] = useState('');
   const [otp, setOtp] = useState('');
   const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [devOtp, setDevOtp] = useState('');
@@ -180,7 +185,7 @@ export default function ConsumerPortalLoginPage() {
       setStep('otp');
       if (data.devOtp) {
         setDevOtp(data.devOtp);
-        setInfo(`Demo OTP: ${data.devOtp} (SMS handoff mode)`);
+        setInfo(`Your OTP: ${data.devOtp}`);
       } else {
         setInfo('OTP sent to your registered mobile.');
       }
@@ -267,8 +272,8 @@ export default function ConsumerPortalLoginPage() {
       setStep('credentials');
       setInfo(
         appNo
-          ? `Application ${appNo} submitted. Sign in below with your FHTC and mobile to track status. Division staff will approve your connection.`
-          : String(data?.message ?? 'Application submitted. You can sign in to track status.'),
+          ? `Application ${appNo} submitted. Sign in below with the same FHTC and mobile. If OTP fails, use Sign in without OTP.`
+          : String(data?.message ?? 'Application submitted. Sign in with the same FHTC and mobile to track status.'),
       );
       setApplyForm({ fhtcNumber: '', mobile: '', consumerName: '', village: '', ward: '', notes: '' });
     } catch (err) {
@@ -536,7 +541,7 @@ export default function ConsumerPortalLoginPage() {
                     margin="dense"
                     value={fhtcNumber}
                     onChange={(e) => setFhtcNumber(e.target.value)}
-                    placeholder="e.g. FHTC-DEMO-001"
+                    placeholder="e.g. FHTC-KPG-H12"
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
@@ -633,7 +638,7 @@ export default function ConsumerPortalLoginPage() {
                       }}
                     >
                       <Typography variant="caption" sx={{ color: '#166534', fontWeight: 700 }}>
-                        Demo OTP: {devOtp}
+                        Your OTP: {devOtp}
                       </Typography>
                     </Box>
                   )}
@@ -673,23 +678,6 @@ export default function ConsumerPortalLoginPage() {
               >
                 New connection? Apply here
               </Button>
-
-              <Box
-                sx={{
-                  mt: 2.5,
-                  p: 1.5,
-                  borderRadius: 2.5,
-                  background: 'linear-gradient(135deg, #f8fafc, #f0f9ff)',
-                  border: '1px solid #e2e8f0',
-                }}
-              >
-                <Typography variant="caption" sx={{ color: '#64748b', display: 'block', lineHeight: 1.65 }}>
-                  <Box component="span" sx={{ color: '#334155', fontWeight: 700 }}>Demo credentials</Box>
-                  <br />
-                  FHTC: FHTC-DEMO-001 · Mobile: 9876543210
-                  {useOtpFlow ? ' · OTP shown on screen in handoff mode' : ''}
-                </Typography>
-              </Box>
 
               <Button
                 component={RouterLink}

@@ -227,8 +227,13 @@ export class ConsumerPortalService {
 
   async applyNewConnection(tenantId: string, dto: ConsumerPortalNewConnectionDto, loggedInConsumerId?: string) {
     const fhtc = dto.fhtcNumber.trim();
-    const mobile = dto.mobile.trim();
-    const projectId = await this.resolveProjectId(tenantId, dto.projectCode);
+    const mobileDigits = dto.mobile.replace(/\D/g, '').slice(-10);
+    if (mobileDigits.length !== 10) {
+      throw new BadRequestException('Valid 10-digit mobile number is required');
+    }
+    const mobile = mobileDigits;
+    const projectId = (await this.resolveProjectId(tenantId, dto.projectCode))
+      ?? await this.findTharaliProjectId(tenantId);
 
     const loggedInConsumer = loggedInConsumerId
       ? await this.consumerRepo.findOne({ where: { id: loggedInConsumerId, tenantId } })
