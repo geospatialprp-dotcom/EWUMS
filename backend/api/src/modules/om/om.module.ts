@@ -57,6 +57,7 @@ import { OmMobileBillingService } from './om-mobile-billing.service';
 import { PaymentGatewayService } from './payment-gateway.service';
 import { OmNotificationsModule } from './om-notifications.module';
 import { ConsumerPortalAuthService } from './consumer-portal-auth.service';
+import { ConsumerPortalFhtcMapService } from './consumer-portal-fhtc-map.service';
 import { ConsumerPortalService } from './consumer-portal.service';
 import { ConsumerPortalController } from './consumer-portal.controller';
 import { JalMitraController } from './jal-mitra.controller';
@@ -129,7 +130,7 @@ import { OmDivisionScopeService } from './om-division-scope.service';
     ]),
   ],
   controllers: [OmController, ConsumerPortalController, JalMitraController],
-  providers: [OmDivisionScopeService, OmService, OmAssetService, OmInspectionService, OmPmService, OmBreakdownService, OmWqService, OmEnergyService, OmScadaService, OmConsumerService, OmComplaintService, OmContractService, OmLifecycleService, OmDashboardService, OmReportsService, ConsumerNotificationService, OmBillingService, OmAccountingService, OmMobileBillingService, PaymentGatewayService, ConsumerPortalAuthService, ConsumerPortalService, ConsumerPortalOtpService, JalMitraKnowledgeService, JalMitraLlmService, JalMitraService],
+  providers: [OmDivisionScopeService, OmService, OmAssetService, OmInspectionService, OmPmService, OmBreakdownService, OmWqService, OmEnergyService, OmScadaService, OmConsumerService, OmComplaintService, OmContractService, OmLifecycleService, OmDashboardService, OmReportsService, ConsumerNotificationService, OmBillingService, OmAccountingService, OmMobileBillingService, PaymentGatewayService, ConsumerPortalAuthService, ConsumerPortalService, ConsumerPortalFhtcMapService, ConsumerPortalOtpService, JalMitraKnowledgeService, JalMitraLlmService, JalMitraService],
   exports: [OmService, OmAssetService, OmInspectionService, OmPmService, OmBreakdownService, OmWqService, OmEnergyService, OmScadaService, OmConsumerService, OmComplaintService, OmContractService, OmLifecycleService, OmDashboardService, OmReportsService, OmNotificationsModule, OmBillingService, OmAccountingService, OmMobileBillingService],
 })
 export class OmModule {}

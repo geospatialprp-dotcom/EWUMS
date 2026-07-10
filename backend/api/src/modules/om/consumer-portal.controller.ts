@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
@@ -7,9 +7,11 @@ import { ConsumerPortalGuard } from '../../common/guards/consumer-portal.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { ConsumerPortalAuthService } from './consumer-portal-auth.service';
+import { ConsumerPortalFhtcMapService } from './consumer-portal-fhtc-map.service';
 import { ConsumerPortalService } from './consumer-portal.service';
 import {
   ConsumerPortalComplaintDto,
+  ConsumerPortalFhtcResolveDto,
   ConsumerPortalLoginDto,
   ConsumerPortalNewConnectionDto,
   ConsumerPortalOtpRequestDto,
@@ -24,6 +26,7 @@ export class ConsumerPortalController {
   constructor(
     private authService: ConsumerPortalAuthService,
     private portalService: ConsumerPortalService,
+    private fhtcMapService: ConsumerPortalFhtcMapService,
     private jwtService: JwtService,
   ) {}
 
@@ -84,6 +87,26 @@ export class ConsumerPortalController {
       'a0000000-0000-0000-0000-000000000001',
       dto,
       this.resolveConsumerId(req),
+    );
+  }
+
+  @Get('household-plots')
+  @ApiOperation({ summary: 'Household / FHTC plot points for map picker' })
+  listHouseholdPlots(@Query('projectCode') projectCode?: string) {
+    return this.fhtcMapService.listHouseholdPlots(
+      this.fhtcMapService.defaultTenant(),
+      projectCode?.trim() || undefined,
+    );
+  }
+
+  @Post('household-plots/resolve')
+  @ApiOperation({ summary: 'Resolve FHTC household number from map coordinates' })
+  resolveHouseholdPlot(@Body() dto: ConsumerPortalFhtcResolveDto) {
+    return this.fhtcMapService.resolveFhtcAtLocation(
+      this.fhtcMapService.defaultTenant(),
+      dto.latitude,
+      dto.longitude,
+      dto.projectCode?.trim() || undefined,
     );
   }
 

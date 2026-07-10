@@ -1,5 +1,5 @@
-import { Transform } from 'class-transformer';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 import { VALID_COMPLAINT_TYPES } from '../constants/om-complaint-catalog';
 
 export class ConsumerPortalLoginDto {
@@ -86,6 +86,20 @@ export class ConsumerPortalTrackApplicationDto {
   @IsOptional()
   @IsString()
   mobile?: string;
+}
+
+export class ConsumerPortalFhtcResolveDto {
+  @Type(() => Number)
+  @IsNumber()
+  latitude: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  longitude: number;
+
+  @IsOptional()
+  @IsString()
+  projectCode?: string;
 }
 
 export class ConsumerPortalUpdateMobileDto {

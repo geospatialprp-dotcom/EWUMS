@@ -15,6 +15,7 @@ import PinIcon from '@mui/icons-material/Pin';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import HowToRegOutlinedIcon from '@mui/icons-material/HowToRegOutlined';
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import axios from 'axios';
@@ -25,6 +26,7 @@ import LoginAmbientBackground from '../components/auth/LoginAmbientBackground';
 import { APP_BRAND } from '../constants/branding';
 import { consumerFieldSx, consumerGlassCardSx } from '../components/auth/loginPageTheme';
 import StandaloneChrome from '../components/layout/StandaloneChrome';
+import FhtcPlotMapPicker, { type FhtcPlotSelection } from '../components/portal/FhtcPlotMapPicker';
 
 const FEATURES = [
   {
@@ -149,6 +151,8 @@ export default function ConsumerPortalLoginPage() {
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
+  const [showPlotMap, setShowPlotMap] = useState(false);
+  const [plotPickMessage, setPlotPickMessage] = useState('');
   const [applyForm, setApplyForm] = useState({
     fhtcNumber: '',
     mobile: '',
@@ -215,6 +219,21 @@ export default function ConsumerPortalLoginPage() {
     }
   };
 
+  const handlePlotSelect = (selection: FhtcPlotSelection) => {
+    setApplyForm((prev) => ({
+      ...prev,
+      fhtcNumber: selection.fhtcNumber,
+      village: selection.village?.trim() || prev.village,
+      ward: selection.ward?.trim() || prev.ward,
+    }));
+    setPlotPickMessage(
+      selection.message
+        ?? (selection.snapped
+          ? `Household ${selection.fhtcNumber} selected at this plot`
+          : `Household number ${selection.fhtcNumber} assigned for this location`),
+    );
+  };
+
   const handleApplyNewConnection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!applyForm.fhtcNumber.trim() || !applyForm.mobile.trim()) {
@@ -256,6 +275,8 @@ export default function ConsumerPortalLoginPage() {
   const openApplyDialog = () => {
     setError('');
     setInfo('');
+    setShowPlotMap(false);
+    setPlotPickMessage('');
     setApplyForm({
       fhtcNumber: fhtcNumber.trim(),
       mobile: mobile.trim(),
@@ -687,22 +708,33 @@ export default function ConsumerPortalLoginPage() {
         </Grid>
       </Grid>
 
-      <Dialog open={applyOpen} onClose={() => !loading && setApplyOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={applyOpen}
+        onClose={() => {
+          if (loading) return;
+          setApplyOpen(false);
+          setShowPlotMap(false);
+          setPlotPickMessage('');
+        }}
+        maxWidth={showPlotMap ? 'md' : 'sm'}
+        fullWidth
+      >
         <DialogTitle sx={{ fontWeight: 800 }}>Apply for New Water Connection</DialogTitle>
         <Box component="form" onSubmit={handleApplyNewConnection}>
           <DialogContent sx={{ pt: 0 }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Submit your FHTC number and details. After submission, sign in with the same FHTC and mobile to track your application.
+              Submit your FHTC (household) number and details. Tap your plot on the map to auto-fill the household number,
+              or type it manually. After submission, sign in with the same FHTC and mobile to track your application.
               Your division office (JE/AE) will verify and activate the connection.
             </Typography>
             <TextField
               fullWidth
               required
-              label="FHTC Number"
+              label="FHTC Number (Household)"
               margin="dense"
               value={applyForm.fhtcNumber}
               onChange={(e) => setApplyForm({ ...applyForm, fhtcNumber: e.target.value })}
-              placeholder="e.g. FHTC-KPG-001"
+              placeholder="e.g. FHTC-KPG-HH-0001"
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -712,6 +744,24 @@ export default function ConsumerPortalLoginPage() {
               }}
               sx={consumerFieldSx}
             />
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<MapOutlinedIcon />}
+              onClick={() => {
+                setShowPlotMap((open) => !open);
+                setPlotPickMessage('');
+              }}
+              sx={{ textTransform: 'none', fontWeight: 600, mb: showPlotMap ? 0 : 0.5 }}
+            >
+              {showPlotMap ? 'Hide map' : 'Pick plot on map'}
+            </Button>
+            {plotPickMessage && (
+              <Alert severity="success" sx={{ mt: 1, mb: 0.5, py: 0.25 }}>
+                {plotPickMessage}
+              </Alert>
+            )}
+            <FhtcPlotMapPicker open={showPlotMap} onSelect={handlePlotSelect} />
             <TextField
               fullWidth
               required
@@ -765,7 +815,15 @@ export default function ConsumerPortalLoginPage() {
             />
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2.5 }}>
-            <Button onClick={() => setApplyOpen(false)} disabled={loading} sx={{ textTransform: 'none' }}>
+            <Button
+              onClick={() => {
+                setApplyOpen(false);
+                setShowPlotMap(false);
+                setPlotPickMessage('');
+              }}
+              disabled={loading}
+              sx={{ textTransform: 'none' }}
+            >
               Cancel
             </Button>
             <Button type="submit" variant="contained" disabled={loading} sx={{ textTransform: 'none', fontWeight: 700 }}>
