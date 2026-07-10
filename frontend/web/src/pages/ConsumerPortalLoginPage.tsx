@@ -226,11 +226,17 @@ export default function ConsumerPortalLoginPage() {
       village: selection.village?.trim() || prev.village,
       ward: selection.ward?.trim() || prev.ward,
     }));
+    const detail = selection.khasraNo || selection.houseNo
+      ? [
+          selection.khasraNo ? `Khasra ${selection.khasraNo}` : null,
+          selection.houseNo ? `House ${selection.houseNo}` : null,
+        ].filter(Boolean).join(' · ')
+      : null;
     setPlotPickMessage(
       selection.message
-        ?? (selection.snapped
-          ? `Household ${selection.fhtcNumber} selected at this plot`
-          : `Household number ${selection.fhtcNumber} assigned for this location`),
+        ?? (detail
+          ? `${detail} → FHTC ${selection.fhtcNumber}`
+          : `Household ${selection.fhtcNumber} selected at this rooftop`),
     );
   };
 
@@ -723,9 +729,8 @@ export default function ConsumerPortalLoginPage() {
         <Box component="form" onSubmit={handleApplyNewConnection}>
           <DialogContent sx={{ pt: 0 }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Submit your FHTC (household) number and details. Tap your plot on the map to auto-fill the household number,
-              or type it manually. After submission, sign in with the same FHTC and mobile to track your application.
-              Your division office (JE/AE) will verify and activate the connection.
+              Submit your FHTC (household) number and details. Open the satellite map, zoom to your rooftop, and tap your building —
+              Khasra or House number will auto-fill. Or type the FHTC manually.
             </Typography>
             <TextField
               fullWidth
