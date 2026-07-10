@@ -15,6 +15,7 @@ import {
   type OmWorkflowStage,
 } from '../constants/omWorkflow';
 import OmHandoverStage from '../components/om/OmHandoverStage';
+import OmHandoverDocumentArchive from '../components/om/OmHandoverDocumentArchive';
 import OmHandoverJeApprovalBar, {
   canActOnHandoverReview,
   filterHandoversForReviewer,
@@ -632,6 +633,9 @@ export default function OmManagementPage() {
           <StageOverview stages={workflowStages} stageKey="handover" />
           <OmHandoverJeApprovalBar handovers={handoversForPanel} onDone={load} />
           <OmHandoverStage handovers={handoversForPanel} onRefresh={load} />
+          {!contractorView && (
+            <OmHandoverDocumentArchive handovers={handovers as Array<{ id: string; schemeName?: string; status?: string; verificationProgress?: { done: number; total: number; pct: number } }>} />
+          )}
         </>
       )}
 

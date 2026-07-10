@@ -23,6 +23,8 @@ type DocRow = {
     status: string;
     source: string;
     uploadedAt?: string;
+    approvedAt?: string | null;
+    approvedByLabel?: string | null;
     metadata?: { content?: unknown };
   } | null;
 };
@@ -32,12 +34,13 @@ interface Props {
   locked?: boolean;
   contractorView?: boolean;
   deptReviewMode?: boolean;
+  readOnlyArchive?: boolean;
   onDocumentApproved?: () => void;
   onDocsChanged?: (summary: { requiredTotal: number; requiredApproved: number; requiredPending: number }) => void;
 }
 
 export default function OmHandoverDocuments({
-  handoverId, locked, contractorView = false, deptReviewMode = false, onDocumentApproved, onDocsChanged,
+  handoverId, locked, contractorView = false, deptReviewMode = false, readOnlyArchive = false, onDocumentApproved, onDocsChanged,
 }: Props) {
   const { user, hasPermission } = useAuth();
   const roles = user?.roles ?? [];
@@ -171,7 +174,13 @@ export default function OmHandoverDocuments({
       <input ref={fileRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" onChange={onFilePicked} />
       {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {deptReviewMode && canApprove && (
+      {readOnlyArchive && (
+        <Alert severity="success" sx={{ mb: 1.5 }}>
+          Department-approved contractor documents are kept here permanently for audit and demo reference.
+        </Alert>
+      )}
+
+      {deptReviewMode && canApprove && !readOnlyArchive && (
         <Alert severity="warning" sx={{ mb: 1.5 }}>
           <strong>Step 1 — JE document check:</strong> download each file, then click <strong>Approve</strong> on every uploaded document ({approvedRequired}/{required.length} approved).
           Handover approval unlocks after all required documents are approved.
@@ -223,6 +232,12 @@ export default function OmHandoverDocuments({
                       color={statusColor(doc?.status ?? 'pending')}
                       variant="outlined"
                     />
+                    {doc?.status === 'approved' && (doc.approvedByLabel || doc.approvedAt) && (
+                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+                        {doc.approvedByLabel ? `By ${doc.approvedByLabel}` : 'Department approved'}
+                        {doc.approvedAt ? ` · ${new Date(doc.approvedAt).toLocaleString()}` : ''}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right">
                     {!locked && (
@@ -248,7 +263,7 @@ export default function OmHandoverDocuments({
                         </IconButton>
                       </Tooltip>
                     )}
-                    {canApprove && (doc?.status === 'submitted' || doc?.status === 'uploaded') && (
+                    {canApprove && !readOnlyArchive && (doc?.status === 'submitted' || doc?.status === 'uploaded') && (
                       <>
                         {deptReviewMode ? (
                           <>

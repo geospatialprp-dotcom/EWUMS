@@ -476,7 +476,7 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
           <Typography variant="body2" color="text.secondary">
             {canInitiateHandover
               ? 'No handover records yet. Initiate handover after project commissioning.'
-              : 'No handover records yet. Contractor initiates handover after project commissioning.'}
+              : 'No handover awaiting your approval. View contractor documents anytime in the Handover Document Repository (e-DMS) below.'}
           </Typography>
         )}
       </SurfaceCard>

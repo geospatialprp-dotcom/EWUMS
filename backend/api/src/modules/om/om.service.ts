@@ -115,7 +115,7 @@ export class OmService {
     try {
       documents = await this.listHandoverDocuments(user, tenantId, id);
     } catch {
-      documents = this.buildDocumentSlots([]);
+      documents = await this.buildDocumentSlots([]);
     }
     return {
       ...record,
@@ -136,17 +136,35 @@ export class OmService {
         where: { tenantId, handoverId },
         order: { uploadedAt: 'DESC' },
       });
-      return this.buildDocumentSlots(existing);
+      return await this.buildDocumentSlots(existing);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('om_handover_documents') && msg.includes('does not exist')) {
-        return this.buildDocumentSlots([]);
+        return await this.buildDocumentSlots([]);
       }
       throw err;
     }
   }
 
-  private buildDocumentSlots(existing: OmHandoverDocument[]) {
+  private async loadApproverLabels(userIds: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (!userIds.length) return map;
+    const rows = await this.handoverDocRepo.query(
+      `SELECT id, email, first_name, last_name FROM users WHERE id = ANY($1::uuid[])`,
+      [userIds],
+    ) as Array<{ id: string; email: string; first_name: string | null; last_name: string | null }>;
+    for (const row of rows) {
+      const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim();
+      map.set(row.id, name || row.email);
+    }
+    return map;
+  }
+
+  private async buildDocumentSlots(existing: OmHandoverDocument[]) {
+    const approverIds = [...new Set(
+      existing.map((d) => d.approvedBy).filter((id): id is string => Boolean(id)),
+    )];
+    const approverLabels = await this.loadApproverLabels(approverIds);
     const byType = new Map(existing.map((d) => [d.docType, d]));
     return HANDOVER_DOCUMENT_TYPES.map((def) => {
       const doc = byType.get(def.type);
@@ -155,7 +173,18 @@ export class OmService {
         label: def.label,
         category: def.category,
         verificationKey: 'verificationKey' in def ? def.verificationKey : null,
-        document: doc ?? null,
+        document: doc
+          ? {
+              id: doc.id,
+              fileName: doc.fileName,
+              fileUrl: doc.fileUrl,
+              status: doc.status,
+              source: doc.source,
+              uploadedAt: doc.uploadedAt,
+              approvedAt: doc.approvedAt,
+              approvedByLabel: doc.approvedBy ? approverLabels.get(doc.approvedBy) ?? null : null,
+            }
+          : null,
       };
     });
   }
