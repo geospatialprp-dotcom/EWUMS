@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Button, CircularProgress, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, Chip, CircularProgress, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import OlMap from 'ol/Map';
 import View from 'ol/View';
@@ -7,9 +7,12 @@ import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
-import { fromLonLat, toLonLat } from 'ol/proj';
+import GeoJSON from 'ol/format/GeoJSON';
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
 import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style';
 import { unByKey } from 'ol/Observable';
+import { feature as turfFeature } from '@turf/helpers';
+import booleanWithin from '@turf/boolean-within';
 import {
   createBasemapLayer,
   ESRI_HYBRID_BASEMAP,
@@ -33,29 +36,25 @@ export type FhtcPlotSelection = {
   message?: string;
 };
 
-type PlotRow = {
-  id: string;
-  fhtcNumber: string;
-  village?: string | null;
-  ward?: string | null;
-  latitude: number;
-  longitude: number;
-  source?: string;
+type DistrictBoundaryCollection = {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    geometry: { type: string; coordinates: unknown };
+    properties?: Record<string, unknown>;
+  }>;
 };
 
 type BasemapMode = 'satellite' | 'hybrid';
 
-const plotStyle = new Style({
-  image: new CircleStyle({
-    radius: 6,
-    fill: new Fill({ color: 'rgba(2, 132, 199, 0.85)' }),
-    stroke: new Stroke({ color: '#ffffff', width: 2 }),
-  }),
+const boundaryStyle = new Style({
+  stroke: new Stroke({ color: 'rgba(2, 132, 199, 0.95)', width: 2.5 }),
+  fill: new Fill({ color: 'rgba(2, 132, 199, 0.07)' }),
 });
 
 const pickStyle = new Style({
   image: new CircleStyle({
-    radius: 10,
+    radius: 8,
     fill: new Fill({ color: 'rgba(220, 38, 38, 0.92)' }),
     stroke: new Stroke({ color: '#ffffff', width: 2.5 }),
   }),
@@ -66,6 +65,19 @@ function resolveBasemapConfig(mode: BasemapMode) {
     return mode === 'hybrid' ? GOOGLE_HYBRID_BASEMAP : GOOGLE_SATELLITE_BASEMAP;
   }
   return mode === 'hybrid' ? ESRI_HYBRID_BASEMAP : ESRI_SATELLITE_BASEMAP;
+}
+
+function isPointInsideDistrict(
+  lat: number,
+  lng: number,
+  districtBoundary: DistrictBoundaryCollection | null | undefined,
+): boolean {
+  if (!districtBoundary?.features?.length) return true;
+  const point = turfFeature({ type: 'Point', coordinates: [lng, lat] });
+  return districtBoundary.features.some((boundary) => {
+    if (!boundary.geometry?.type) return false;
+    return booleanWithin(point, turfFeature(boundary.geometry as GeoJSON.Geometry));
+  });
 }
 
 export default function FhtcPlotMapPicker({
@@ -79,14 +91,22 @@ export default function FhtcPlotMapPicker({
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<OlMap | null>(null);
-  const plotSource = useRef(new VectorSource());
+  const boundarySource = useRef(new VectorSource());
   const pickSource = useRef(new VectorSource());
+  const districtBoundaryRef = useRef<DistrictBoundaryCollection | null>(null);
+  const districtNameRef = useRef('Chamoli');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [districtName, setDistrictName] = useState('Chamoli');
   const [basemapMode, setBasemapMode] = useState<BasemapMode>('satellite');
-  const [hint, setHint] = useState('Zoom to your rooftop and tap the building');
+  const [hint, setHint] = useState('Zoom to your rooftop inside the district boundary and tap');
 
   const resolveAt = useCallback(async (lat: number, lng: number) => {
+    if (!isPointInsideDistrict(lat, lng, districtBoundaryRef.current)) {
+      setHint(`Tap inside ${districtNameRef.current} district boundary only`);
+      return;
+    }
+
     setBusy(true);
     setHint('Reading Khasra / House number…');
     try {
@@ -115,8 +135,9 @@ export default function FhtcPlotMapPicker({
           ? data.message
           : `Household ${data.fhtcNumber} assigned for this rooftop`,
       );
-    } catch {
-      setHint('Could not resolve Khasra/House number. Zoom closer and tap again.');
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setHint(typeof msg === 'string' ? msg : 'Could not resolve Khasra/House number. Zoom closer and tap again.');
     } finally {
       setBusy(false);
     }
@@ -125,10 +146,11 @@ export default function FhtcPlotMapPicker({
   useEffect(() => {
     if (!open || !mapRef.current) return undefined;
 
-    plotSource.current.clear();
+    boundarySource.current.clear();
     pickSource.current.clear();
+    districtBoundaryRef.current = null;
     setLoading(true);
-    setHint('Zoom to your rooftop and tap the building');
+    setHint('Zoom to your rooftop inside the district boundary and tap');
 
     const basemapConfig = resolveBasemapConfig(basemapMode);
     const basemapLayer = createBasemapLayer(basemapConfig);
@@ -142,12 +164,12 @@ export default function FhtcPlotMapPicker({
       target: mapRef.current,
       layers: [
         basemapLayer,
-        new VectorLayer({ source: plotSource.current, style: plotStyle, zIndex: 2 }),
+        new VectorLayer({ source: boundarySource.current, style: boundaryStyle, zIndex: 2 }),
         new VectorLayer({ source: pickSource.current, style: pickStyle, zIndex: 3 }),
       ],
       view: new View({
-        center: fromLonLat([79.6512, 30.2656]),
-        zoom: 17,
+        center: fromLonLat([79.5, 30.35]),
+        zoom: 9,
         maxZoom: hasGoogleMapsApiKey() ? 22 : 19,
         constrainResolution: false,
       }),
@@ -160,24 +182,41 @@ export default function FhtcPlotMapPicker({
       void resolveAt(lat, lng);
     });
 
+    const geoJson = new GeoJSON();
+
     consumerPortalApi.listHouseholdPlots(projectCode?.trim() || undefined)
       .then((res) => {
-        const plots = (res.data?.plots ?? []) as PlotRow[];
-        const center = res.data?.center as { lat: number; lng: number; zoom?: number } | undefined;
-        plots.forEach((plot) => {
-          if (!Number.isFinite(plot.latitude) || !Number.isFinite(plot.longitude)) return;
-          plotSource.current.addFeature(new Feature({
-            geometry: new Point(fromLonLat([plot.longitude, plot.latitude])),
-            fhtcNumber: plot.fhtcNumber,
-          }));
-        });
-        if (center?.lat != null && center?.lng != null) {
-          map.getView().animate({
-            center: fromLonLat([center.lng, center.lat]),
-            zoom: center.zoom ?? 17,
-            duration: 400,
+        const name = String(res.data?.districtName ?? 'Chamoli');
+        districtNameRef.current = name;
+        setDistrictName(name);
+
+        const boundary = res.data?.districtBoundary as DistrictBoundaryCollection | undefined;
+        districtBoundaryRef.current = boundary ?? null;
+
+        if (boundary?.features?.length) {
+          const features = geoJson.readFeatures(boundary, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: 'EPSG:3857',
           });
+          boundarySource.current.addFeatures(features);
         }
+
+        const bbox = res.data?.bbox as number[] | undefined;
+        if (bbox?.length === 4 && bbox.every((v) => Number.isFinite(v))) {
+          const extent = transformExtent(bbox as [number, number, number, number], 'EPSG:4326', 'EPSG:3857');
+          map.getView().fit(extent, { padding: [28, 28, 28, 28], duration: 500, maxZoom: 12 });
+        } else {
+          const center = res.data?.center as { lat: number; lng: number; zoom?: number } | undefined;
+          if (center?.lat != null && center?.lng != null) {
+            map.getView().animate({
+              center: fromLonLat([center.lng, center.lat]),
+              zoom: center.zoom ?? 10,
+              duration: 400,
+            });
+          }
+        }
+
+        setHint(`${name} district — zoom to your house rooftop and tap`);
       })
       .catch(() => setHint('Satellite map ready — zoom in and tap your rooftop'))
       .finally(() => setLoading(false));
@@ -218,9 +257,16 @@ export default function FhtcPlotMapPicker({
   return (
     <Box sx={{ mt: 1.5 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1} gap={1} flexWrap="wrap">
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, flex: 1, minWidth: 180 }}>
-          {hint}
-        </Typography>
+        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" flex={1} minWidth={180}>
+          <Chip
+            size="small"
+            label={`${districtName} boundary`}
+            sx={{ fontWeight: 700, bgcolor: 'rgba(2,132,199,0.1)', color: '#0369a1' }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+            {hint}
+          </Typography>
+        </Box>
         <ToggleButtonGroup
           size="small"
           exclusive
@@ -251,25 +297,18 @@ export default function FhtcPlotMapPicker({
           border: '1px solid #bae6fd',
           position: 'relative',
           cursor: 'crosshair',
-          '&::after': {
-            content: '""',
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            boxShadow: 'inset 0 0 0 1px rgba(2,132,199,0.15)',
-          },
         }}
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
         {defaultBasemapId.startsWith('google')
-          ? 'Google satellite imagery — zoom to rooftop level, then tap your building.'
-          : 'Satellite imagery (Esri) — zoom to rooftop level, then tap your building.'}
+          ? 'Google satellite — only inside the blue district boundary. Zoom to rooftop, tap your building.'
+          : 'Satellite imagery — only inside the blue district boundary. Zoom to rooftop, tap your building.'}
       </Typography>
       {(loading || busy) && (
         <Box display="flex" alignItems="center" gap={1} mt={1}>
           <CircularProgress size={16} />
           <Typography variant="caption" color="text.secondary">
-            {loading ? 'Loading satellite map…' : 'Reading Khasra / House number…'}
+            {loading ? 'Loading district map…' : 'Reading Khasra / House number…'}
           </Typography>
         </Box>
       )}

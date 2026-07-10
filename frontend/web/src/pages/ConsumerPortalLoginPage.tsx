@@ -729,8 +729,8 @@ export default function ConsumerPortalLoginPage() {
         <Box component="form" onSubmit={handleApplyNewConnection}>
           <DialogContent sx={{ pt: 0 }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Submit your FHTC (household) number and details. Open the satellite map, zoom to your rooftop, and tap your building —
-              Khasra or House number will auto-fill. Or type the FHTC manually.
+              Open the satellite map — only your district boundary is shown (no plot dots).
+              Zoom to your house rooftop, tap the building, and Khasra / House number auto-fills. Or type FHTC manually.
             </Typography>
             <TextField
               fullWidth
