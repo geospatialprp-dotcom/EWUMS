@@ -191,8 +191,9 @@ export class OmAssetService {
     if (dto.manufacturer !== undefined) patch.manufacturer = dto.manufacturer || null;
     if (dto.capacity !== undefined) patch.capacity = dto.capacity || null;
     if (dto.installationDate !== undefined) {
-      patch.installationDate = dto.installationDate || null;
-      nextAttributes.installationDate = patch.installationDate;
+      const normalized = this.normalizeInstallationDate(dto.installationDate);
+      patch.installationDate = normalized;
+      nextAttributes.installationDate = normalized;
     }
     if (dto.warrantyDetails !== undefined) {
       patch.warrantyDetails = dto.warrantyDetails || null;
@@ -206,6 +207,36 @@ export class OmAssetService {
 
     Object.assign(asset, patch);
     await this.assetRepo.save(asset);
+
+    if (
+      dto.installationDate !== undefined
+      || dto.warrantyDetails !== undefined
+      || dto.designLifeYears !== undefined
+    ) {
+      await this.persistAdditionalAssetDetails(id, tenantId, {
+        installationDate: dto.installationDate !== undefined
+          ? this.normalizeInstallationDate(dto.installationDate)
+          : asset.installationDate,
+        warrantyDetails: dto.warrantyDetails !== undefined
+          ? (dto.warrantyDetails || null)
+          : asset.warrantyDetails,
+        designLifeYears: dto.designLifeYears !== undefined
+          ? (dto.designLifeYears ?? null)
+          : asset.designLifeYears,
+        attributes: {
+          ...nextAttributes,
+          installationDate: dto.installationDate !== undefined
+            ? this.normalizeInstallationDate(dto.installationDate)
+            : asset.installationDate,
+          warrantyDetails: dto.warrantyDetails !== undefined
+            ? (dto.warrantyDetails || null)
+            : asset.warrantyDetails,
+          designLifeYears: dto.designLifeYears !== undefined
+            ? (dto.designLifeYears ?? null)
+            : asset.designLifeYears,
+        },
+      });
+    }
 
     if (dto.clearGis) {
       await this.clearAssetGeometry(tenantId, id);
@@ -395,6 +426,48 @@ export class OmAssetService {
 
   private buildQrPayload(tenantId: string, assetId: string, assetCode: string) {
     return `S2T2R|OM|${tenantId}|${assetId}|${assetCode}`;
+  }
+
+  private normalizeInstallationDate(value: string | null | undefined): string | null {
+    if (!value) return null;
+    const v = value.trim();
+    if (!v) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    const us = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (us) {
+      const [, mm, dd, yyyy] = us;
+      return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+    }
+    return v;
+  }
+
+  private async persistAdditionalAssetDetails(
+    id: string,
+    tenantId: string,
+    details: {
+      installationDate: string | null;
+      warrantyDetails: string | null;
+      designLifeYears: number | null;
+      attributes: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    await this.assetRepo.query(
+      `UPDATE assets
+         SET installation_date = $3,
+             warranty_details = $4,
+             design_life_years = $5,
+             attributes = $6::jsonb,
+             updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $2`,
+      [
+        id,
+        tenantId,
+        details.installationDate,
+        details.warrantyDetails,
+        details.designLifeYears,
+        JSON.stringify(details.attributes),
+      ],
+    );
   }
 
   private validateCoordinates(latitude?: number, longitude?: number) {

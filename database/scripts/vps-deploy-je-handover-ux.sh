@@ -15,6 +15,10 @@ echo "==> Ensure O&M asset columns (installation_date, design_life_years, warran
 "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
   < "${ROOT}/database/migrations/029_om_asset_registry.sql"
 
+echo "==> Ensure om:create + om:update permissions for field roles"
+"${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
+  < "${ROOT}/database/scripts/fix-om-create-permissions-vps.sql"
+
 echo "==> Fix KPG JE account (je role only, Karanprayag division)"
 "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
   < "${ROOT}/database/scripts/vps-fix-kpg-je-handover.sql"

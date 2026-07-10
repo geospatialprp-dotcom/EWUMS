@@ -168,6 +168,18 @@ function formatStatusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
 }
 
+function normalizeDateForApi(value: string): string | null {
+  const v = value.trim();
+  if (!v) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const us = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (us) {
+    const [, mm, dd, yyyy] = us;
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+  return v;
+}
+
 function formatInstallationDate(value: string | null | undefined): string {
   if (!value) return '—';
   return String(value).slice(0, 10);
@@ -346,7 +358,7 @@ export default function OmAssetRegistrationStage() {
         status: form.status,
         manufacturer: form.manufacturer.trim() || null,
         capacity: form.capacity.trim() || null,
-        installationDate: form.installationDate.trim() || null,
+        installationDate: normalizeDateForApi(form.installationDate),
         warrantyDetails: form.warrantyDetails.trim() || null,
         designLifeYears: form.designLifeYears.trim() ? Number(form.designLifeYears) : null,
       };
