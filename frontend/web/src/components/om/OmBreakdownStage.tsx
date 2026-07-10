@@ -134,13 +134,30 @@ export default function OmBreakdownStage() {
   }, [selectedProject, activeGroup, statusFilter]);
 
   useEffect(() => {
-    Promise.all([projectsApi.list(), usersApi.list()])
-      .then(([pRes, uRes]) => {
-        const plist = normalizeOmProjectList(pRes.data);
-        setProjects(plist);
+    let cancelled = false;
+
+    projectsApi.list()
+      .then((pRes) => {
+        if (cancelled) return;
+        setProjects(normalizeOmProjectList(pRes.data));
+        setError((prev) => (prev === 'Failed to load reference data' ? '' : prev));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(getApiError(err, 'Failed to load schemes for your division'));
+      });
+
+    usersApi.list()
+      .then((uRes) => {
+        if (cancelled) return;
         setUsers(uRes.data?.users ?? []);
       })
-      .catch(() => setError('Failed to load reference data'));
+      .catch(() => {
+        if (cancelled) return;
+        setUsers([]);
+      });
+
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -330,7 +347,7 @@ export default function OmBreakdownStage() {
       >
         {!selectedProject && projects.length === 0 && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            No schemes are available for your division. Contact HQ to link a project before raising breakdown tickets.
+            No schemes are available for your division. Select Karanprayag in the header division switcher, or contact HQ to link the Tharali project.
           </Alert>
         )}
 
