@@ -1,6 +1,6 @@
 import { createHash, randomInt } from 'crypto';
 import {
-  BadRequestException, HttpException, HttpStatus, Injectable, UnauthorizedException,
+  BadRequestException, HttpException, HttpStatus, Injectable, Logger, UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -19,6 +19,8 @@ export type OtpPurpose = 'portal_login' | 'jal_mitra_verify';
 
 @Injectable()
 export class ConsumerPortalOtpService {
+  private readonly logger = new Logger(ConsumerPortalOtpService.name);
+
   constructor(
     @InjectRepository(ConsumerPortalOtpChallenge) private otpRepo: Repository<ConsumerPortalOtpChallenge>,
     @InjectRepository(OmConsumer) private consumerRepo: Repository<OmConsumer>,
@@ -39,18 +41,39 @@ export class ConsumerPortalOtpService {
     purpose: OtpPurpose = 'portal_login',
     sessionId?: string,
   ) {
+    try {
+      return await this.requestOtpInternal(tenantId, fhtcNumber, mobile, purpose, sessionId);
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      this.logger.error(`OTP request failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw new BadRequestException(
+        'OTP could not be sent. Apply for a new connection first, or use Sign in without OTP.',
+      );
+    }
+  }
+
+  private async requestOtpInternal(
+    tenantId: string,
+    fhtcNumber: string,
+    mobile: string,
+    purpose: OtpPurpose = 'portal_login',
+    sessionId?: string,
+  ) {
     const tid = tenantId || DEMO_TENANT;
     const fhtc = fhtcNumber.trim();
+    if (!fhtc) throw new BadRequestException('FHTC number is required');
     const mobileDigits = this.normalizeMobile(mobile);
-    if (!mobileDigits) throw new BadRequestException('Invalid mobile number');
+    if (!mobileDigits) throw new BadRequestException('Valid 10-digit mobile number is required');
 
-    const consumer = await this.consumerRepo.findOne({
+    const consumers = await this.consumerRepo.find({
       where: { tenantId: tid, fhtcNumber: fhtc },
       order: { createdAt: 'DESC' },
+      take: 1,
     });
+    const consumer = consumers[0];
     if (!consumer?.mobile) {
       throw new UnauthorizedException(
-        'FHTC number and mobile do not match our records. Submit a new connection application first, or check your details.',
+        'No account found for this FHTC. Use New connection — Apply here first, then sign in with the same FHTC and mobile.',
       );
     }
     const storedDigits = this.normalizeMobile(consumer.mobile);
@@ -59,42 +82,28 @@ export class ConsumerPortalOtpService {
     }
 
     const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
-    let recentCount = 0;
-    try {
-      recentCount = await this.otpRepo
-        .createQueryBuilder('o')
-        .where('o.tenant_id = :tid', { tid })
-        .andWhere('o.fhtc_number = :fhtc', { fhtc })
-        .andWhere('o.mobile = :mobile', { mobile: mobileDigits })
-        .andWhere('o.purpose = :purpose', { purpose })
-        .andWhere('o.created_at > :since', { since })
-        .getCount();
-    } catch {
-      throw new BadRequestException(
-        'OTP service is not ready on this server. Use Sign in without OTP, or contact your division office.',
-      );
-    }
+    const recentCount = await this.otpRepo
+      .createQueryBuilder('challenge')
+      .where('challenge.tenantId = :tid', { tid })
+      .andWhere('challenge.fhtcNumber = :fhtc', { fhtc })
+      .andWhere('challenge.mobile = :mobile', { mobile: mobileDigits })
+      .andWhere('challenge.purpose = :purpose', { purpose })
+      .andWhere('challenge.createdAt > :since', { since })
+      .getCount();
     if (recentCount >= RATE_LIMIT_MAX) {
       throw new HttpException('Too many OTP requests. Please wait 15 minutes.', HttpStatus.TOO_MANY_REQUESTS);
     }
 
     const otp = String(randomInt(100000, 999999));
-    let challenge: ConsumerPortalOtpChallenge;
-    try {
-      challenge = await this.otpRepo.save(this.otpRepo.create({
-        tenantId: tid,
-        fhtcNumber: fhtc,
-        mobile: mobileDigits,
-        otpHash: this.hashOtp(otp),
-        purpose,
-        sessionId: sessionId ?? null,
-        expiresAt: new Date(Date.now() + OTP_TTL_MS),
-      }));
-    } catch {
-      throw new BadRequestException(
-        'OTP could not be generated. Use Sign in without OTP, or contact your division office.',
-      );
-    }
+    const challenge = await this.otpRepo.save(this.otpRepo.create({
+      tenantId: tid,
+      fhtcNumber: fhtc,
+      mobile: mobileDigits,
+      otpHash: this.hashOtp(otp),
+      purpose,
+      sessionId: sessionId ?? null,
+      expiresAt: new Date(Date.now() + OTP_TTL_MS),
+    }));
 
     const smsText = `Your Jal Mitra OTP is ${otp}. Valid for 5 minutes. Do not share. - UJS`;
     let smsResult: Awaited<ReturnType<BillingNotificationService['sendSms']>>;
@@ -106,7 +115,7 @@ export class ConsumerPortalOtpService {
         status: 'handoff',
         destination: mobileDigits,
         provider: null,
-        message: 'SMS gateway unavailable — use OTP shown in the portal for demo.',
+        message: 'SMS gateway unavailable — use OTP shown in the portal.',
       };
     }
 

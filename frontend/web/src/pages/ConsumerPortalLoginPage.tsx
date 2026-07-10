@@ -67,14 +67,20 @@ function getLoginError(err: unknown, fallback = 'Login failed'): string {
   if (axios.isAxiosError(err)) {
     if (!err.response) return 'Cannot connect to backend API. Start: cd backend/api && npm run start:dev';
     const msg = err.response.data?.message;
+    const status = err.response.status;
+    if (status === 401) {
+      return typeof msg === 'string' && msg && msg !== 'Internal server error'
+        ? msg
+        : 'No account found. Use New connection — Apply here first, then sign in with the same FHTC and mobile.';
+    }
+    if (status === 400) {
+      return typeof msg === 'string' ? msg : 'Could not send OTP. Try Sign in without OTP.';
+    }
+    if (status === 500 || msg === 'Internal server error') {
+      return 'Server error. Apply for new connection first, or use Sign in without OTP.';
+    }
     if (typeof msg === 'string') return msg;
     if (Array.isArray(msg)) return msg.join(', ');
-    if (err.response.status === 401) {
-      return 'FHTC number and mobile do not match our records. Apply for a new connection first if this is a new household.';
-    }
-    if (err.response.status === 500) {
-      return 'Server error. Try Sign in without OTP, or apply again with the same FHTC and mobile.';
-    }
   }
   return fallback;
 }
@@ -177,6 +183,10 @@ export default function ConsumerPortalLoginPage() {
 
   const handleRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!fhtcNumber.trim() || !mobile.trim()) {
+      setError('FHTC number and mobile are required');
+      return;
+    }
     setError('');
     setInfo('');
     setLoading(true);
