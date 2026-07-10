@@ -11,6 +11,10 @@ git fetch origin "${BRANCH}"
 git reset --hard "origin/${BRANCH}"
 echo "Commit: $(git log -1 --oneline)"
 
+echo "==> Ensure O&M asset columns (installation_date, design_life_years, warranty_details)"
+"${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
+  < "${ROOT}/database/migrations/029_om_asset_registry.sql"
+
 echo "==> Fix KPG JE account (je role only, Karanprayag division)"
 "${COMPOSE[@]}" exec -T postgres psql -U egip -d egip -v ON_ERROR_STOP=1 \
   < "${ROOT}/database/scripts/vps-fix-kpg-je-handover.sql"

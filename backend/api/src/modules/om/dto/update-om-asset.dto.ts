@@ -19,24 +19,33 @@ export class UpdateOmAssetDto {
   @IsString()
   name?: string;
 
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsOptional()
   @IsString()
-  manufacturer?: string;
+  manufacturer?: string | null;
 
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsOptional()
   @IsString()
-  capacity?: string;
+  capacity?: string | null;
 
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsOptional()
   @IsString()
-  installationDate?: string;
+  installationDate?: string | null;
 
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsOptional()
   @IsString()
-  warrantyDetails?: string;
+  warrantyDetails?: string | null;
 
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  })
   @IsOptional()
-  @Type(() => Number)
+  @IsNumber()
   @Min(1)
   @Max(200)
   designLifeYears?: number | null;

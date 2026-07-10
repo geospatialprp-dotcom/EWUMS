@@ -367,7 +367,9 @@ export default function OmAssetRegistrationStage() {
       closeEdit();
       load();
     } catch (err: unknown) {
-      setEditError(getApiError(err, 'Update failed'));
+      const msg = getApiError(err, 'Update failed — additional details were not saved');
+      setEditError(msg);
+      setError(msg);
     } finally {
       setBusy(false);
     }

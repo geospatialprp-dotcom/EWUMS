@@ -154,12 +154,14 @@ export class OmAssetService {
       throw new BadRequestException('Asset is not an O&M scheme asset');
     }
 
+    const nextAttributes: Record<string, unknown> = {
+      ...(asset.attributes ?? {}),
+      lastUpdatedBy: userId,
+      lastUpdatedAt: new Date().toISOString(),
+    };
+
     const patch: Partial<Asset> = {
-      attributes: {
-        ...(asset.attributes ?? {}),
-        lastUpdatedBy: userId,
-        lastUpdatedAt: new Date().toISOString(),
-      } as never,
+      attributes: nextAttributes as never,
     };
 
     if (dto.assetCode !== undefined) {
@@ -188,12 +190,22 @@ export class OmAssetService {
     if (dto.name !== undefined) patch.name = dto.name.trim();
     if (dto.manufacturer !== undefined) patch.manufacturer = dto.manufacturer || null;
     if (dto.capacity !== undefined) patch.capacity = dto.capacity || null;
-    if (dto.installationDate !== undefined) patch.installationDate = dto.installationDate || null;
-    if (dto.warrantyDetails !== undefined) patch.warrantyDetails = dto.warrantyDetails || null;
-    if (dto.designLifeYears !== undefined) patch.designLifeYears = dto.designLifeYears ?? null;
+    if (dto.installationDate !== undefined) {
+      patch.installationDate = dto.installationDate || null;
+      nextAttributes.installationDate = patch.installationDate;
+    }
+    if (dto.warrantyDetails !== undefined) {
+      patch.warrantyDetails = dto.warrantyDetails || null;
+      nextAttributes.warrantyDetails = patch.warrantyDetails;
+    }
+    if (dto.designLifeYears !== undefined) {
+      patch.designLifeYears = dto.designLifeYears ?? null;
+      nextAttributes.designLifeYears = patch.designLifeYears;
+    }
     if (dto.status !== undefined) patch.status = dto.status;
 
-    await this.assetRepo.update({ id, tenantId }, patch as never);
+    Object.assign(asset, patch);
+    await this.assetRepo.save(asset);
 
     if (dto.clearGis) {
       await this.clearAssetGeometry(tenantId, id);
@@ -468,11 +480,17 @@ export class OmAssetService {
       handoverId: asset.handoverId,
       omCategory: asset.omCategory,
       omSubcategory: asset.omSubcategory,
-      installationDate: asset.installationDate,
+      installationDate: asset.installationDate
+        ?? (asset.attributes?.installationDate as string | undefined)
+        ?? null,
       manufacturer: asset.manufacturer,
       capacity: asset.capacity,
-      warrantyDetails: asset.warrantyDetails,
-      designLifeYears: asset.designLifeYears,
+      warrantyDetails: asset.warrantyDetails
+        ?? (asset.attributes?.warrantyDetails as string | undefined)
+        ?? null,
+      designLifeYears: asset.designLifeYears
+        ?? (asset.attributes?.designLifeYears as number | undefined)
+        ?? null,
       omAgency: asset.omAgency,
       assetType: asset.assetType?.code,
       assetTypeName: asset.assetType?.name,
