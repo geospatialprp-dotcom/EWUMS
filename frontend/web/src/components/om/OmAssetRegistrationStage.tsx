@@ -80,20 +80,62 @@ function normalizeAssetStatus(status: string | undefined): string {
   return 'active';
 }
 
-function assetToForm(asset: AssetRow): AssetFormState {
-  const typeCode = resolveTypeCode(asset);
+function readRowField(row: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const key of keys) {
+    const val = row[key];
+    if (val != null && val !== '') return val;
+  }
+  const attrs = row.attributes as Record<string, unknown> | undefined;
+  if (!attrs) return undefined;
+  for (const key of keys) {
+    const val = attrs[key];
+    if (val != null && val !== '') return val;
+  }
+  return undefined;
+}
+
+function normalizeAssetRow(raw: Record<string, unknown>): AssetRow {
+  const installationDate = readRowField(raw, 'installationDate', 'installation_date');
+  const warrantyDetails = readRowField(raw, 'warrantyDetails', 'warranty_details');
+  const designLifeRaw = readRowField(raw, 'designLifeYears', 'design_life_years');
+  const designLifeNum = designLifeRaw != null && designLifeRaw !== '' ? Number(designLifeRaw) : null;
+  const manufacturer = readRowField(raw, 'manufacturer');
+  const capacity = readRowField(raw, 'capacity');
+
   return {
-    assetCode: String(asset.assetCode),
+    ...raw,
+    id: String(raw.id),
+    assetCode: String(raw.assetCode ?? raw.asset_code ?? ''),
+    name: String(raw.name ?? ''),
+    status: String(raw.status ?? 'active'),
+    assetType: (raw.assetType ?? raw.asset_type) as string | undefined,
+    omCategory: (raw.omCategory ?? raw.om_category) as string | undefined,
+    omSubcategory: (raw.omSubcategory ?? raw.om_subcategory) as string | undefined,
+    manufacturer: manufacturer != null ? String(manufacturer) : null,
+    capacity: capacity != null ? String(capacity) : null,
+    installationDate: installationDate != null ? String(installationDate).slice(0, 10) : null,
+    warrantyDetails: warrantyDetails != null ? String(warrantyDetails) : null,
+    designLifeYears: designLifeNum != null && Number.isFinite(designLifeNum) ? designLifeNum : null,
+    latitude: raw.latitude != null ? Number(raw.latitude) : null,
+    longitude: raw.longitude != null ? Number(raw.longitude) : null,
+  } as AssetRow;
+}
+
+function assetToForm(asset: AssetRow): AssetFormState {
+  const row = normalizeAssetRow(asset as Record<string, unknown>);
+  const typeCode = resolveTypeCode(row);
+  return {
+    assetCode: String(row.assetCode),
     typeCode,
-    name: String(asset.name ?? ''),
-    status: normalizeAssetStatus(String(asset.status ?? '')),
-    manufacturer: String(asset.manufacturer ?? ''),
-    capacity: String(asset.capacity ?? ''),
-    installationDate: asset.installationDate ? String(asset.installationDate).slice(0, 10) : '',
-    warrantyDetails: String(asset.warrantyDetails ?? ''),
-    designLifeYears: asset.designLifeYears != null ? String(asset.designLifeYears) : '',
-    latitude: asset.latitude != null ? (formatCoordinateString(asset.latitude) ?? '') : '',
-    longitude: asset.longitude != null ? (formatCoordinateString(asset.longitude) ?? '') : '',
+    name: String(row.name ?? ''),
+    status: normalizeAssetStatus(String(row.status ?? '')),
+    manufacturer: String(row.manufacturer ?? ''),
+    capacity: String(row.capacity ?? ''),
+    installationDate: row.installationDate ? String(row.installationDate).slice(0, 10) : '',
+    warrantyDetails: String(row.warrantyDetails ?? ''),
+    designLifeYears: row.designLifeYears != null ? String(row.designLifeYears) : '',
+    latitude: row.latitude != null ? (formatCoordinateString(row.latitude) ?? '') : '',
+    longitude: row.longitude != null ? (formatCoordinateString(row.longitude) ?? '') : '',
   };
 }
 
@@ -126,6 +168,16 @@ function formatStatusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
 }
 
+function formatInstallationDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  return String(value).slice(0, 10);
+}
+
+function formatDesignLifeYears(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${value} yr`;
+}
+
 type ProjectOption = { id: string; name: string; projectCode: string };
 
 export default function OmAssetRegistrationStage() {
@@ -136,6 +188,7 @@ export default function OmAssetRegistrationStage() {
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [error, setError] = useState('');
+  const [saveMessage, setSaveMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<AssetRow | null>(null);
@@ -158,7 +211,10 @@ export default function OmAssetRegistrationStage() {
       projectCode: selectedProject?.projectCode,
       category: activeCategory || undefined,
     })
-      .then((r) => setAssets(r.data))
+      .then((r) => {
+        const rows = Array.isArray(r.data) ? r.data : [];
+        setAssets(rows.map((row) => normalizeAssetRow(row as Record<string, unknown>)));
+      })
       .catch((err) => setError(getApiError(err, 'Failed to load assets')));
   }, [selectedProject, activeCategory]);
 
@@ -249,7 +305,7 @@ export default function OmAssetRegistrationStage() {
     setEditingAsset(asset);
     try {
       const { data } = await omApi.getSchemeAsset(asset.id);
-      const row = data as AssetRow;
+      const row = normalizeAssetRow(data as Record<string, unknown>);
       const initial = assetToForm(row);
       setEditingAsset(row);
       setEditInitial(initial);
@@ -288,11 +344,11 @@ export default function OmAssetRegistrationStage() {
         typeCode: form.typeCode,
         name: form.name,
         status: form.status,
-        manufacturer: form.manufacturer || undefined,
-        capacity: form.capacity || undefined,
-        installationDate: form.installationDate || undefined,
-        warrantyDetails: form.warrantyDetails || undefined,
-        designLifeYears: form.designLifeYears ? Number(form.designLifeYears) : undefined,
+        manufacturer: form.manufacturer.trim() || null,
+        capacity: form.capacity.trim() || null,
+        installationDate: form.installationDate.trim() || null,
+        warrantyDetails: form.warrantyDetails.trim() || null,
+        designLifeYears: form.designLifeYears.trim() ? Number(form.designLifeYears) : null,
       };
       if (hasLat && hasLon) {
         payload.latitude = Number(form.latitude);
@@ -300,7 +356,14 @@ export default function OmAssetRegistrationStage() {
       } else if (hadGisInitially) {
         payload.clearGis = true;
       }
-      await omApi.updateSchemeAsset(editingAsset.id, payload);
+      const { data } = await omApi.updateSchemeAsset(editingAsset.id, payload);
+      const updated = normalizeAssetRow(data as Record<string, unknown>);
+      setAssets((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
+      setSaveMessage(
+        `Saved ${updated.assetCode} — Installed: ${formatInstallationDate(updated.installationDate)}, `
+        + `Design life: ${formatDesignLifeYears(updated.designLifeYears)}, `
+        + `Warranty: ${updated.warrantyDetails ? 'yes' : '—'}`,
+      );
       closeEdit();
       load();
     } catch (err: unknown) {
@@ -482,7 +545,9 @@ export default function OmAssetRegistrationStage() {
     </Grid>
   );
 
-  const categoryAssets = assets.filter((a) => !activeCategory || a.omCategory === activeCategory);
+  const categoryAssets = assets
+    .map((a) => normalizeAssetRow(a as Record<string, unknown>))
+    .filter((a) => !activeCategory || a.omCategory === activeCategory);
 
   return (
     <>
@@ -521,6 +586,11 @@ export default function OmAssetRegistrationStage() {
         )}
       >
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+        {saveMessage && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSaveMessage('')}>
+            {saveMessage} — check <strong>Installed</strong>, <strong>Design Life</strong>, and <strong>Warranty</strong> columns in the table below.
+          </Alert>
+        )}
 
         <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
           {CATEGORIES.map((cat) => (
@@ -535,7 +605,7 @@ export default function OmAssetRegistrationStage() {
               stickyHeader
               sx={{
                 tableLayout: 'fixed',
-                minWidth: 1180,
+                minWidth: 1420,
                 '& .MuiTableCell-root': {
                   verticalAlign: 'middle',
                   py: 1.25,
@@ -554,9 +624,12 @@ export default function OmAssetRegistrationStage() {
                   <TableCell sx={{ width: '10%' }}>Type</TableCell>
                   <TableCell sx={{ width: '9%' }}>Manufacturer</TableCell>
                   <TableCell sx={{ width: '7%' }}>Capacity</TableCell>
-                  <TableCell align="right" sx={{ width: '9%' }}>Latitude</TableCell>
-                  <TableCell align="right" sx={{ width: '9%' }}>Longitude</TableCell>
-                  <TableCell align="center" sx={{ width: '8%' }}>Status</TableCell>
+                  <TableCell sx={{ width: '8%' }}>Installed</TableCell>
+                  <TableCell align="center" sx={{ width: '6%' }}>Design Life</TableCell>
+                  <TableCell align="right" sx={{ width: '8%' }}>Latitude</TableCell>
+                  <TableCell align="right" sx={{ width: '8%' }}>Longitude</TableCell>
+                  <TableCell align="center" sx={{ width: '7%' }}>Status</TableCell>
+                  <TableCell sx={{ width: '8%' }}>Warranty</TableCell>
                   <TableCell align="center" sx={{ width: '7%' }}>QR</TableCell>
                   <TableCell align="center" sx={{ width: '6%' }}>BD</TableCell>
                   <TableCell align="center" sx={{ width: '5%' }}>Edit</TableCell>
@@ -572,6 +645,12 @@ export default function OmAssetRegistrationStage() {
                     <TableCell>{omAssetTypeLabel(String(a.assetType ?? ''), a.omSubcategory)}</TableCell>
                     <TableCell>{a.manufacturer || '—'}</TableCell>
                     <TableCell>{a.capacity || '—'}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatInstallationDate(a.installationDate)}
+                    </TableCell>
+                    <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatDesignLifeYears(a.designLifeYears)}
+                    </TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatCoordinateString(a.latitude) ?? '—'}
                     </TableCell>
@@ -580,6 +659,15 @@ export default function OmAssetRegistrationStage() {
                     </TableCell>
                     <TableCell align="center">
                       <Chip label={formatStatusLabel(String(a.status))} size="small" />
+                    </TableCell>
+                    <TableCell>
+                      {a.warrantyDetails ? (
+                        <Tooltip title={String(a.warrantyDetails)}>
+                          <Typography variant="body2" noWrap sx={{ maxWidth: 120 }}>
+                            {String(a.warrantyDetails)}
+                          </Typography>
+                        </Tooltip>
+                      ) : '—'}
                     </TableCell>
                     <TableCell align="center">
                       <Button

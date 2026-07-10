@@ -38,8 +38,8 @@ export class UpdateOmAssetDto {
   @IsOptional()
   @Type(() => Number)
   @Min(1)
-  @Max(100)
-  designLifeYears?: number;
+  @Max(200)
+  designLifeYears?: number | null;
 
   @IsOptional()
   @IsString()
