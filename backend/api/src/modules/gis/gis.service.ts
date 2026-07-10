@@ -6,7 +6,7 @@ import { Repository } from 'typeorm';
 
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 
-import { DivisionAccessService } from '../divisions/division-access.service';
+import { DivisionAccessService, isFieldDivisionStaff } from '../divisions/division-access.service';
 
 import { ProjectFeatureClass } from '../projects/entities/project-feature-class.entity';
 
@@ -222,6 +222,7 @@ export class GisService {
 
     const resolvedFocus = focusDivisionId?.trim()
       || user.activeDivisionId?.trim()
+      || (isFieldDivisionStaff(user.roles) ? user.divisionId?.trim() : undefined)
       || undefined;
 
     const context = await this.divisionAccess.getMapAccessContext(user, user.tenantId, resolvedFocus);

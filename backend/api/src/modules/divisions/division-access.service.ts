@@ -31,10 +31,23 @@ const STATE_WIDE_ROLES = new Set([
   'state_finance', 'state_gis_admin', 'state_it_admin',
 ]);
 
+export const FIELD_DIVISION_ROLES = new Set([
+  'je', 'ae', 'ee', 'accounts', 'gis_operator', 'om_operator',
+  'data_entry_operator', 'billing_officer', 'consumer_service',
+  'store_keeper', 'contractor', 'scada_operator',
+]);
+
 export const DIVISION_MILESTONE_ROLES = ['je', 'ae', 'ee', 'accounts'] as const;
 
 function hasStateWideRole(roles: string[] | undefined): boolean {
   return (roles ?? []).some((r) => STATE_WIDE_ROLES.has(r));
+}
+
+export function isFieldDivisionStaff(roles: string[] | undefined): boolean {
+  const r = roles ?? [];
+  if (r.includes('super_admin')) return false;
+  if (hasStateWideRole(r)) return false;
+  return r.some((role) => FIELD_DIVISION_ROLES.has(role));
 }
 
 @Injectable()
@@ -113,13 +126,20 @@ export class DivisionAccessService {
     if (user.accessScope) return user.accessScope;
     if (user.roles?.includes('super_admin')) return 'global';
     if (user.permissions?.includes('state:view_all') || hasStateWideRole(user.roles)) return 'state';
-    if (user.canViewAllDivisions) return 'state';
+    if (user.canViewAllDivisions && !isFieldDivisionStaff(user.roles)) return 'state';
     if (user.permissions?.includes('circle:view') && user.circleId) return 'circle';
     return 'division';
   }
 
   async canViewAllDivisions(user: JwtPayload): Promise<boolean> {
-    if (!(await this.isDivisionSchemaReady())) return true;
+    if (!(await this.isDivisionSchemaReady())) return false;
+    if (
+      isFieldDivisionStaff(user.roles)
+      && !user.permissions?.includes('state:view_all')
+      && !hasStateWideRole(user.roles)
+    ) {
+      return false;
+    }
     const scope = this.resolveAccessScope(user);
     if (scope === 'global' || scope === 'state') return true;
     if (user.roles?.includes('super_admin')) return true;
@@ -536,17 +556,29 @@ export class DivisionAccessService {
   /** Map Explorer jurisdiction context — extent, divisions, and scope for auto-zoom. */
   async getMapAccessContext(user: JwtPayload, tenantId: string, focusDivisionId?: string) {
     const accessScope = this.resolveAccessScope(user);
-    const canViewAll = await this.canViewAllDivisions(user);
+    let canViewAll = await this.canViewAllDivisions(user);
+    if (
+      isFieldDivisionStaff(user.roles)
+      && !user.permissions?.includes('state:view_all')
+      && !hasStateWideRole(user.roles)
+    ) {
+      canViewAll = false;
+    }
+
+    const resolvedFocus = focusDivisionId?.trim()
+      || user.activeDivisionId?.trim()
+      || (isFieldDivisionStaff(user.roles) ? user.divisionId?.trim() : undefined);
+
     const divisions = await this.listDivisions(tenantId, user);
     const divisionIds = divisions.map((d) => d.id);
 
     let extentDivisionIds = divisionIds;
-    if (focusDivisionId && divisionIds.includes(focusDivisionId)) {
-      extentDivisionIds = [focusDivisionId];
+    if (resolvedFocus && divisionIds.includes(resolvedFocus)) {
+      extentDivisionIds = [resolvedFocus];
     }
 
     const scopedDivisions = divisions.filter((d) => extentDivisionIds.includes(d.id));
-    const divisionFocused = Boolean(focusDivisionId && divisionIds.includes(focusDivisionId));
+    const divisionFocused = Boolean(resolvedFocus && divisionIds.includes(resolvedFocus));
     const districtNames = (canViewAll && !divisionFocused)
       ? null
       : this.districtNamesFromDivisions(scopedDivisions);
@@ -585,8 +617,8 @@ export class DivisionAccessService {
 
     const mapView = this.bboxToMapView(bbox);
     const accessibleProjectIds = await this.getAccessibleProjectIds(user, tenantId);
-    const activeDivisionId = focusDivisionId && divisionIds.includes(focusDivisionId)
-      ? focusDivisionId
+    const activeDivisionId = resolvedFocus && divisionIds.includes(resolvedFocus)
+      ? resolvedFocus
       : (user.divisionId && divisionIds.includes(user.divisionId) ? user.divisionId : divisionIds[0] ?? null);
 
     const activeDivision = divisions.find((d) => d.id === activeDivisionId) ?? divisions[0] ?? null;
@@ -600,8 +632,8 @@ export class DivisionAccessService {
       jurisdictionLabel = 'Uttarakhand — Full State Access';
     } else if (activeDistrictName && activeDivision) {
       jurisdictionLabel = `${activeDistrictName} District · ${this.formatDivisionShortName(activeDivision.name)}`;
-    } else if (focusDivisionId && divisions.length > 1) {
-      const focused = divisions.find((d) => d.id === focusDivisionId);
+    } else if (resolvedFocus && divisions.length > 1) {
+      const focused = divisions.find((d) => d.id === resolvedFocus);
       jurisdictionLabel = focused
         ? `${this.formatDivisionShortName(focused.name)}`
         : `${divisions.length} Authorized Divisions`;
@@ -1077,7 +1109,15 @@ export class DivisionAccessService {
     else if (permissions.includes('state:view_all') || hasStateWideRole(roles)) accessScope = 'state';
     else if (base.canViewAllDivisions) accessScope = 'state';
     else if (permissions.includes('circle:view') && base.circleId) accessScope = 'circle';
-    const canViewAllDivisions = accessScope === 'global' || accessScope === 'state';
+    let canViewAllDivisions = accessScope === 'global' || accessScope === 'state';
+    if (
+      isFieldDivisionStaff(roles)
+      && !permissions.includes('state:view_all')
+      && !hasStateWideRole(roles)
+    ) {
+      canViewAllDivisions = false;
+      if (accessScope === 'state') accessScope = 'division';
+    }
     return { ...base, accessScope, canViewAllDivisions };
   }
 

@@ -178,6 +178,61 @@ async function loadLayerFeatures(layerId: string): Promise<{
   return { features, jurisdiction };
 }
 
+function formatDivisionShortName(name: string): string {
+  return name.replace(/\s+Division\s*$/i, '').trim() || name;
+}
+
+function divisionScopedMapAccessFallback(
+  user: { divisionId?: string | null; divisionCode?: string | null; divisionName?: string | null } | null,
+): MapAccessContext {
+  const shortName = user?.divisionName ? formatDivisionShortName(user.divisionName) : null;
+  return {
+    accessScope: 'division',
+    canViewAllDivisions: false,
+    jurisdictionLabel: shortName ?? 'Division jurisdiction',
+    jurisdictionRestricted: true,
+    districtNames: [],
+    activeDistrictName: null,
+    districtBoundaries: { type: 'FeatureCollection', features: [] },
+    divisions: user?.divisionId
+      ? [{
+        id: user.divisionId,
+        code: user.divisionCode ?? '',
+        name: user.divisionName ?? 'My Division',
+        region: null,
+        district: null,
+        isHeadquarters: false,
+      }]
+      : [],
+    activeDivisionId: user?.divisionId ?? null,
+    mapView: { center: UTTARAKHAND_STATE_MAP_VIEW.center, zoom: UTTARAKHAND_STATE_MAP_VIEW.zoom },
+    bbox: [...UTTARAKHAND_STATE_MAP_VIEW.bbox],
+    allowedProjectCount: null,
+  };
+}
+
+function mapAccessFallback(
+  user: { canViewAllDivisions?: boolean; divisionId?: string | null; divisionCode?: string | null; divisionName?: string | null } | null,
+): MapAccessContext {
+  if (user?.canViewAllDivisions) {
+    return {
+      accessScope: 'state',
+      canViewAllDivisions: true,
+      jurisdictionLabel: 'Uttarakhand — Full State Access',
+      jurisdictionRestricted: false,
+      districtNames: [],
+      activeDistrictName: null,
+      districtBoundaries: { type: 'FeatureCollection', features: [] },
+      divisions: [],
+      activeDivisionId: null,
+      mapView: { center: UTTARAKHAND_STATE_MAP_VIEW.center, zoom: UTTARAKHAND_STATE_MAP_VIEW.zoom },
+      bbox: [...UTTARAKHAND_STATE_MAP_VIEW.bbox],
+      allowedProjectCount: null,
+    };
+  }
+  return divisionScopedMapAccessFallback(user);
+}
+
 export default function MapPage() {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
@@ -191,8 +246,12 @@ export default function MapPage() {
   const assetFocusParam = useMemo(() => parseConstructionAssetMapFocus(searchParams), [searchParams]);
   const { activeDivisionId } = useDivisionScope();
   const divisionScopeKey = useDivisionScopeKey();
-  /** URL ?division= wins; otherwise use the global header Division switcher. */
-  const effectiveDivisionId = divisionParam || activeDivisionId || '';
+  /** URL ?division= wins; otherwise header switcher; field users fall back to JWT division. */
+  const effectiveDivisionId = divisionParam
+    || activeDivisionId
+    || (!user?.canViewAllDivisions ? (user?.divisionId ?? '') : '');
+  const mapAccessDivisionId = effectiveDivisionId
+    || (!user?.canViewAllDivisions && user?.divisionId ? user.divisionId : undefined);
 
   const [layers, setLayers] = useState<LayerGroup[]>([]);
   const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({});
@@ -598,7 +657,7 @@ export default function MapPage() {
     void (async () => {
       const [projectsResult, accessResult, layersResult] = await Promise.allSettled([
         projectsApi.list(),
-        gisApi.mapAccess(effectiveDivisionId || undefined),
+        gisApi.mapAccess(mapAccessDivisionId),
         gisApi.layers(),
       ]);
 
@@ -636,34 +695,10 @@ export default function MapPage() {
         if (accessData && typeof accessData === 'object' && 'mapView' in accessData) {
           applyMapAccessView(accessData as MapAccessContext, { skipFly: Boolean(assetFocusParam) });
         } else {
-          applyMapAccessView({
-            accessScope: 'global',
-            canViewAllDivisions: true,
-            jurisdictionLabel: 'Enterprise GIS',
-            districtNames: [],
-            activeDistrictName: null,
-            districtBoundaries: { type: 'FeatureCollection', features: [] },
-            divisions: [],
-            activeDivisionId: null,
-            mapView: { center: UTTARAKHAND_STATE_MAP_VIEW.center, zoom: UTTARAKHAND_STATE_MAP_VIEW.zoom },
-            bbox: UTTARAKHAND_STATE_MAP_VIEW.bbox,
-            allowedProjectCount: null,
-          }, { skipFly: Boolean(assetFocusParam) });
+          applyMapAccessView(mapAccessFallback(user), { skipFly: Boolean(assetFocusParam) });
         }
       } else {
-        applyMapAccessView({
-          accessScope: 'global',
-          canViewAllDivisions: true,
-          jurisdictionLabel: 'Enterprise GIS',
-          districtNames: [],
-          activeDistrictName: null,
-          districtBoundaries: { type: 'FeatureCollection', features: [] },
-          divisions: [],
-          activeDivisionId: null,
-          mapView: { center: UTTARAKHAND_STATE_MAP_VIEW.center, zoom: UTTARAKHAND_STATE_MAP_VIEW.zoom },
-          bbox: UTTARAKHAND_STATE_MAP_VIEW.bbox,
-          allowedProjectCount: null,
-        }, { skipFly: Boolean(assetFocusParam) });
+        applyMapAccessView(mapAccessFallback(user), { skipFly: Boolean(assetFocusParam) });
         setMapError(formatApiError(accessResult.reason, 'Could not load map jurisdiction. Showing default view.'));
       }
 
@@ -691,7 +726,7 @@ export default function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [focusLayerId, basemapParam, effectiveDivisionId, projectParam, divisionScopeKey, searchParams.get('t'), applyMapAccessView, hqGlobalView, hasMapScope, assetFocusParam]);
+  }, [focusLayerId, basemapParam, effectiveDivisionId, mapAccessDivisionId, projectParam, divisionScopeKey, searchParams.get('t'), applyMapAccessView, hqGlobalView, hasMapScope, assetFocusParam, user?.canViewAllDivisions, user?.divisionId]);
 
   useEffect(() => {
     if (!projectParam) {
