@@ -75,6 +75,7 @@ export class OmInspectionService {
 
     this.validateChecklist(typeDef, dto.checklist);
     this.validateCoordinates(dto.latitude, dto.longitude);
+    this.validatePhotos(typeDef, dto.photos, dto.latitude, dto.longitude);
 
     const inspection = this.inspectionRepo.create({
       tenantId,
@@ -171,6 +172,31 @@ export class OmInspectionService {
       if (val === undefined || val === null || val === '') {
         throw new BadRequestException(`${field.label} is required`);
       }
+    }
+  }
+
+  private validatePhotos(
+    typeDef: NonNullable<ReturnType<typeof getInspectionTypeDef>>,
+    photos: Array<Record<string, unknown>> | undefined,
+    latitude?: number,
+    longitude?: number,
+  ) {
+    if (typeDef.type !== 'daily') return;
+    const list = photos ?? [];
+    if (!list.length) {
+      throw new BadRequestException('Geo-tagged site photo is required for daily inspection');
+    }
+    const photo = list[0];
+    const hasImage = Boolean(photo.dataUrl || photo.fileUrl || photo.imageUrl);
+    if (!hasImage) {
+      throw new BadRequestException('Capture a site photo before submitting daily inspection');
+    }
+    if (latitude == null || longitude == null) {
+      throw new BadRequestException('GPS coordinates are required with the site photo');
+    }
+    const caption = String(photo.caption ?? '').trim();
+    if (!caption) {
+      throw new BadRequestException('Photo caption is required');
     }
   }
 

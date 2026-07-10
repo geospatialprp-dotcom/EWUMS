@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent,
-  FormControl, Grid, InputLabel, MenuItem, Select, Tab, Tabs,
+  FormControl, Grid, InputLabel, MenuItem, Select, Stack, Tab, Tabs,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TextField, Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import axios from 'axios';
 import { omApi, projectsApi } from '../../services/api';
@@ -14,14 +15,41 @@ import {
   OM_INSPECTION_ROLE_LABELS,
   OM_INSPECTION_TYPES,
   getInspectionTypeDef,
+  type ChecklistFieldDef,
   type OmInspectionType,
 } from '../../constants/omInspections';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { parseBilingualText, serializeBilingualText } from '../../utils/bilingualText';
-import { formatCoordinatePair, formatCoordinateString } from '../../utils/coordinateFields';
+import { formatCoordinatePair } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions } from '../../utils/divisionAccess';
+import { normalizeConstructionGps } from '../../utils/mapExplorerLinks';
+
+const REQUIRED_FIELD_SX = {
+  '& .MuiInputLabel-asterisk, & .MuiFormLabel-asterisk': {
+    color: 'error.main',
+  },
+};
+
+function fieldLabel(field: ChecklistFieldDef): string {
+  return field.unit ? `${field.label} (${field.unit})` : field.label;
+}
+
+function hasGpsCoords(lat: string, lng: string): boolean {
+  const la = Number(lat);
+  const lo = Number(lng);
+  return Number.isFinite(la) && Number.isFinite(lo) && la !== 0 && lo !== 0;
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('Could not read photo file'));
+    reader.readAsDataURL(file);
+  });
+}
 
 type InspectionRow = {
   id: string;
@@ -69,6 +97,11 @@ export default function OmInspectionStage() {
   const [busy, setBusy] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState<InspectionRow | null>(null);
+  const [dialogError, setDialogError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [gpsCapturing, setGpsCapturing] = useState(false);
 
   const activeType = TYPE_TABS[tab];
   const typeDef = getInspectionTypeDef(activeType);
@@ -117,6 +150,14 @@ export default function OmInspectionStage() {
     }));
   }, [activeType]);
 
+  const resetPhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
+
   const openNew = () => {
     const def = getInspectionTypeDef(activeType);
     setForm({
@@ -127,16 +168,100 @@ export default function OmInspectionStage() {
       longitude: '',
       photoCaption: '',
     });
+    setDialogError('');
+    setFieldErrors({});
+    resetPhoto();
     setDialogOpen(true);
+  };
+
+  const captureGps = () => {
+    if (!navigator.geolocation) {
+      setDialogError('GPS is not available in this browser.');
+      return;
+    }
+    setGpsCapturing(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { lat, lng } = normalizeConstructionGps(pos.coords.latitude, pos.coords.longitude);
+        setForm((f) => ({
+          ...f,
+          latitude: lat.toFixed(6),
+          longitude: lng.toFixed(6),
+        }));
+        setGpsCapturing(false);
+        setFieldErrors((prev) => {
+          const next = { ...prev };
+          delete next.latitude;
+          delete next.longitude;
+          return next;
+        });
+      },
+      (err) => {
+        setGpsCapturing(false);
+        setDialogError(err.message || 'Failed to capture GPS coordinates.');
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  };
+
+  const capturePhoto = (file: File) => {
+    if (!file?.size) {
+      setDialogError('Photo file is empty — retake the picture on site.');
+      return;
+    }
+    setPhotoFile(file);
+    setPhotoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next.photo;
+      return next;
+    });
+    if (!hasGpsCoords(form.latitude, form.longitude) && navigator.geolocation) {
+      captureGps();
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    for (const field of typeDef.fields) {
+      if (!field.required) continue;
+      const raw = form.checklist[field.key];
+      if (raw === undefined || raw === '') {
+        errors[field.key] = `${field.label} is required`;
+      }
+    }
+    if (activeType === 'daily') {
+      if (!hasGpsCoords(form.latitude, form.longitude)) {
+        errors.latitude = 'Latitude is required';
+        errors.longitude = 'Longitude is required';
+      }
+      if (!form.photoCaption.trim()) {
+        errors.photoCaption = 'Photo caption is required';
+      }
+      if (!photoFile) {
+        errors.photo = 'Capture a geo-tagged site photo before submitting';
+      }
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setDialogError('Fill all mandatory fields marked in red before submitting.');
+      return false;
+    }
+    setDialogError('');
+    return true;
   };
 
   const submit = async () => {
     if (!selectedProject) {
-      setError('Select a scheme / project before submitting an inspection');
+      setDialogError('Select a scheme / project before submitting an inspection');
       return;
     }
+    if (!validateForm()) return;
     setBusy(true);
-    setError('');
+    setDialogError('');
     try {
       const checklist: Record<string, unknown> = {};
       for (const field of typeDef.fields) {
@@ -144,14 +269,24 @@ export default function OmInspectionStage() {
         if (raw === undefined || raw === '') continue;
         checklist[field.key] = field.type === 'number' ? Number(raw) : raw;
       }
-      const photos = form.latitude && form.longitude && form.photoCaption
+
+      const photos = activeType === 'daily' && photoFile
         ? [{
-          caption: form.photoCaption,
+          caption: form.photoCaption.trim(),
           latitude: Number(form.latitude),
           longitude: Number(form.longitude),
           takenAt: new Date().toISOString(),
+          fileName: photoFile.name,
+          dataUrl: await fileToDataUrl(photoFile),
         }]
-        : [];
+        : form.latitude && form.longitude && form.photoCaption
+          ? [{
+            caption: form.photoCaption,
+            latitude: Number(form.latitude),
+            longitude: Number(form.longitude),
+            takenAt: new Date().toISOString(),
+          }]
+          : [];
 
       await omApi.createInspection({
         inspectionType: activeType,
@@ -165,22 +300,31 @@ export default function OmInspectionStage() {
         photos,
       });
       setDialogOpen(false);
+      resetPhoto();
       load();
     } catch (err: unknown) {
-      setError(getApiError(err, 'Failed to submit inspection'));
+      setDialogError(getApiError(err, 'Failed to submit inspection'));
     } finally {
       setBusy(false);
     }
   };
 
-  const renderField = (field: typeof typeDef.fields[number]) => {
+  const renderField = (field: ChecklistFieldDef) => {
     const value = form.checklist[field.key] ?? '';
-    const label = field.unit ? `${field.label} (${field.unit})` : field.label;
+    const label = fieldLabel(field);
+    const error = fieldErrors[field.key];
 
     if (field.type === 'select' || field.type === 'rating') {
       return (
-        <FormControl fullWidth size="small" key={field.key} required={field.required}>
-          <InputLabel>{label}</InputLabel>
+        <FormControl
+          fullWidth
+          size="small"
+          key={field.key}
+          required={field.required}
+          error={Boolean(error)}
+          sx={field.required ? REQUIRED_FIELD_SX : undefined}
+        >
+          <InputLabel required={field.required}>{label}</InputLabel>
           <Select
             value={value}
             label={label}
@@ -207,6 +351,9 @@ export default function OmInspectionStage() {
           multiline={field.key.includes('leakage') || field.key.includes('Observation')}
           rows={field.key.includes('leakage') ? 2 : 1}
           required={field.required}
+          error={Boolean(error)}
+          helperText={error}
+          sx={field.required ? REQUIRED_FIELD_SX : undefined}
           value={value}
           onChange={(e) => setForm((f) => ({
             ...f,
@@ -224,6 +371,9 @@ export default function OmInspectionStage() {
         type="number"
         label={label}
         required={field.required}
+        error={Boolean(error)}
+        helperText={error}
+        sx={field.required ? REQUIRED_FIELD_SX : undefined}
         value={value}
         onChange={(e) => setForm((f) => ({
           ...f,
@@ -334,13 +484,14 @@ export default function OmInspectionStage() {
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: omDialogPaperSx }}>
         <OmDialogHeader stage={3} title={typeDef.label} busy={busy} />
         <DialogContent dividers sx={omDialogContentSx}>
+          {dialogError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDialogError('')}>{dialogError}</Alert>}
           {!selectedProject && (
             <Alert severity="warning" sx={{ mb: 2 }}>Select a scheme / project first.</Alert>
           )}
           <Grid container spacing={2} mt={0}>
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth size="small" required>
-                <InputLabel>Performed By</InputLabel>
+              <FormControl fullWidth size="small" required sx={REQUIRED_FIELD_SX}>
+                <InputLabel required>Performed By</InputLabel>
                 <Select
                   value={form.performedByRole}
                   label="Performed By"
@@ -357,24 +508,126 @@ export default function OmInspectionStage() {
                 {renderField(field)}
               </Grid>
             ))}
-            <Grid item xs={12}>
-              <Typography variant="subtitle2" fontWeight={700} gutterBottom>Geo-tagged photo (optional)</Typography>
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField fullWidth size="small" label="Latitude (°N)" value={form.latitude} onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField fullWidth size="small" label="Longitude (°E)" value={form.longitude} onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField fullWidth size="small" label="Photo caption" value={form.photoCaption} onChange={(e) => setForm((f) => ({ ...f, photoCaption: e.target.value }))} />
-            </Grid>
-            {form.latitude && form.longitude && (
-              <Grid item xs={12}>
-                <Typography variant="caption" color="text.secondary">
-                  GIS: {formatCoordinatePair(form.latitude, form.longitude)}
-                </Typography>
-              </Grid>
+            {activeType === 'daily' && (
+              <>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ color: 'error.main' }}>
+                    Geo-tagged site photo *
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Capture a live photo on site. GPS coordinates are required with the photo.
+                  </Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      startIcon={<PhotoCameraOutlinedIcon />}
+                      component="label"
+                    >
+                      {photoFile ? 'Retake photo' : 'Capture photo'}
+                      <input
+                        type="file"
+                        hidden
+                        accept="image/*"
+                        capture="environment"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) capturePhoto(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      startIcon={<MyLocationIcon />}
+                      onClick={captureGps}
+                      disabled={gpsCapturing}
+                    >
+                      {gpsCapturing ? 'Capturing GPS…' : 'Capture GPS'}
+                    </Button>
+                  </Stack>
+                  {fieldErrors.photo && (
+                    <Typography variant="caption" color="error.main" display="block" sx={{ mt: 1 }}>
+                      {fieldErrors.photo}
+                    </Typography>
+                  )}
+                </Grid>
+                {photoPreviewUrl && (
+                  <Grid item xs={12}>
+                    <Box
+                      component="img"
+                      src={photoPreviewUrl}
+                      alt="Inspection site"
+                      sx={{ maxWidth: '100%', maxHeight: 220, borderRadius: 1, border: 1, borderColor: 'divider' }}
+                    />
+                  </Grid>
+                )}
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    required
+                    label="Latitude (°N)"
+                    value={form.latitude}
+                    error={Boolean(fieldErrors.latitude)}
+                    helperText={fieldErrors.latitude}
+                    sx={REQUIRED_FIELD_SX}
+                    onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    required
+                    label="Longitude (°E)"
+                    value={form.longitude}
+                    error={Boolean(fieldErrors.longitude)}
+                    helperText={fieldErrors.longitude}
+                    sx={REQUIRED_FIELD_SX}
+                    onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    required
+                    label="Photo caption"
+                    value={form.photoCaption}
+                    error={Boolean(fieldErrors.photoCaption)}
+                    helperText={fieldErrors.photoCaption}
+                    sx={REQUIRED_FIELD_SX}
+                    onChange={(e) => setForm((f) => ({ ...f, photoCaption: e.target.value }))}
+                  />
+                </Grid>
+                {form.latitude && form.longitude && (
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="text.secondary">
+                      GIS: {formatCoordinatePair(form.latitude, form.longitude)}
+                    </Typography>
+                  </Grid>
+                )}
+              </>
+            )}
+            {activeType !== 'daily' && (
+              <>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>Geo-tagged photo (optional)</Typography>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField fullWidth size="small" label="Latitude (°N)" value={form.latitude} onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))} />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField fullWidth size="small" label="Longitude (°E)" value={form.longitude} onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))} />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField fullWidth size="small" label="Photo caption" value={form.photoCaption} onChange={(e) => setForm((f) => ({ ...f, photoCaption: e.target.value }))} />
+                </Grid>
+              </>
             )}
             <Grid item xs={12}>
               <BilingualRemarkField
