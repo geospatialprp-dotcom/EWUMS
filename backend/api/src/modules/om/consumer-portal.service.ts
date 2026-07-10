@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { Project } from '../projects/entities/project.entity';
 import {
   ConsumerPortalComplaintDto,
@@ -22,6 +22,8 @@ import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class ConsumerPortalService {
+  private readonly logger = new Logger(ConsumerPortalService.name);
+
   constructor(
     @InjectRepository(OmConsumer) private consumerRepo: Repository<OmConsumer>,
     @InjectRepository(OmConsumerServiceRequest) private requestRepo: Repository<OmConsumerServiceRequest>,
@@ -228,6 +230,18 @@ export class ConsumerPortalService {
   }
 
   async applyNewConnection(tenantId: string, dto: ConsumerPortalNewConnectionDto, loggedInConsumerId?: string) {
+    try {
+      return await this.applyNewConnectionInternal(tenantId, dto, loggedInConsumerId);
+    } catch (err) {
+      this.rethrowApplyError(err);
+    }
+  }
+
+  private async applyNewConnectionInternal(
+    tenantId: string,
+    dto: ConsumerPortalNewConnectionDto,
+    loggedInConsumerId?: string,
+  ) {
     const fhtc = dto.fhtcNumber.trim();
     const mobileDigits = dto.mobile.replace(/\D/g, '').slice(-10);
     if (mobileDigits.length !== 10) {
@@ -245,22 +259,13 @@ export class ConsumerPortalService {
     let consumer = await this.consumerRepo.findOne({ where: { tenantId, fhtcNumber: fhtc } });
 
     if (!consumer) {
-      const count = await this.consumerRepo.count({ where: { tenantId } });
-      const consumerCode = `CON-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
-      consumer = this.consumerRepo.create({
+      consumer = await this.createPortalConsumer({
         tenantId,
         projectId: projectId ?? loggedInConsumer?.projectId ?? null,
-        consumerCode,
-        fhtcNumber: fhtc,
-        consumerName: dto.consumerName?.trim() ?? null,
+        fhtc,
         mobile,
-        village: dto.village?.trim() ?? null,
-        ward: dto.ward?.trim() ?? null,
-        consumerCategory: dto.consumerCategory ?? null,
-        connectionStatus: 'pending',
-        notes: dto.notes?.trim() ?? 'New connection application via consumer portal',
+        dto,
       });
-      consumer = await this.consumerRepo.save(consumer);
     } else if (applyingForSelf && consumer.connectionStatus === 'active') {
       throw new BadRequestException(
         'You already have an active connection on this FHTC. Enter a new FHTC number to apply for an additional connection.',
@@ -306,24 +311,92 @@ export class ConsumerPortalService {
     };
   }
 
+  private async createPortalConsumer(input: {
+    tenantId: string;
+    projectId: string | null;
+    fhtc: string;
+    mobile: string;
+    dto: ConsumerPortalNewConnectionDto;
+  }): Promise<OmConsumer> {
+    const { tenantId, projectId, fhtc, mobile, dto } = input;
+    const year = new Date().getFullYear();
+    const baseCount = await this.consumerRepo.count({ where: { tenantId } });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const consumerCode = `CON-${year}-${String(baseCount + 1 + attempt).padStart(5, '0')}`;
+      const record = this.consumerRepo.create({
+        tenantId,
+        projectId,
+        consumerCode,
+        fhtcNumber: fhtc,
+        consumerName: dto.consumerName?.trim() ?? null,
+        mobile,
+        village: dto.village?.trim() ?? null,
+        ward: dto.ward?.trim() ?? null,
+        consumerCategory: dto.consumerCategory ?? null,
+        connectionStatus: 'pending',
+        notes: dto.notes?.trim() ?? 'New connection application via consumer portal',
+      });
+      try {
+        return await this.consumerRepo.save(record);
+      } catch (err) {
+        if (err instanceof QueryFailedError && (err as QueryFailedError & { code?: string }).code === '23505') {
+          const existing = await this.consumerRepo.findOne({ where: { tenantId, fhtcNumber: fhtc } });
+          if (existing) return existing;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw new BadRequestException('Could not register this FHTC. Try again or contact your Jal Sansthan office.');
+  }
+
+  private rethrowApplyError(err: unknown): never {
+    if (err instanceof BadRequestException || err instanceof NotFoundException) throw err;
+    if (err instanceof QueryFailedError) {
+      const code = (err as QueryFailedError & { code?: string }).code;
+      if (code === '23505') {
+        throw new BadRequestException(
+          'This FHTC number is already registered. Sign in with the same FHTC and mobile.',
+        );
+      }
+      this.logger.error(`applyNewConnection DB error (${code ?? 'unknown'}): ${err.message}`);
+      throw new BadRequestException(
+        'Could not save your application. Verify FHTC and mobile, then try Sign in without OTP.',
+      );
+    }
+    this.logger.error(
+      `applyNewConnection failed: ${err instanceof Error ? err.message : String(err)}`,
+      err instanceof Error ? err.stack : undefined,
+    );
+    throw new BadRequestException(
+      'Application could not be submitted. Try Sign in without OTP, or contact your Jal Sansthan office.',
+    );
+  }
+
   async applyNewConnectionAndLogin(
     tenantId: string,
     dto: ConsumerPortalNewConnectionDto,
     loggedInConsumerId?: string,
   ) {
-    const result = await this.applyNewConnection(tenantId, dto, loggedInConsumerId);
-    const consumer = await this.consumerRepo.findOne({
-      where: { id: result.consumer.id, tenantId },
-    });
-    if (!consumer) {
-      throw new BadRequestException('Application saved but sign-in failed. Use Sign in without OTP.');
+    try {
+      const result = await this.applyNewConnection(tenantId, dto, loggedInConsumerId);
+      const consumer = await this.consumerRepo.findOne({
+        where: { id: result.consumer.id, tenantId },
+      });
+      if (!consumer) {
+        throw new BadRequestException('Application saved but sign-in failed. Use Sign in without OTP.');
+      }
+      const session = this.authService.issueTokenForConsumer(consumer);
+      return {
+        ...result,
+        accessToken: session.accessToken,
+        consumer: session.consumer,
+      };
+    } catch (err) {
+      this.rethrowApplyError(err);
     }
-    const session = this.authService.issueTokenForConsumer(consumer);
-    return {
-      ...result,
-      accessToken: session.accessToken,
-      consumer: session.consumer,
-    };
   }
 
   async updateMobile(tenantId: string, consumerId: string, dto: ConsumerPortalUpdateMobileDto) {
@@ -413,23 +486,38 @@ export class ConsumerPortalService {
   }
 
   private async findTharaliProjectId(tenantId: string): Promise<string | null> {
-    const rows = await this.projectRepo.query(
-      `SELECT p.id
-       FROM projects p
-       WHERE p.tenant_id = $1
-         AND p.status = 'active'
-         AND (
-           p.project_code IN ('PRJ-TPPWSS-2026-27', 'PRJ-2026-001')
-           OR p.name ILIKE '%Tharali%'
-         )
-       ORDER BY
-         CASE p.project_code WHEN 'PRJ-TPPWSS-2026-27' THEN 0 WHEN 'PRJ-2026-001' THEN 1 ELSE 2 END,
-         CASE WHEN p.division_id = 'd1000000-0000-0000-0000-000000000010' THEN 0 ELSE 1 END,
-         p.name ASC
-       LIMIT 1`,
-      [tenantId],
-    ) as Array<{ id: string }>;
-    return rows[0]?.id ?? null;
+    const preferredSql = `
+      SELECT id
+      FROM projects
+      WHERE tenant_id = $1
+        AND status = 'active'
+        AND (
+          project_code IN ('PRJ-TPPWSS-2026-27', 'PRJ-2026-001')
+          OR name ILIKE '%Tharali%'
+        )
+      ORDER BY
+        CASE project_code WHEN 'PRJ-TPPWSS-2026-27' THEN 0 WHEN 'PRJ-2026-001' THEN 1 ELSE 2 END,
+        name ASC
+      LIMIT 1`;
+
+    try {
+      const rows = await this.projectRepo.query(preferredSql, [tenantId]) as Array<{ id: string }>;
+      if (rows[0]?.id) return rows[0].id;
+    } catch (err) {
+      this.logger.warn(
+        `Tharali project lookup failed, using fallback: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    try {
+      const rows = await this.projectRepo.query(
+        `SELECT id FROM projects WHERE tenant_id = $1 ORDER BY name ASC LIMIT 1`,
+        [tenantId],
+      ) as Array<{ id: string }>;
+      return rows[0]?.id ?? null;
+    } catch {
+      return null;
+    }
   }
 
   private async resolveProjectId(tenantId: string, projectCode?: string): Promise<string | null> {

@@ -34,6 +34,37 @@ portalApi.interceptors.response.use(
   },
 );
 
+export type PortalNewConnectionPayload = {
+  fhtcNumber: string;
+  mobile: string;
+  consumerName?: string;
+  village?: string;
+  ward?: string;
+  notes?: string;
+  projectCode?: string;
+};
+
+async function applyNewConnectionWithLoginFallback(data: PortalNewConnectionPayload) {
+  try {
+    return await portalApi.post('/applications/new-connection-and-login', data);
+  } catch (err) {
+    if (!axios.isAxiosError(err) || err.response?.status !== 404) throw err;
+    const apply = await portalApi.post('/applications/new-connection', data);
+    const login = await portalApi.post('/auth/login', {
+      fhtcNumber: data.fhtcNumber.trim(),
+      mobile: data.mobile.trim(),
+    });
+    return {
+      ...apply,
+      data: {
+        ...apply.data,
+        accessToken: login.data.accessToken,
+        consumer: login.data.consumer,
+      },
+    };
+  }
+}
+
 export const consumerPortalApi = {
   getCatalog: () => portalApi.get('/catalog'),
   getAuthConfig: () => portalApi.get('/auth/config'),
@@ -53,7 +84,7 @@ export const consumerPortalApi = {
   listApplications: () => portalApi.get('/applications'),
   getApplication: (requestNo: string) => portalApi.get(`/applications/${encodeURIComponent(requestNo)}`),
   applyNewConnection: (data: object) => portalApi.post('/applications/new-connection', data),
-  applyNewConnectionAndLogin: (data: object) => portalApi.post('/applications/new-connection-and-login', data),
+  applyNewConnectionAndLogin: (data: PortalNewConnectionPayload) => applyNewConnectionWithLoginFallback(data),
   listHouseholdPlots: (projectCode?: string) =>
     portalApi.get('/household-plots', { params: projectCode ? { projectCode } : undefined }),
   resolveHouseholdPlot: (data: { latitude: number; longitude: number; projectCode?: string }) =>

@@ -84,8 +84,16 @@ function getLoginError(err: unknown, fallback = 'Login failed'): string {
     if (status === 400) {
       return typeof msg === 'string' ? msg : 'Could not send OTP. Try Sign in without OTP.';
     }
+    if (status === 403) {
+      return typeof msg === 'string' && msg ? msg : 'Access denied. Apply for new connection first.';
+    }
+    if (status === 404) {
+      return 'Portal service is updating. Apply for new connection, then use Sign in without OTP.';
+    }
     if (status === 500 || msg === 'Internal server error') {
-      return 'Server error. Apply for new connection first, or use Sign in without OTP.';
+      return typeof msg === 'string' && msg && msg !== 'Internal server error'
+        ? msg
+        : 'Server error. Apply for new connection first, or use Sign in without OTP.';
     }
     if (typeof msg === 'string') return msg;
     if (Array.isArray(msg)) return msg.join(', ');
