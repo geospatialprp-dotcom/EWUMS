@@ -20,6 +20,12 @@ const REVIEWER_STEP_LABEL: Record<string, string> = {
 };
 const JE_DEMO_EMAILS = new Set(['geospatialprp@gmail.com', 'je.kpg@egip.local']);
 
+export function isKpgFieldDemoUser(roles?: string[], email?: string | null): boolean {
+  if (email && JE_DEMO_EMAILS.has(email.toLowerCase())) return true;
+  if (!roles?.length || roles.includes('super_admin')) return false;
+  return roles.some((r) => ['je', 'ae', 'ee', 'accounts', 'contractor'].includes(r));
+}
+
 export function handoverStatusesForUser(roles?: string[], email?: string | null): string[] {
   const statuses: string[] = [];
   if (roles?.includes('je') || (email && JE_DEMO_EMAILS.has(email.toLowerCase()))) {
@@ -76,7 +82,8 @@ export default function OmHandoverJeApprovalBar({
 
   if (isContractorUser(user?.roles)) return null;
 
-  const reviewRows = filterHandoversForReviewer(handovers, user?.roles, user?.email);
+  const reviewRows = filterHandoversForReviewer(handovers, user?.roles, user?.email)
+    .filter((h) => canActOnHandoverReview(String(h.status ?? ''), user?.roles, user?.email));
   if (!reviewRows.length) return null;
 
   const act = async (id: string, action: 'approve' | 'reject') => {
@@ -100,7 +107,6 @@ export default function OmHandoverJeApprovalBar({
       {reviewRows.map((h) => {
         const status = String(h.status ?? '');
         const stepLabel = REVIEWER_STEP_LABEL[status] ?? 'Department';
-        const canAct = canActOnHandoverReview(status, user?.roles, user?.email);
         return (
           <Box
             key={String(h.id)}
@@ -126,15 +132,14 @@ export default function OmHandoverJeApprovalBar({
               sx={{ ml: 1, fontWeight: 700 }}
             />
             <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-              Logged in: <strong>{user?.email ?? 'unknown'}</strong>
-              {canAct ? ' — you can approve now.' : ` — need ${REVIEWER[status]?.toUpperCase() ?? 'department'} login.`}
+              Logged in: <strong>{user?.email ?? 'unknown'}</strong> — you can approve now.
             </Typography>
             <Box display="flex" gap={1.5} flexWrap="wrap">
               <Button
                 variant="contained"
                 color="success"
                 size="large"
-                disabled={Boolean(busyId) || !canAct}
+                disabled={Boolean(busyId)}
                 startIcon={<CheckCircleIcon />}
                 onClick={() => act(String(h.id), 'approve')}
                 sx={{ fontWeight: 800, px: 4, py: 1.25, fontSize: '1rem' }}
@@ -145,7 +150,7 @@ export default function OmHandoverJeApprovalBar({
                 variant="outlined"
                 color="error"
                 size="large"
-                disabled={Boolean(busyId) || !canAct}
+                disabled={Boolean(busyId)}
                 startIcon={<CancelIcon />}
                 onClick={() => act(String(h.id), 'reject')}
               >

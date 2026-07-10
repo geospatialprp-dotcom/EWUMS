@@ -16,8 +16,10 @@ import {
 } from '../constants/omWorkflow';
 import OmHandoverStage from '../components/om/OmHandoverStage';
 import OmHandoverJeApprovalBar, {
+  canActOnHandoverReview,
   filterHandoversForReviewer,
   handoverStatusesForUser,
+  isKpgFieldDemoUser,
 } from '../components/om/OmHandoverJeApprovalBar';
 import OmAssetRegistrationStage from '../components/om/OmAssetRegistrationStage';
 import OmInspectionStage from '../components/om/OmInspectionStage';
@@ -316,10 +318,12 @@ export default function OmManagementPage() {
 
   const handoversForPanel = useMemo(() => {
     if (contractorView) return handovers;
-    const isFieldReviewer = handoverStatusesForUser(user?.roles, user?.email).length > 0
-      && !user?.roles?.includes('super_admin');
+    const isFieldReviewer = isKpgFieldDemoUser(user?.roles, user?.email)
+      || (handoverStatusesForUser(user?.roles, user?.email).length > 0
+        && !user?.roles?.includes('super_admin'));
     if (isFieldReviewer) {
-      return filterHandoversForReviewer(handovers, user?.roles, user?.email);
+      return filterHandoversForReviewer(handovers, user?.roles, user?.email)
+        .filter((h) => canActOnHandoverReview(String(h.status ?? ''), user?.roles, user?.email));
     }
     if (canViewAllDivisions) return handovers;
     return filterHandoversForReviewer(handovers, user?.roles, user?.email);

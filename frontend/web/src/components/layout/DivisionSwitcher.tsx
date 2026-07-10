@@ -6,9 +6,12 @@ import { useDivisionScope } from '../../context/DivisionContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 
+import { isKpgFieldDemoUser } from '../om/OmHandoverJeApprovalBar';
+
 const FIELD_DIVISION_ROLES = new Set(['je', 'ae', 'ee', 'accounts', 'contractor', 'gis_operator', 'field_engineer']);
 
-function isFieldDivisionUser(roles?: string[]): boolean {
+function isFieldDivisionUser(roles?: string[], email?: string | null): boolean {
+  if (isKpgFieldDemoUser(roles, email)) return true;
   if (!roles?.length) return false;
   if (roles.includes('super_admin')) return false;
   return roles.some((r) => FIELD_DIVISION_ROLES.has(r));
@@ -23,7 +26,7 @@ export default function DivisionSwitcher() {
 
   if (!user) return null;
 
-  const showDivisionPicker = canSwitchDivision && !isFieldDivisionUser(user.roles);
+  const showDivisionPicker = canSwitchDivision && !isFieldDivisionUser(user.roles, user.email);
 
   if (!showDivisionPicker) {
     if (!user.divisionName) return null;

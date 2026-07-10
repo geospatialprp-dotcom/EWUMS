@@ -18,7 +18,7 @@ import {
   type HandoverFormState,
 } from '../../constants/omHandover';
 import OmHandoverDocuments from './OmHandoverDocuments';
-import { canActOnHandoverReview, handoverStatusesForUser } from './OmHandoverJeApprovalBar';
+import { canActOnHandoverReview, handoverStatusesForUser, isKpgFieldDemoUser } from './OmHandoverJeApprovalBar';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import { useAuth } from '../../context/AuthContext';
@@ -314,8 +314,9 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
   const isFieldHandoverReviewer = Boolean(
     !contractorView
     && !isContractorUser(user?.roles)
-    && handoverStatusesForUser(user?.roles, user?.email).length > 0
-    && !user?.roles?.includes('super_admin'),
+    && (isKpgFieldDemoUser(user?.roles, user?.email)
+      || (handoverStatusesForUser(user?.roles, user?.email).length > 0
+        && !user?.roles?.includes('super_admin'))),
   );
   const isDeptApprovalView = Boolean(isFieldHandoverReviewer && canApproveDetail);
   const showEditableHandoverForm = contractorView || (canViewAllDivisions && !isFieldHandoverReviewer);
