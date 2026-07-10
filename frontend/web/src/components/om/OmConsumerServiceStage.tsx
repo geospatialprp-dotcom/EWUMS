@@ -22,6 +22,8 @@ import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { parseBilingualText, serializeBilingualText } from '../../utils/bilingualText';
 import { formatCoordinatePair } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions } from '../../utils/divisionAccess';
+import { useAuth } from '../../context/AuthContext';
+import { isSuperAdmin, SUPER_ADMIN_VIEW_ONLY_MESSAGE } from '../../utils/operationalAccess';
 
 type ConsumerRow = {
   id: string;
@@ -67,6 +69,8 @@ function getApiError(err: unknown, fallback: string): string {
 }
 
 export default function OmConsumerServiceStage() {
+  const { user } = useAuth();
+  const superAdminViewOnly = isSuperAdmin(user?.roles);
   const canViewAll = useCanViewAllDivisions();
   const [rows, setRows] = useState<ConsumerRow[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
@@ -231,6 +235,9 @@ export default function OmConsumerServiceStage() {
   return (
     <>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {superAdminViewOnly && (
+        <Alert severity="info" sx={{ mb: 2 }}>{SUPER_ADMIN_VIEW_ONLY_MESSAGE}</Alert>
+      )}
 
       <Grid container spacing={2} mb={2}>
         <Grid item xs={6} sm={3}>
@@ -330,9 +337,11 @@ export default function OmConsumerServiceStage() {
                   <MenuItem value="pending">Pending</MenuItem>
                 </Select>
               </FormControl>
-              <Button variant="contained" size="small" startIcon={<AddOutlinedIcon />} onClick={() => setRegisterOpen(true)}>
-                Register Consumer
-              </Button>
+              {!superAdminViewOnly && (
+                <Button variant="contained" size="small" startIcon={<AddOutlinedIcon />} onClick={() => setRegisterOpen(true)}>
+                  Register Consumer
+                </Button>
+              )}
             </Box>
           </Box>
         )}
@@ -376,9 +385,11 @@ export default function OmConsumerServiceStage() {
                         color={connectionStatusColor(row.connectionStatus)} />
                     </TableCell>
                     <TableCell align="right">
-                      <Button size="small" startIcon={<BuildOutlinedIcon />} onClick={() => openService(row)} sx={{ mr: 0.5 }}>
-                        Service
-                      </Button>
+                      {!superAdminViewOnly && (
+                        <Button size="small" startIcon={<BuildOutlinedIcon />} onClick={() => openService(row)} sx={{ mr: 0.5 }}>
+                          Service
+                        </Button>
+                      )}
                       <Button size="small" onClick={() => openHistory(row)}>History</Button>
                     </TableCell>
                   </TableRow>

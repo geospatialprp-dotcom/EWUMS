@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { assertNotSuperAdminForOperations } from '../../common/utils/operational-access.util';
 import { Project } from '../projects/entities/project.entity';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { OmDivisionScopeService } from './om-division-scope.service';
@@ -68,6 +69,7 @@ export class OmConsumerService {
   }
 
   async registerConsumer(user: JwtPayload, tenantId: string, userId: string, dto: CreateOmConsumerDto) {
+    assertNotSuperAdminForOperations(user, 'consumer registration');
     const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, dto.projectId, dto.projectCode);
     this.validateCoordinates(dto.latitude, dto.longitude);
 
@@ -110,6 +112,7 @@ export class OmConsumerService {
     consumerId: string,
     dto: CreateConsumerServiceRequestDto,
   ) {
+    assertNotSuperAdminForOperations(user, 'consumer service requests');
     const consumer = await this.consumerRepo.findOne({ where: { id: consumerId, tenantId } });
     if (!consumer) throw new NotFoundException('Consumer not found');
     await this.scope.assertProjectAccess(user, consumer.projectId, tenantId);
