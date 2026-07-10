@@ -189,6 +189,8 @@ export class CreateConstructionAssetDto {
   @IsOptional() @IsString() contractorName?: string;
   @IsOptional() @IsString() mbReference?: string;
   @IsOptional() @IsString() photoUrl?: string;
+  @IsOptional() @IsString() manufacturer?: string;
+  @IsOptional() @IsString() capacity?: string;
   @IsOptional() @IsIn(['planned', 'installed', 'commissioned'])
   status?: 'planned' | 'installed' | 'commissioned';
 }
@@ -205,6 +207,8 @@ export class UpdateConstructionAssetDto {
   @IsOptional() @IsString() contractorName?: string;
   @IsOptional() @IsString() mbReference?: string;
   @IsOptional() @IsString() photoUrl?: string;
+  @IsOptional() @IsString() manufacturer?: string;
+  @IsOptional() @IsString() capacity?: string;
   @IsOptional() @IsIn(['planned', 'installed', 'commissioned'])
   status?: 'planned' | 'installed' | 'commissioned';
 }

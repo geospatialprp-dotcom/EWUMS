@@ -2389,16 +2389,36 @@ export class ConstructionService {
 
     return assets.map((asset) => {
       const photo = latestPhotoByAsset.get(asset.id);
+      const attrs = asset.attributes ?? {};
       return {
         ...asset,
         photoUrl: asset.photoUrl || photo?.fileUrl || null,
         photoDocId: photo?.id ?? null,
+        manufacturer: (attrs.manufacturer as string) ?? null,
+        capacity: (attrs.capacity as string) ?? null,
       };
     });
   }
 
+  private buildConstructionAssetAttributes(
+    dto: { manufacturer?: string; capacity?: string },
+    existing: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    const attrs = { ...existing };
+    if (dto.manufacturer !== undefined) {
+      if (dto.manufacturer) attrs.manufacturer = dto.manufacturer;
+      else delete attrs.manufacturer;
+    }
+    if (dto.capacity !== undefined) {
+      if (dto.capacity) attrs.capacity = dto.capacity;
+      else delete attrs.capacity;
+    }
+    return attrs;
+  }
+
   createConstructionAsset(tenantId: string, projectId: string, user: JwtPayload, dto: CreateConstructionAssetDto) {
     this.assertContractorGisRegistration(user);
+    const attributes = this.buildConstructionAssetAttributes(dto);
     return this.assetRepo.save(this.assetRepo.create({
       tenantId,
       projectId,
@@ -2414,6 +2434,7 @@ export class ConstructionService {
       mbReference: dto.mbReference ?? null,
       photoUrl: dto.photoUrl ?? null,
       status: dto.status ?? 'installed',
+      attributes,
     })).then((asset) => this.syncProjectCompletion(tenantId, projectId).then(() => asset));
   }
 
@@ -2439,6 +2460,9 @@ export class ConstructionService {
     if (dto.mbReference !== undefined) asset.mbReference = dto.mbReference || null;
     if (dto.photoUrl !== undefined) asset.photoUrl = dto.photoUrl || null;
     if (dto.status !== undefined) asset.status = dto.status;
+    if (dto.manufacturer !== undefined || dto.capacity !== undefined) {
+      asset.attributes = this.buildConstructionAssetAttributes(dto, asset.attributes ?? {});
+    }
     asset.updatedAt = new Date();
     const saved = await this.assetRepo.save(asset);
     await this.syncProjectCompletion(tenantId, projectId);
