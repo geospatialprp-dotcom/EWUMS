@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Chip, Grid, Tab, Tabs, Typography,
@@ -15,7 +15,10 @@ import {
   type OmWorkflowStage,
 } from '../constants/omWorkflow';
 import OmHandoverStage from '../components/om/OmHandoverStage';
-import OmHandoverJeApprovalBar from '../components/om/OmHandoverJeApprovalBar';
+import OmHandoverJeApprovalBar, {
+  filterHandoversForReviewer,
+  handoverStatusesForUser,
+} from '../components/om/OmHandoverJeApprovalBar';
 import OmAssetRegistrationStage from '../components/om/OmAssetRegistrationStage';
 import OmInspectionStage from '../components/om/OmInspectionStage';
 import OmPreventiveMaintenanceStage from '../components/om/OmPreventiveMaintenanceStage';
@@ -43,6 +46,7 @@ import { OM_BREAKDOWN_CATALOG } from '../constants/omBreakdown';
 import { useDivisionScopeKey } from '../context/DivisionContext';
 import { useAuth } from '../context/AuthContext';
 import { isContractorUser } from '../utils/operationalAccess';
+import { useCanViewAllDivisions } from '../utils/divisionAccess';
 import { useTranslation } from '../context/LanguageContext';
 import { useLocalizedOmWorkflowStages, usePageCopy } from '../hooks/useLocalizedOmWorkflow';
 import {
@@ -278,6 +282,7 @@ function StageOverview({ stageKey, stages }: { stageKey: OmStageKey; stages: OmW
 export default function OmManagementPage() {
   const { user } = useAuth();
   const contractorView = isContractorUser(user?.roles);
+  const canViewAllDivisions = useCanViewAllDivisions();
   const [tab, setTab] = useState(0);
   const [dashboard, setDashboard] = useState<Record<string, number | null>>({});
   const [handovers, setHandovers] = useState<Array<Record<string, unknown>>>([]);
@@ -308,6 +313,17 @@ export default function OmManagementPage() {
   };
 
   useEffect(() => { load(); }, [divisionScopeKey]);
+
+  const handoversForPanel = useMemo(() => {
+    if (contractorView) return handovers;
+    const isFieldReviewer = handoverStatusesForUser(user?.roles, user?.email).length > 0
+      && !user?.roles?.includes('super_admin');
+    if (isFieldReviewer) {
+      return filterHandoversForReviewer(handovers, user?.roles, user?.email);
+    }
+    if (canViewAllDivisions) return handovers;
+    return filterHandoversForReviewer(handovers, user?.roles, user?.email);
+  }, [handovers, contractorView, canViewAllDivisions, user?.roles, user?.email]);
 
   useEffect(() => {
     const applyHash = () => {
@@ -610,8 +626,8 @@ export default function OmManagementPage() {
       {activeStage.key === 'handover' && (
         <>
           <StageOverview stages={workflowStages} stageKey="handover" />
-          <OmHandoverJeApprovalBar handovers={handovers} onDone={load} />
-          <OmHandoverStage handovers={handovers} onRefresh={load} />
+          <OmHandoverJeApprovalBar handovers={handoversForPanel} onDone={load} />
+          <OmHandoverStage handovers={handoversForPanel} onRefresh={load} />
         </>
       )}
 

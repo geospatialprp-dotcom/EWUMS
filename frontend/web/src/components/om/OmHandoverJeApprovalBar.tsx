@@ -13,7 +13,32 @@ const REVIEWER: Record<string, string> = {
   ae_review: 'ae',
   ee_review: 'ee',
 };
+const REVIEWER_STEP_LABEL: Record<string, string> = {
+  je_review: 'JE',
+  ae_review: 'AE',
+  ee_review: 'EE',
+};
 const JE_DEMO_EMAILS = new Set(['geospatialprp@gmail.com', 'je.kpg@egip.local']);
+
+export function handoverStatusesForUser(roles?: string[], email?: string | null): string[] {
+  const statuses: string[] = [];
+  if (roles?.includes('je') || (email && JE_DEMO_EMAILS.has(email.toLowerCase()))) {
+    statuses.push('je_review');
+  }
+  if (roles?.includes('ae')) statuses.push('ae_review');
+  if (roles?.includes('ee')) statuses.push('ee_review');
+  return statuses;
+}
+
+export function filterHandoversForReviewer<T extends { status?: unknown }>(
+  handovers: T[],
+  roles?: string[],
+  email?: string | null,
+): T[] {
+  const allowed = new Set(handoverStatusesForUser(roles, email));
+  if (!allowed.size) return [];
+  return handovers.filter((h) => allowed.has(String(h.status ?? '')));
+}
 
 export function canActOnHandoverReview(
   status: string,
@@ -51,7 +76,7 @@ export default function OmHandoverJeApprovalBar({
 
   if (isContractorUser(user?.roles)) return null;
 
-  const reviewRows = handovers.filter((h) => isHandoverAwaitingReview(String(h.status ?? '')));
+  const reviewRows = filterHandoversForReviewer(handovers, user?.roles, user?.email);
   if (!reviewRows.length) return null;
 
   const act = async (id: string, action: 'approve' | 'reject') => {
@@ -74,6 +99,7 @@ export default function OmHandoverJeApprovalBar({
       {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>{error}</Alert>}
       {reviewRows.map((h) => {
         const status = String(h.status ?? '');
+        const stepLabel = REVIEWER_STEP_LABEL[status] ?? 'Department';
         const canAct = canActOnHandoverReview(status, user?.roles, user?.email);
         return (
           <Box
@@ -88,7 +114,7 @@ export default function OmHandoverJeApprovalBar({
             }}
           >
             <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: '#b45309', mb: 0.5 }}>
-              JE / Department — Approve Handover
+              {stepLabel} — Approve Handover
             </Typography>
             <Typography fontWeight={700} component="span">
               {String(h.schemeName ?? 'Handover')}

@@ -18,11 +18,12 @@ import {
   type HandoverFormState,
 } from '../../constants/omHandover';
 import OmHandoverDocuments from './OmHandoverDocuments';
-import { canActOnHandoverReview, isHandoverAwaitingReview } from './OmHandoverJeApprovalBar';
+import { canActOnHandoverReview, handoverStatusesForUser } from './OmHandoverJeApprovalBar';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
 import { useAuth } from '../../context/AuthContext';
 import { isContractorUser } from '../../utils/operationalAccess';
+import { useCanViewAllDivisions } from '../../utils/divisionAccess';
 
 type ProjectOption = { id: string; name: string; projectCode: string };
 
@@ -93,6 +94,7 @@ interface Props {
 
 export default function OmHandoverStage({ handovers, onRefresh, contractorView = false }: Props) {
   const { user } = useAuth();
+  const canViewAllDivisions = useCanViewAllDivisions();
   const canInitiateHandover = isContractorUser(user?.roles);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
@@ -302,20 +304,25 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
     !contractorView
     && detail
     && isSubmittedForApproval
-    && user?.roles?.length
-    && !isContractorUser(user?.roles),
-  );
-  const needsDeptReview = !contractorView && isSubmittedForApproval;
-  const wrongReviewerSession = needsDeptReview
-    && !canApproveHandover(
-      { id: '', schemeName: '', status: handoverStatus },
+    && !isContractorUser(user?.roles)
+    && canApproveHandover(
+      { id: String(detail.id ?? ''), schemeName: String(detail.schemeName ?? ''), status: handoverStatus },
       user?.roles,
       user?.email,
-    );
-  const hasGeneratedOutputs = Boolean(outputs) || Boolean(detail?.handoverCertificateUrl);
+    ),
+  );
+  const isFieldHandoverReviewer = Boolean(
+    !contractorView
+    && !isContractorUser(user?.roles)
+    && handoverStatusesForUser(user?.roles, user?.email).length > 0
+    && !user?.roles?.includes('super_admin'),
+  );
+  const isDeptApprovalView = Boolean(isFieldHandoverReviewer && canApproveDetail);
+  const showEditableHandoverForm = contractorView || (canViewAllDivisions && !isFieldHandoverReviewer);
   const docsReadyForHandoverApprove = docSummary.requiredTotal > 0
     ? docSummary.requiredPending === 0 && docSummary.requiredApproved === docSummary.requiredTotal
     : true;
+  const hasGeneratedOutputs = Boolean(outputs) || Boolean(detail?.handoverCertificateUrl);
 
   return (
     <>
@@ -342,7 +349,7 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
 
       {!contractorView && handovers.some((h) => canApproveHandover(h, user?.roles, user?.email)) && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Handover submissions awaiting your approval are listed below. You can also approve from Workflow Center → Inbox.
+          Handover submissions awaiting your approval are listed below.
         </Alert>
       )}
 
@@ -402,9 +409,9 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                 {handovers.map((h) => {
                   const vp = h.verificationProgress;
                   const allVerified = vp?.pct === 100;
-                  const showApprove = !contractorView && isHandoverAwaitingReview(String(h.status));
                   const canAct = canApproveHandover(h, user?.roles, user?.email);
-                  const highlightRow = showApprove && String(h.status) === 'je_review';
+                  const showApprove = !contractorView && canAct;
+                  const highlightRow = showApprove;
                   return (
                     <TableRow
                       key={String(h.id)}
@@ -494,10 +501,12 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
               }}
             >
               <Typography sx={{ fontWeight: 800, fontSize: '1rem', mb: 1, color: '#047857' }}>
-                Step 2 — Approve Handover ({HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus})
+                {isDeptApprovalView ? 'Your approval step' : 'Step 2 — Approve Handover'} ({HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus})
               </Typography>
               <Typography variant="body2" sx={{ mb: 1.5 }}>
-                Documents are checked. Click the green button to send to the next approver.
+                {isDeptApprovalView
+                  ? 'Review documents below, then approve to forward to the next department level.'
+                  : 'Documents are checked. Click the green button to send to the next approver.'}
               </Typography>
               <Box display="flex" flexWrap="wrap" gap={1}>
                 <Button
@@ -527,14 +536,6 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
                 </Typography>
               )}
             </Box>
-          )}
-
-          {wrongReviewerSession && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              This handover is in <strong>{HANDOVER_STATUS_LABELS[handoverStatus] ?? handoverStatus}</strong>.
-              Your login roles: <strong>{user?.roles?.join(', ') || 'none'}</strong>.
-              {' '}For JE step use <strong>geospatialprp@gmail.com</strong>, logout, login again, then hard refresh (Ctrl+Shift+R).
-            </Alert>
           )}
 
           {isSubmittedForApproval && canApproveDetail && !contractorView && (
@@ -567,6 +568,21 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
             </Alert>
           )}
 
+          {isDeptApprovalView && (
+            <Box sx={{ mb: 2, p: 2, bgcolor: '#f8fafc', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>Scheme summary</Typography>
+              <Typography variant="body2"><strong>Scheme:</strong> {form.schemeName || '—'}</Typography>
+              <Typography variant="body2"><strong>Agency:</strong> {form.omAgencyName || form.omAgencyType || '—'}</Typography>
+              {selectedProject && (
+                <Typography variant="body2">
+                  <strong>Project:</strong> {selectedProject.projectCode} — {selectedProject.name}
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {showEditableHandoverForm && (
+            <>
           <Typography variant="subtitle2" fontWeight={700} gutterBottom>1. Link Commissioned Project</Typography>
           <Grid container spacing={2} mb={2}>
             <Grid item xs={12} sm={6}>
@@ -607,6 +623,8 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
               Linked project: {selectedProject.projectCode} — {selectedProject.name}
             </Typography>
           )}
+            </>
+          )}
 
           <OmHandoverDocuments
             handoverId={editingId}
@@ -631,6 +649,8 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
             }}
           />
 
+          {showEditableHandoverForm && (
+            <>
           <Typography variant="subtitle2" fontWeight={700} gutterBottom>
             2. Verify Completion Documents
           </Typography>
@@ -720,6 +740,8 @@ export default function OmHandoverStage({ handovers, onRefresh, contractorView =
             <Typography variant="body2" color="text.secondary" mb={1}>
               Complete all verifications and assign agency, then generate certificate, O&M responsibility matrix, and asset registers.
             </Typography>
+          )}
+            </>
           )}
 
           {canApproveDetail && editingId && (

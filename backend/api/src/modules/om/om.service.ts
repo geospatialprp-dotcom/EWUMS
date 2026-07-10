@@ -590,7 +590,9 @@ export class OmService {
   private async loadHandoversForReviewer(user: JwtPayload, tenantId: string): Promise<OmHandover[]> {
     const roles = user.roles ?? [];
     const statuses: string[] = [];
-    if (roles.includes('je')) statuses.push('je_review');
+    if (roles.includes('je') || user.email?.toLowerCase() === 'geospatialprp@gmail.com') {
+      statuses.push('je_review');
+    }
     if (roles.includes('ae')) statuses.push('ae_review');
     if (roles.includes('ee')) statuses.push('ee_review');
     if (!statuses.length) return [];

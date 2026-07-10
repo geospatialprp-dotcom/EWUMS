@@ -14,6 +14,14 @@ FROM users u
 WHERE u.email = 'geospatialprp@gmail.com'
 ON CONFLICT DO NOTHING;
 
+-- JE demo account must not inherit HQ / EE / super_admin roles (hides division switcher + wrong handover steps).
+DELETE FROM user_roles ur
+USING users u, roles r
+WHERE ur.user_id = u.id
+  AND ur.role_id = r.id
+  AND u.email = 'geospatialprp@gmail.com'
+  AND r.code NOT IN ('je');
+
 INSERT INTO user_division_assignments (user_id, division_id)
 SELECT u.id, 'd1000000-0000-0000-0000-000000000010'
 FROM users u

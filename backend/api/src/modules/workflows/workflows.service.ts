@@ -18,6 +18,8 @@ import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { DivisionAccessService } from '../divisions/division-access.service';
 import { AlertNotificationService } from '../om/alert-notification.service';
 
+const KPG_JE_DEMO_EMAIL = 'geospatialprp@gmail.com';
+
 @Injectable()
 export class WorkflowsService {
   private readonly logger = new Logger(WorkflowsService.name);
@@ -51,7 +53,7 @@ export class WorkflowsService {
     try {
       if (!(await this.workflowTablesExist())) return [];
 
-      const roles = user.roles ?? [];
+      const roles = this.effectiveWorkflowRoles(user);
       const canViewAll = await this.divisionAccess.canViewAllDivisions(user);
       if (!canViewAll && roles.length === 0) return [];
 
@@ -250,7 +252,7 @@ export class WorkflowsService {
     auditContext?: AuditContext,
   ) {
     const userId = user.sub;
-    const roles = user.roles ?? [];
+    const roles = this.effectiveWorkflowRoles(user);
     const task = await this.tasksRepo.findOne({
       where: { id: taskId },
       relations: ['instance'],
@@ -264,10 +266,10 @@ export class WorkflowsService {
     if (isSuperAdmin(roles)) {
       throw new ForbiddenException('Super Admin cannot act on workflow tasks. Use an HQ or division account.');
     }
-    if (!this.isRoleMatchedOmHandoverTask(task, roles)) {
+    if (!this.isRoleMatchedOmHandoverTask(task, user)) {
       await this.assertInstanceDivisionAccess(user, tenantId, task.instance);
     }
-    if (!roles.includes(task.assignedRole)) {
+    if (!this.userCanActOnWorkflowTask(user, task)) {
       throw new BadRequestException('You are not authorized to act on this task');
     }
 
@@ -353,8 +355,23 @@ export class WorkflowsService {
     }
   }
 
+  /** Karanprayag demo JE may lack je in JWT; treat as JE for om_handover workflow only. */
+  private effectiveWorkflowRoles(user: JwtPayload): string[] {
+    const roles = [...(user.roles ?? [])];
+    if (user.email?.toLowerCase() === KPG_JE_DEMO_EMAIL && !roles.includes('je')) {
+      roles.push('je');
+    }
+    return roles;
+  }
+
+  private userCanActOnWorkflowTask(user: JwtPayload, task: WorkflowTask): boolean {
+    const roles = this.effectiveWorkflowRoles(user);
+    return Boolean(task.assignedRole && roles.includes(task.assignedRole));
+  }
+
   /** O&M handover tasks are routed by assigned role (JE/AE/EE), not division scope. */
-  private isRoleMatchedOmHandoverTask(task: WorkflowTask, roles: string[]): boolean {
+  private isRoleMatchedOmHandoverTask(task: WorkflowTask, user: JwtPayload): boolean {
+    const roles = this.effectiveWorkflowRoles(user);
     return (
       task.instance?.resourceType === 'om_handover'
       && Boolean(task.assignedRole)
@@ -487,13 +504,12 @@ export class WorkflowsService {
     try {
       const divisionIds = await this.divisionAccess.getAccessibleDivisionIds(user, tenantId);
       if (divisionIds === null) return tasks;
-      const roles = user.roles ?? [];
       if (divisionIds.length === 0) {
-        return tasks.filter((task) => this.isRoleMatchedOmHandoverTask(task, roles));
+        return tasks.filter((task) => this.isRoleMatchedOmHandoverTask(task, user));
       }
       const filtered: WorkflowTask[] = [];
       for (const task of tasks) {
-        if (this.isRoleMatchedOmHandoverTask(task, roles)) {
+        if (this.isRoleMatchedOmHandoverTask(task, user)) {
           filtered.push(task);
           continue;
         }

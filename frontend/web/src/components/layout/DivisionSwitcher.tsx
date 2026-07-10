@@ -6,6 +6,14 @@ import { useDivisionScope } from '../../context/DivisionContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 
+const FIELD_DIVISION_ROLES = new Set(['je', 'ae', 'ee', 'accounts', 'contractor', 'gis_operator', 'field_engineer']);
+
+function isFieldDivisionUser(roles?: string[]): boolean {
+  if (!roles?.length) return false;
+  if (roles.includes('super_admin')) return false;
+  return roles.some((r) => FIELD_DIVISION_ROLES.has(r));
+}
+
 export default function DivisionSwitcher() {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -15,7 +23,9 @@ export default function DivisionSwitcher() {
 
   if (!user) return null;
 
-  if (!canSwitchDivision) {
+  const showDivisionPicker = canSwitchDivision && !isFieldDivisionUser(user.roles);
+
+  if (!showDivisionPicker) {
     if (!user.divisionName) return null;
     return (
       <Box
