@@ -825,7 +825,7 @@ export const omApi = {
     projectCode?: string;
     status?: string;
     requestType?: string;
-  }) => api.get('/om/consumers/service-requests', { params }),
+  }) => api.get('/om/consumer-service-requests', { params }),
   getConsumer: (id: string) => api.get(`/om/consumers/${id}`),
   registerConsumer: (data: object) => api.post('/om/consumers', data),
   listConsumerServiceRequests: (consumerId: string, status?: string) =>

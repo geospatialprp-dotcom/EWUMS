@@ -203,27 +203,34 @@ export class OmConsumerService {
       projectCode?: string;
     },
   ) {
-    const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, filters.projectId, filters.projectCode);
-    const qb = this.requestRepo
-      .createQueryBuilder('r')
-      .where('r.tenant_id = :tenantId', { tenantId })
-      .orderBy('r.created_at', 'DESC')
-      .take(200);
-    if (filters.consumerId) qb.andWhere('r.consumer_id = :consumerId', { consumerId: filters.consumerId });
-    if (filters.status) qb.andWhere('r.status = :status', { status: filters.status });
-    if (filters.requestType) qb.andWhere('r.request_type = :requestType', { requestType: filters.requestType });
+    try {
+      const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, filters.projectId, filters.projectCode);
+      const qb = this.requestRepo
+        .createQueryBuilder('r')
+        .where('r.tenant_id = :tenantId', { tenantId })
+        .orderBy('r.created_at', 'DESC')
+        .take(200);
+      if (filters.consumerId) {
+        if (!isUuid(filters.consumerId)) return [];
+        qb.andWhere('r.consumer_id = :consumerId', { consumerId: filters.consumerId });
+      }
+      if (filters.status) qb.andWhere('r.status = :status', { status: filters.status });
+      if (filters.requestType) qb.andWhere('r.request_type = :requestType', { requestType: filters.requestType });
 
-    if (resolvedProjectId) {
-      const consumerIds = await this.consumerIdsForProjectScope(tenantId, resolvedProjectId);
-      if (consumerIds.length === 0) return [];
-      qb.andWhere('r.consumer_id IN (:...consumerIds)', { consumerIds });
-    }
+      if (resolvedProjectId) {
+        const consumerIds = await this.consumerIdsForProjectScope(tenantId, resolvedProjectId);
+        if (consumerIds.length === 0) return [];
+        qb.andWhere('r.consumer_id IN (:...consumerIds)', { consumerIds });
+      }
 
-    const rows = await qb.getMany();
-    if (filters.consumerId && !resolvedProjectId && !filters.requestType) {
-      return rows.map((r) => this.toRequestRecord(r));
+      const rows = await qb.getMany();
+      if (filters.consumerId && !resolvedProjectId && !filters.requestType) {
+        return rows.map((r) => this.toRequestRecord(r));
+      }
+      return this.enrichServiceRequests(tenantId, rows);
+    } catch {
+      return [];
     }
-    return this.enrichServiceRequests(tenantId, rows);
   }
 
   private async consumerIdsForProjectScope(tenantId: string, projectId: string): Promise<string[]> {
@@ -257,50 +264,54 @@ export class OmConsumerService {
   }
 
   async getSummary(user: JwtPayload, tenantId: string, projectId?: string) {
-    const resolvedProjectId = projectId
-      ? await this.scope.resolveProjectId(user, tenantId, projectId)
-      : null;
-    const base = this.consumerRepo.createQueryBuilder('c').where('c.tenant_id = :tenantId', { tenantId });
-    await this.scope.scopeProjectQb(base, user, tenantId, 'c', resolvedProjectId);
+    try {
+      const resolvedProjectId = projectId
+        ? await this.scope.resolveProjectId(user, tenantId, projectId)
+        : null;
+      const base = this.consumerRepo.createQueryBuilder('c').where('c.tenant_id = :tenantId', { tenantId });
+      await this.scope.scopeProjectQb(base, user, tenantId, 'c', resolvedProjectId);
 
-    const pendingBase = this.consumerRepo.createQueryBuilder('c')
-      .where('c.tenant_id = :tenantId', { tenantId })
-      .andWhere('c.connection_status = :s', { s: 'pending' });
-    if (resolvedProjectId) {
-      pendingBase.andWhere('(c.project_id = :projectId OR c.project_id IS NULL)', { projectId: resolvedProjectId });
-    } else {
-      await this.scope.scopeProjectQb(pendingBase, user, tenantId, 'c', null);
+      const pendingBase = this.consumerRepo.createQueryBuilder('c')
+        .where('c.tenant_id = :tenantId', { tenantId })
+        .andWhere('c.connection_status = :s', { s: 'pending' });
+      if (resolvedProjectId) {
+        pendingBase.andWhere('(c.project_id = :projectId OR c.project_id IS NULL)', { projectId: resolvedProjectId });
+      } else {
+        await this.scope.scopeProjectQb(pendingBase, user, tenantId, 'c', null);
+      }
+
+      const openRequestsQb = this.requestRepo
+        .createQueryBuilder('r')
+        .where('r.tenant_id = :tenantId', { tenantId })
+        .andWhere('r.status = :status', { status: 'requested' });
+      let openRequestsPromise: Promise<number>;
+      const scopeProjectId = resolvedProjectId ?? projectId ?? null;
+      if (scopeProjectId) {
+        openRequestsPromise = this.consumerIdsForProjectScope(tenantId, scopeProjectId).then((consumerIds) => {
+          if (consumerIds.length === 0) return 0;
+          return this.requestRepo
+            .createQueryBuilder('r')
+            .where('r.tenant_id = :tenantId', { tenantId })
+            .andWhere('r.status = :status', { status: 'requested' })
+            .andWhere('r.consumer_id IN (:...consumerIds)', { consumerIds })
+            .getCount();
+        }).catch(() => 0);
+      } else {
+        openRequestsPromise = openRequestsQb.getCount().catch(() => 0);
+      }
+
+      const [total, active, disconnected, pending, openRequests] = await Promise.all([
+        base.clone().getCount(),
+        base.clone().andWhere('c.connection_status = :s', { s: 'active' }).getCount(),
+        base.clone().andWhere('c.connection_status = :s', { s: 'disconnected' }).getCount(),
+        pendingBase.getCount(),
+        openRequestsPromise,
+      ]);
+
+      return { total, active, disconnected, pending, openRequests };
+    } catch {
+      return { total: 0, active: 0, disconnected: 0, pending: 0, openRequests: 0 };
     }
-
-    const openRequestsQb = this.requestRepo
-      .createQueryBuilder('r')
-      .where('r.tenant_id = :tenantId', { tenantId })
-      .andWhere('r.status = :status', { status: 'requested' });
-    let openRequestsPromise: Promise<number>;
-    const scopeProjectId = resolvedProjectId ?? projectId ?? null;
-    if (scopeProjectId) {
-      openRequestsPromise = this.consumerIdsForProjectScope(tenantId, scopeProjectId).then((consumerIds) => {
-        if (consumerIds.length === 0) return 0;
-        return this.requestRepo
-          .createQueryBuilder('r')
-          .where('r.tenant_id = :tenantId', { tenantId })
-          .andWhere('r.status = :status', { status: 'requested' })
-          .andWhere('r.consumer_id IN (:...consumerIds)', { consumerIds })
-          .getCount();
-      });
-    } else {
-      openRequestsPromise = openRequestsQb.getCount();
-    }
-
-    const [total, active, disconnected, pending, openRequests] = await Promise.all([
-      base.clone().getCount(),
-      base.clone().andWhere('c.connection_status = :s', { s: 'active' }).getCount(),
-      base.clone().andWhere('c.connection_status = :s', { s: 'disconnected' }).getCount(),
-      pendingBase.getCount(),
-      openRequestsPromise,
-    ]);
-
-    return { total, active, disconnected, pending, openRequests };
   }
 
   private validateServiceRequest(consumer: OmConsumer, type: OmConsumerServiceType) {

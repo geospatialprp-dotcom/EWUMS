@@ -64,7 +64,12 @@ type ProjectOption = { id: string; name: string; projectCode: string };
 function getApiError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
     const msg = err.response?.data?.message;
-    if (typeof msg === 'string') return msg;
+    if (typeof msg === 'string') {
+      if (/internal server error/i.test(msg)) {
+        return 'Server could not load this section. Redeploy API/web on VPS, then refresh.';
+      }
+      return msg;
+    }
     if (Array.isArray(msg)) return msg.join(', ');
   }
   return fallback;
@@ -137,11 +142,8 @@ export default function OmConsumerServiceStage() {
           setError(getApiError(listRes.reason, 'Failed to load consumers'));
           return;
         }
-        // Open-request inbox is optional; stale APIs may 500 if route is missing.
-        if (openRes.status === 'rejected') {
-          const msg = getApiError(openRes.reason, 'Failed to load open service requests');
-          if (!/internal server error/i.test(msg)) setError(msg);
-        } else if (sumRes.status === 'rejected') {
+        // Inbox is optional — never block Consumer Database on this call.
+        if (sumRes.status === 'rejected') {
           setError(getApiError(sumRes.reason, 'Failed to load consumer summary'));
         }
       })

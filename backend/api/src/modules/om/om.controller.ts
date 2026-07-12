@@ -704,9 +704,27 @@ export class OmController {
     });
   }
 
-  @Get('consumers/service-requests')
+  @Get('consumer-service-requests')
   @RequirePermissions('om:read')
   @ApiOperation({ summary: 'Stage 9 — List service requests (inbox)' })
+  listServiceRequestsInbox(
+    @CurrentUser() user: JwtPayload,
+    @Query('projectId') projectId?: string,
+    @Query('projectCode') projectCode?: string,
+    @Query('status') status?: string,
+    @Query('requestType') requestType?: string,
+  ) {
+    return this.omConsumerService.listServiceRequests(user, user.tenantId, {
+      projectId,
+      projectCode,
+      status: status ?? 'requested',
+      requestType,
+    });
+  }
+
+  @Get('consumers/service-requests')
+  @RequirePermissions('om:read')
+  @ApiOperation({ summary: 'Stage 9 — List service requests (inbox, legacy path)' })
   listServiceRequests(
     @CurrentUser() user: JwtPayload,
     @Query('projectId') projectId?: string,
