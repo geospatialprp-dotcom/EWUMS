@@ -131,9 +131,18 @@ export default function OmConsumerServiceStage() {
         if (listRes.status === 'fulfilled') setRows(listRes.value.data ?? []);
         if (sumRes.status === 'fulfilled') setSummary(sumRes.value.data ?? {});
         if (openRes.status === 'fulfilled') setOpenRequests(openRes.value.data ?? []);
-        const failed = results.find((r) => r.status === 'rejected');
-        if (failed && failed.status === 'rejected') {
-          setError(getApiError(failed.reason, 'Failed to load consumer service data'));
+        else setOpenRequests([]);
+
+        if (listRes.status === 'rejected') {
+          setError(getApiError(listRes.reason, 'Failed to load consumers'));
+          return;
+        }
+        // Open-request inbox is optional; stale APIs may 500 if route is missing.
+        if (openRes.status === 'rejected') {
+          const msg = getApiError(openRes.reason, 'Failed to load open service requests');
+          if (!/internal server error/i.test(msg)) setError(msg);
+        } else if (sumRes.status === 'rejected') {
+          setError(getApiError(sumRes.reason, 'Failed to load consumer summary'));
         }
       })
       .catch((err) => setError(getApiError(err, 'Failed to load consumers')))

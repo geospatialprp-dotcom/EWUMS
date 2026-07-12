@@ -15,6 +15,10 @@ import { CreateConsumerServiceRequestDto, CreateOmConsumerDto } from './dto/crea
 import { OmConsumerServiceRequest } from './entities/om-consumer-service-request.entity';
 import { OmConsumer } from './entities/om-consumer.entity';
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 @Injectable()
 export class OmConsumerService {
   constructor(
@@ -53,6 +57,7 @@ export class OmConsumerService {
   }
 
   async getConsumer(user: JwtPayload, tenantId: string, id: string) {
+    if (!isUuid(id)) throw new BadRequestException('Invalid consumer id');
     const row = await this.consumerRepo.findOne({ where: { id, tenantId } });
     if (!row) throw new NotFoundException('Consumer not found');
     if (user.portalType !== 'consumer') {
@@ -114,6 +119,7 @@ export class OmConsumerService {
     consumerId: string,
     dto: CreateConsumerServiceRequestDto,
   ) {
+    if (!isUuid(consumerId)) throw new BadRequestException('Invalid consumer id');
     assertNotSuperAdminForOperations(user, 'consumer service requests');
     const consumer = await this.consumerRepo.findOne({ where: { id: consumerId, tenantId } });
     if (!consumer) throw new NotFoundException('Consumer not found');
