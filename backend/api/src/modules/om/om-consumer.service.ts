@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { assertNotSuperAdminForOperations } from '../../common/utils/operational-access.util';
@@ -37,23 +37,30 @@ export class OmConsumerService {
     tenantId: string,
     filters: { projectId?: string; projectCode?: string; village?: string; status?: string },
   ) {
-    const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, filters.projectId, filters.projectCode);
-    const qb = this.consumerRepo
-      .createQueryBuilder('c')
-      .where('c.tenant_id = :tenantId', { tenantId })
-      .orderBy('c.consumer_code', 'ASC')
-      .take(500);
+    try {
+      const resolvedProjectId = await this.scope.resolveProjectId(user, tenantId, filters.projectId, filters.projectCode);
+      const qb = this.consumerRepo
+        .createQueryBuilder('c')
+        .where('c.tenant_id = :tenantId', { tenantId })
+        .orderBy('c.consumer_code', 'ASC')
+        .take(500);
 
-    if (resolvedProjectId && filters.status === 'pending') {
-      qb.andWhere('(c.project_id = :projectId OR c.project_id IS NULL)', { projectId: resolvedProjectId });
-    } else {
-      await this.scope.scopeProjectQb(qb, user, tenantId, 'c', resolvedProjectId);
+      if (resolvedProjectId && filters.status === 'pending') {
+        qb.andWhere('(c.project_id = :projectId OR c.project_id IS NULL)', { projectId: resolvedProjectId });
+      } else if (resolvedProjectId) {
+        qb.andWhere('(c.project_id = :projectId OR c.project_id IS NULL)', { projectId: resolvedProjectId });
+      } else {
+        await this.scope.scopeProjectQb(qb, user, tenantId, 'c', resolvedProjectId);
+      }
+      if (filters.village?.trim()) qb.andWhere('c.village ILIKE :village', { village: `%${filters.village.trim()}%` });
+      if (filters.status) qb.andWhere('c.connection_status = :status', { status: filters.status });
+
+      const rows = await qb.getMany();
+      return Promise.all(rows.map((r) => this.toConsumerRecord(tenantId, r)));
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      return [];
     }
-    if (filters.village?.trim()) qb.andWhere('c.village ILIKE :village', { village: `%${filters.village.trim()}%` });
-    if (filters.status) qb.andWhere('c.connection_status = :status', { status: filters.status });
-
-    const rows = await qb.getMany();
-    return Promise.all(rows.map((r) => this.toConsumerRecord(tenantId, r)));
   }
 
   async getConsumer(user: JwtPayload, tenantId: string, id: string) {
@@ -309,7 +316,8 @@ export class OmConsumerService {
       ]);
 
       return { total, active, disconnected, pending, openRequests };
-    } catch {
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
       return { total: 0, active: 0, disconnected: 0, pending: 0, openRequests: 0 };
     }
   }
