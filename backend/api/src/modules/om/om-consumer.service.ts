@@ -88,35 +88,71 @@ export class OmConsumerService {
     this.validateCoordinates(dto.latitude, dto.longitude);
 
     const fhtc = dto.fhtcNumber.trim();
+    if (!fhtc) throw new BadRequestException('FHTC number is required');
     const existing = await this.consumerRepo.findOne({ where: { tenantId, fhtcNumber: fhtc } });
     if (existing) throw new BadRequestException('FHTC number already registered');
 
-    const count = await this.consumerRepo.count({ where: { tenantId } });
-    const consumerCode = `CON-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const year = new Date().getFullYear();
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const nextSeq = await this.nextConsumerSequence(tenantId, year);
+      const consumerCode = `CON-${year}-${String(nextSeq + attempt).padStart(5, '0')}`;
+      const record = this.consumerRepo.create({
+        tenantId,
+        createdBy: userId,
+        consumerCode,
+        projectId: resolvedProjectId,
+        fhtcNumber: fhtc,
+        consumerName: dto.consumerName?.trim() ?? null,
+        mobile: dto.mobile?.trim() ?? null,
+        village: dto.village?.trim() ?? null,
+        ward: dto.ward?.trim() ?? null,
+        consumerCategory: dto.consumerCategory ?? null,
+        aadhaarLast4: dto.aadhaarLast4?.trim() ?? null,
+        latitude: dto.latitude ?? null,
+        longitude: dto.longitude ?? null,
+        meterNumber: dto.meterNumber?.trim() ?? null,
+        meterType: dto.meterType?.trim() ?? null,
+        meterInstallDate: dto.meterInstallDate ?? null,
+        connectionStatus: dto.connectionStatus ?? 'active',
+        notes: dto.notes?.trim() ?? null,
+      });
 
-    const record = this.consumerRepo.create({
-      tenantId,
-      createdBy: userId,
-      consumerCode,
-      projectId: resolvedProjectId,
-      fhtcNumber: fhtc,
-      consumerName: dto.consumerName?.trim() ?? null,
-      mobile: dto.mobile?.trim() ?? null,
-      village: dto.village?.trim() ?? null,
-      ward: dto.ward?.trim() ?? null,
-      consumerCategory: dto.consumerCategory ?? null,
-      aadhaarLast4: dto.aadhaarLast4?.trim() ?? null,
-      latitude: dto.latitude ?? null,
-      longitude: dto.longitude ?? null,
-      meterNumber: dto.meterNumber?.trim() ?? null,
-      meterType: dto.meterType?.trim() ?? null,
-      meterInstallDate: dto.meterInstallDate ?? null,
-      connectionStatus: dto.connectionStatus ?? 'active',
-      notes: dto.notes?.trim() ?? null,
-    });
+      try {
+        const saved = await this.consumerRepo.save(record);
+        return this.toConsumerRecord(tenantId, saved);
+      } catch (err) {
+        lastError = err;
+        const code = (err as { code?: string; driverError?: { code?: string } })?.code
+          ?? (err as { driverError?: { code?: string } })?.driverError?.code;
+        // Unique violation on consumer_code — retry with next sequence
+        if (code === '23505') {
+          const msg = String((err as { message?: string })?.message ?? '');
+          if (/fhtc/i.test(msg)) {
+            throw new BadRequestException('FHTC number already registered');
+          }
+          continue;
+        }
+        throw err;
+      }
+    }
 
-    const saved = await this.consumerRepo.save(record);
-    return this.toConsumerRecord(tenantId, saved);
+    throw lastError instanceof Error
+      ? lastError
+      : new BadRequestException('Could not register consumer. Try again.');
+  }
+
+  private async nextConsumerSequence(tenantId: string, year: number): Promise<number> {
+    const latest = await this.consumerRepo
+      .createQueryBuilder('c')
+      .select('c.consumer_code', 'code')
+      .where('c.tenant_id = :tenantId', { tenantId })
+      .andWhere('c.consumer_code LIKE :prefix', { prefix: `CON-${year}-%` })
+      .orderBy('c.consumer_code', 'DESC')
+      .limit(1)
+      .getRawOne<{ code?: string }>();
+    const match = String(latest?.code ?? '').match(/CON-\d{4}-(\d+)$/);
+    return match ? Number(match[1]) + 1 : 1;
   }
 
   async createServiceRequest(
