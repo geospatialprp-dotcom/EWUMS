@@ -24,6 +24,8 @@ import { formatCoordinatePair } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions } from '../../utils/divisionAccess';
 import { useAuth } from '../../context/AuthContext';
 import { isSuperAdmin, SUPER_ADMIN_VIEW_ONLY_MESSAGE } from '../../utils/operationalAccess';
+import FhtcPlotMapPicker, { type FhtcPlotSelection } from '../portal/FhtcPlotMapPicker';
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 
 type ConsumerRow = {
   id: string;
@@ -81,6 +83,8 @@ export default function OmConsumerServiceStage() {
   const [busy, setBusy] = useState(false);
 
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [showPlotMap, setShowPlotMap] = useState(false);
+  const [plotPickMessage, setPlotPickMessage] = useState('');
   const [serviceOpen, setServiceOpen] = useState<ConsumerRow | null>(null);
   const [historyOpen, setHistoryOpen] = useState<ConsumerRow | null>(null);
   const [history, setHistory] = useState<ServiceRequestRow[]>([]);
@@ -149,6 +153,34 @@ export default function OmConsumerServiceStage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const handlePlotSelect = (selection: FhtcPlotSelection) => {
+    setRegisterForm((prev) => ({
+      ...prev,
+      fhtcNumber: selection.fhtcNumber,
+      village: selection.village?.trim() || prev.village,
+      latitude: String(selection.latitude),
+      longitude: String(selection.longitude),
+    }));
+    const detail = selection.khasraNo || selection.houseNo
+      ? [
+          selection.khasraNo ? `Khasra ${selection.khasraNo}` : null,
+          selection.houseNo ? `House ${selection.houseNo}` : null,
+        ].filter(Boolean).join(' · ')
+      : null;
+    setPlotPickMessage(
+      selection.message
+        ?? (detail
+          ? `${detail} → FHTC ${selection.fhtcNumber}`
+          : `Household ${selection.fhtcNumber} selected at this rooftop`),
+    );
+  };
+
+  const closeRegisterDialog = () => {
+    setRegisterOpen(false);
+    setShowPlotMap(false);
+    setPlotPickMessage('');
+  };
+
   const handleRegister = () => {
     if (!registerForm.fhtcNumber.trim()) {
       setError('FHTC number is required');
@@ -168,7 +200,7 @@ export default function OmConsumerServiceStage() {
       connectionStatus: registerForm.connectionStatus,
     })
       .then(() => {
-        setRegisterOpen(false);
+        closeRegisterDialog();
         setRegisterForm({
           fhtcNumber: '', consumerName: '', mobile: '', village: '',
           latitude: '', longitude: '', meterNumber: '', meterType: '', connectionStatus: 'active',
@@ -338,7 +370,16 @@ export default function OmConsumerServiceStage() {
                 </Select>
               </FormControl>
               {!superAdminViewOnly && (
-                <Button variant="contained" size="small" startIcon={<AddOutlinedIcon />} onClick={() => setRegisterOpen(true)}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddOutlinedIcon />}
+                  onClick={() => {
+                    setShowPlotMap(false);
+                    setPlotPickMessage('');
+                    setRegisterOpen(true);
+                  }}
+                >
                   Register Consumer
                 </Button>
               )}
@@ -400,11 +441,43 @@ export default function OmConsumerServiceStage() {
         )}
       </SurfaceCard>
 
-      <Dialog open={registerOpen} onClose={() => setRegisterOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: omDialogPaperSx }}>
+      <Dialog
+        open={registerOpen}
+        onClose={() => { if (!busy) closeRegisterDialog(); }}
+        maxWidth={showPlotMap ? 'md' : 'sm'}
+        fullWidth
+        PaperProps={{ sx: omDialogPaperSx }}
+      >
         <OmDialogHeader stage={9} title="Register Consumer / FHTC" busy={busy} />
         <DialogContent sx={omDialogContentSx}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Open satellite map, tap the household rooftop — Khasra / House number fills FHTC (same as consumer portal). Or type FHTC manually.
+          </Typography>
           <TextField fullWidth label="FHTC Number" margin="dense" required
-            value={registerForm.fhtcNumber} onChange={(e) => setRegisterForm({ ...registerForm, fhtcNumber: e.target.value })} />
+            value={registerForm.fhtcNumber} onChange={(e) => setRegisterForm({ ...registerForm, fhtcNumber: e.target.value })}
+            placeholder="e.g. from map or FHTC-KPG-HH-0001" />
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<MapOutlinedIcon />}
+            onClick={() => {
+              setShowPlotMap((open) => !open);
+              setPlotPickMessage('');
+            }}
+            sx={{ textTransform: 'none', fontWeight: 600, mb: 0.5 }}
+          >
+            {showPlotMap ? 'Hide map' : 'Pick plot on map'}
+          </Button>
+          {plotPickMessage && (
+            <Alert severity="success" sx={{ mb: 1, py: 0.25 }}>
+              {plotPickMessage}
+            </Alert>
+          )}
+          <FhtcPlotMapPicker
+            open={showPlotMap}
+            projectCode={selectedProject?.projectCode}
+            onSelect={handlePlotSelect}
+          />
           <TextField fullWidth label="Consumer Name" margin="dense"
             value={registerForm.consumerName} onChange={(e) => setRegisterForm({ ...registerForm, consumerName: e.target.value })} />
           <TextField fullWidth label="Mobile Number" margin="dense"
@@ -421,6 +494,11 @@ export default function OmConsumerServiceStage() {
                 value={registerForm.longitude} onChange={(e) => setRegisterForm({ ...registerForm, longitude: e.target.value })} />
             </Grid>
           </Grid>
+          {(registerForm.latitude || registerForm.longitude) && (
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+              Map point: {formatCoordinatePair(registerForm.latitude, registerForm.longitude) || '—'}
+            </Typography>
+          )}
           <TextField fullWidth label="Meter Number" margin="dense"
             value={registerForm.meterNumber} onChange={(e) => setRegisterForm({ ...registerForm, meterNumber: e.target.value })} />
           <TextField fullWidth label="Meter Type" margin="dense"
@@ -436,7 +514,7 @@ export default function OmConsumerServiceStage() {
           </FormControl>
         </DialogContent>
         <DialogActions sx={omDialogActionsSx}>
-          <Button onClick={() => setRegisterOpen(false)}>Cancel</Button>
+          <Button onClick={closeRegisterDialog} disabled={busy}>Cancel</Button>
           <Button variant="contained" onClick={handleRegister} disabled={busy}>Register</Button>
         </DialogActions>
       </Dialog>
