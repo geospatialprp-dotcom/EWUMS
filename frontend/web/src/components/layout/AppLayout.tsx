@@ -360,7 +360,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                           letterSpacing: '0.06em',
                           textTransform: 'uppercase',
                           lineHeight: 1.1,
-                          fontSize: { sm: '0.5625rem', md: '0.625rem' },
+                          fontSize: { sm: '0.5rem', md: '0.5625rem' },
                         }}
                       >
                         {userCaption}
@@ -373,9 +373,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                         sx={{
                           color: '#0f172a',
                           fontWeight: 700,
-                          lineHeight: 1.25,
-                          mt: userCaption ? 0.15 : 0,
-                          fontSize: { sm: '0.75rem', md: '0.8125rem', lg: '0.875rem' },
+                          lineHeight: 1.2,
+                          mt: userCaption ? 0.1 : 0,
+                          fontSize: { sm: '0.6875rem', md: '0.75rem', lg: '0.8125rem' },
                         }}
                       >
                         {userProfileName}

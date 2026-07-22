@@ -47,14 +47,14 @@ export default function DepartmentLogoMenu() {
         aria-expanded={open ? 'true' : undefined}
         sx={appDepartmentSwitcherSx(open)}
       >
-        <DepartmentLogo department={department} size={isCompact ? 40 : 50} badge />
+        <DepartmentLogo department={department} size={isCompact ? 32 : 34} badge />
 
         <Box
           sx={{
             display: { xs: 'none', md: 'block' },
             textAlign: 'left',
             minWidth: 0,
-            maxWidth: 200,
+            maxWidth: 72,
           }}
         >
           <Typography
@@ -63,10 +63,10 @@ export default function DepartmentLogoMenu() {
               display: 'block',
               color: '#64748b',
               fontWeight: 700,
-              letterSpacing: '0.06em',
+              letterSpacing: '0.05em',
               textTransform: 'uppercase',
-              lineHeight: 1.1,
-              fontSize: '0.625rem',
+              lineHeight: 1.05,
+              fontSize: '0.5rem',
             }}
           >
             Department
@@ -74,7 +74,7 @@ export default function DepartmentLogoMenu() {
           <Typography
             variant="body2"
             noWrap
-            sx={{ color: '#0f172a', fontWeight: 700, lineHeight: 1.25, mt: 0.15 }}
+            sx={{ color: '#0f172a', fontWeight: 700, lineHeight: 1.2, mt: 0.1, fontSize: '0.75rem' }}
           >
             {department.shortName}
           </Typography>
@@ -82,7 +82,7 @@ export default function DepartmentLogoMenu() {
 
         <KeyboardArrowDownIcon
           sx={{
-            fontSize: 20,
+            fontSize: 16,
             color: open ? '#2563eb' : '#64748b',
             transition: 'transform 0.2s ease',
             transform: open ? 'rotate(180deg)' : 'none',

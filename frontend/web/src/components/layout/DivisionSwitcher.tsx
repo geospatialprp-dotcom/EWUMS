@@ -24,7 +24,7 @@ export default function DivisionSwitcher() {
         gap={0.5}
         sx={{
           minWidth: { xs: 88, sm: 100 },
-          maxWidth: { xs: 120, sm: 160, md: 180 },
+          maxWidth: { xs: 100, sm: 130, md: 148 },
           flexShrink: 0,
           mr: { xs: 0.25, sm: 0.5 },
         }}
@@ -50,8 +50,8 @@ export default function DivisionSwitcher() {
     <FormControl
       size="small"
       sx={{
-        minWidth: { xs: 88, sm: 120, md: 200 },
-        maxWidth: { xs: 120, sm: 180, md: 220 },
+        minWidth: { xs: 88, sm: 110, md: 140 },
+        maxWidth: { xs: 110, sm: 150, md: 168 },
         flexShrink: 0,
         mr: { xs: 0.25, sm: 0.5 },
       }}

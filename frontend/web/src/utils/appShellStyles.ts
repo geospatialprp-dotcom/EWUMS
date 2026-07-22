@@ -377,9 +377,9 @@ export function appBarUserNameSx() {
     flexShrink: 1,
     textAlign: 'right',
     minWidth: 0,
-    maxWidth: { sm: 96, md: 120, lg: 156, xl: 200 },
-    px: { sm: 0.75, md: 1, lg: 1.25 },
-    py: 0.25,
+    maxWidth: { sm: 80, md: 100, lg: 128, xl: 148 },
+    px: { sm: 0.5, md: 0.75, lg: 1 },
+    py: 0.15,
     borderRight: '1px solid',
     borderColor: '#e2e8f0',
     overflow: 'hidden',
@@ -402,10 +402,11 @@ export function appDepartmentSwitcherSx(open: boolean) {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: 1.25,
-    pl: 0.75,
-    pr: 1.25,
-    py: 0.75,
+    gap: 0.75,
+    pl: 0.5,
+    pr: 0.75,
+    py: 0.35,
+    maxWidth: { md: 132, lg: 148 },
     borderRadius: 999,
     border: '1px solid',
     borderColor: open ? '#93c5fd' : '#e2e8f0',
@@ -414,11 +415,11 @@ export function appDepartmentSwitcherSx(open: boolean) {
     transition: 'all 0.18s ease',
     boxShadow: open
       ? '0 0 0 3px rgba(37, 99, 235, 0.12)'
-      : '0 2px 8px rgba(15, 23, 42, 0.06)',
+      : '0 1px 4px rgba(15, 23, 42, 0.05)',
     '&:hover': {
       bgcolor: '#eff6ff',
       borderColor: '#93c5fd',
-      boxShadow: '0 4px 14px rgba(37, 99, 235, 0.12)',
+      boxShadow: '0 2px 8px rgba(37, 99, 235, 0.1)',
     },
   };
 }
