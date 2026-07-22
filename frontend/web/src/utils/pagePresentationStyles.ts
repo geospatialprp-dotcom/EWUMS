@@ -1,3 +1,4 @@
+﻿import { APP_TOOLBAR_MIN_HEIGHT } from '../constants/layout';
 export type PageAccent =
   | 'blue'
   | 'teal'
@@ -17,13 +18,25 @@ const ACCENTS: Record<PageAccent, { bar: string; label: string; title: string }>
   amber: { bar: '#d97706', label: '#64748b', title: '#0f172a' },
 };
 
+
 export function pageShellSx(fullHeight = false) {
   return {
     p: { xs: 1.5, sm: 2, md: 3 },
-    bgcolor: '#f1f5f9',
+    /** Space for mobile bottom nav + safe area */
+    pb: { xs: 'calc(80px + env(safe-area-inset-bottom))', md: 3 },
+    bgcolor: '#F4F6F9',
     minWidth: 0,
-    minHeight: fullHeight ? { xs: 'calc(100vh - 56px)', sm: 'calc(100vh - 68px)' } : undefined,
-    overflow: fullHeight ? 'auto' : undefined,
+    maxWidth: '100%',
+    overflowX: 'hidden' as const,
+    ...(fullHeight
+      ? {
+          minHeight: {
+            xs: `calc(100vh - ${APP_TOOLBAR_MIN_HEIGHT.xs}px)`,
+            sm: `calc(100vh - ${APP_TOOLBAR_MIN_HEIGHT.sm}px)`,
+          },
+          overflow: 'auto' as const,
+        }
+      : {}),
   };
 }
 
@@ -71,7 +84,7 @@ export function surfaceCardSx() {
 
 export function surfaceCardHeaderSx() {
   return {
-    background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #334155 100%)',
+    background: 'linear-gradient(135deg, #0A3559 0%, #0F4C81 55%, #0F766E 100%)',
     color: '#f8fafc',
     px: 2.5,
     py: 1.75,
@@ -88,6 +101,7 @@ export function dataTableSx() {
     border: '1px solid #e2e8f0',
     borderRadius: 2,
     overflow: 'auto',
+    maxWidth: '100%',
     bgcolor: '#ffffff',
     WebkitOverflowScrolling: 'touch',
     '& .MuiTableHead-root .MuiTableCell-root': {

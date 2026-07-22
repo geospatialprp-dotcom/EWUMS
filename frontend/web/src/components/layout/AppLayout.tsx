@@ -35,8 +35,11 @@ import AppLogo from '../branding/AppLogo';
 import DepartmentLogoMenu from '../branding/DepartmentLogoMenu';
 import ApiModeBanner from './ApiModeBanner';
 import DivisionSwitcher from './DivisionSwitcher';
+import GlobalSearch from './GlobalSearch';
 import LanguageSwitcher from './LanguageSwitcher';
 import HelpPanel from './HelpPanel';
+import MobileBottomNav from './MobileBottomNav';
+import MobileFieldSpeedDial from './MobileQuickActions';
 import NotificationBell from './NotificationBell';
 import { useTranslation } from '../../context/LanguageContext';
 import {
@@ -171,10 +174,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={[
-        appDrawerBrandSx(drawerCollapsed, isMobile),
-        appDrawerBrandHeightSx(drawerCollapsed, isMobile),
-      ]}>
+      <Box sx={{
+        ...appDrawerBrandSx(drawerCollapsed, isMobile),
+        ...appDrawerBrandHeightSx(drawerCollapsed, isMobile),
+      }}>
         {!drawerCollapsed && (
           <Box sx={appDrawerBrandInnerSx(drawerCollapsed, isMobile)}>
             <Box sx={appDrawerBrandTextStackSx(isMobile)}>
@@ -251,7 +254,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <Box display="flex" height="100vh" sx={{ bgcolor: '#f1f5f9', overflow: 'hidden' }}>
+    <Box display="flex" height="100vh" sx={{ bgcolor: '#F4F6F9', overflow: 'hidden' }}>
       <AppBar
         position="fixed"
         sx={{
@@ -270,7 +273,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             aria-label="Open navigation menu"
             sx={{
               mr: { xs: 0.25, sm: 1 },
-              display: { md: 'none' },
+              display: { xs: 'inline-flex', md: 'none' },
               color: '#334155',
               flexShrink: 0,
               ...(isMobile ? appTouchIconButtonSx() : {}),
@@ -295,7 +298,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Typography>
           </Box>
 
-          <Box sx={{ flex: { xs: '0 0 auto', md: 1 }, minWidth: { xs: 0, md: 16 } }} />
+          <GlobalSearch />
+
+          <Box sx={{ flex: { xs: '0 0 auto', md: 0 }, minWidth: { xs: 0, md: 8 } }} />
 
           <Box sx={appHeaderActionsSx()}>
             {!secretariatScoped && <DivisionSwitcher />}
@@ -392,6 +397,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <ApiModeBanner />
         {children}
       </Box>
+
+      <MobileBottomNav />
+      <MobileFieldSpeedDial />
     </Box>
   );
 }

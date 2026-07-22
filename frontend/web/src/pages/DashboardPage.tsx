@@ -44,6 +44,7 @@ import { divisionScopeSubtitle } from '../utils/divisionAccess';
 import PageShell from '../components/layout/PageShell';
 import KpiStatCard from '../components/layout/KpiStatCard';
 import SurfaceCard from '../components/layout/SurfaceCard';
+import { MobileQuickActionStrip } from '../components/layout/MobileQuickActions';
 import { dataTableSx, type KpiTone } from '../utils/pagePresentationStyles';
 
 interface KpiItem {
@@ -210,13 +211,13 @@ function CommandCenterHero({
   return (
     <Box
       sx={{
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 45%, #334155 100%)',
+        background: 'linear-gradient(135deg, #0A3559 0%, #0F4C81 48%, #0F766E 100%)',
         borderRadius: 3,
         p: { xs: 2, sm: 2.5, md: 3 },
         mb: 3,
         position: 'relative',
         overflow: 'hidden',
-        boxShadow: '0 12px 40px rgba(15, 23, 42, 0.25)',
+        boxShadow: '0 12px 40px rgba(15, 76, 129, 0.28)',
         '&::after': {
           content: '""',
           position: 'absolute',
@@ -225,7 +226,7 @@ function CommandCenterHero({
           width: 180,
           height: 180,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(249,115,22,0.35) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(45, 212, 191, 0.28) 0%, transparent 70%)',
           pointerEvents: 'none',
         },
       }}
@@ -233,8 +234,8 @@ function CommandCenterHero({
       <Box display="flex" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={2} position="relative" zIndex={1}>
         <Box>
           <Stack direction="row" alignItems="center" spacing={1} mb={0.5}>
-            <DashboardCustomizeOutlinedIcon sx={{ color: '#f97316', fontSize: 20 }} />
-            <Typography variant="overline" sx={{ color: '#94a3b8', letterSpacing: '0.14em', fontWeight: 700 }}>
+            <DashboardCustomizeOutlinedIcon sx={{ color: '#5EEAD4', fontSize: 20 }} />
+            <Typography variant="overline" sx={{ color: 'rgba(226, 232, 240, 0.85)', letterSpacing: '0.14em', fontWeight: 700 }}>
               {eyebrow}
             </Typography>
           </Stack>
@@ -246,7 +247,7 @@ function CommandCenterHero({
           </Typography>
         </Box>
         <Box textAlign={{ xs: 'left', sm: 'right' }}>
-          <Typography variant="body2" sx={{ color: '#f97316', fontWeight: 700 }}>
+          <Typography variant="body2" sx={{ color: '#99F6E4', fontWeight: 700 }}>
             {dateLabel}
           </Typography>
           <Chip
@@ -257,10 +258,10 @@ function CommandCenterHero({
             label={modulesChip}
             sx={{
               mt: 1,
-              bgcolor: 'rgba(249,115,22,0.15)',
-              color: '#fdba74',
-              border: '1px solid rgba(249,115,22,0.35)',
-              '&:hover': { bgcolor: 'rgba(249,115,22,0.25)' },
+              bgcolor: 'rgba(255,255,255,0.12)',
+              color: '#E0F2FE',
+              border: '1px solid rgba(255,255,255,0.28)',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
             }}
           />
         </Box>
@@ -450,7 +451,14 @@ export default function DashboardPage() {
             modulesChip={t('commandCenter.modulesChip')}
           />
 
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 3 }}>
+          <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+            <Typography variant="subtitle2" fontWeight={700} color="text.secondary" mb={1}>
+              Field quick actions
+            </Typography>
+            <MobileQuickActionStrip />
+          </Box>
+
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 3, display: { xs: 'none', md: 'flex' } }}>
             {QUICK_ACTION_KEYS.map((action) => (
               <Button
                 key={action.to}

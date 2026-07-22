@@ -1,8 +1,6 @@
-export const DRAWER_WIDTH = 260;
-export const DRAWER_WIDTH_MINI = 72;
+import { APP_TOOLBAR_MIN_HEIGHT, DRAWER_WIDTH } from '../constants/layout';
 
-/** Matches AppLayout Toolbar minHeight — keep drawer brand block in sync on md+. */
-export const APP_TOOLBAR_MIN_HEIGHT = { xs: 64, sm: 68 };
+export { DRAWER_WIDTH, DRAWER_WIDTH_MINI, APP_TOOLBAR_MIN_HEIGHT } from '../constants/layout';
 
 /** Fixed header height on md+ — drawer brand and AppBar must match exactly. */
 export const APP_HEADER_HEIGHT_MD = APP_TOOLBAR_MIN_HEIGHT.sm;
@@ -21,9 +19,9 @@ export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
   return {
     width,
     boxSizing: 'border-box',
-    background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 48%, #0f172a 100%)',
+    background: 'linear-gradient(180deg, #0A3559 0%, #0F172A 42%, #0B1220 100%)',
     color: '#e2e8f0',
-    borderRight: '1px solid #334155',
+    borderRight: '1px solid rgba(148, 163, 184, 0.16)',
     transition: 'width 0.2s ease',
     overflowX: 'hidden',
   };
@@ -38,23 +36,25 @@ export function appDrawerBrandSx(collapsed = false, isMobile = false) {
     justifyContent: collapsed ? 'center' : isMobile ? 'flex-start' : 'space-between',
     gap: collapsed ? 0 : isMobile ? 0 : 0.5,
     borderBottom: '1px solid rgba(148, 163, 184, 0.18)',
-    background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 52%, #0f172a 100%)',
+    background: 'linear-gradient(160deg, #0A3559 0%, #0F172A 52%, #0B1220 100%)',
     boxShadow: 'inset 0 -1px 0 rgba(255, 255, 255, 0.04)',
     boxSizing: 'border-box',
     flexShrink: 0,
-    overflow: isMobile ? 'visible' : undefined,
+    ...(isMobile ? { overflow: 'visible' as const } : {}),
     position: 'relative' as const,
-    '&::after': collapsed
-      ? undefined
-      : {
-          content: '""',
-          position: 'absolute',
-          bottom: 0,
-          left: { xs: 20, md: 16 },
-          right: { xs: 20, md: 16 },
-          height: '1px',
-          background: 'linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.28), transparent)',
-        },
+    ...(!collapsed
+      ? {
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            bottom: 0,
+            left: { xs: 20, md: 16 },
+            right: { xs: 20, md: 16 },
+            height: '1px',
+            background: 'linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.28), transparent)',
+          },
+        }
+      : {}),
   };
 }
 
@@ -64,8 +64,8 @@ export function appDrawerBrandInnerSx(collapsed = false, isMobile = false) {
     alignItems: 'center',
     minWidth: 0,
     width: isMobile ? '100%' : undefined,
-    flex: collapsed ? undefined : 1,
-    overflow: isMobile ? 'visible' : undefined,
+    ...(collapsed ? {} : { flex: 1 }),
+    ...(isMobile ? { overflow: 'visible' as const } : {}),
   };
 }
 
@@ -91,12 +91,11 @@ export function appDrawerBrandLogoLinkSx() {
 export function appDrawerBrandTextStackSx(isMobile = false) {
   return {
     minWidth: 0,
-    flex: isMobile ? 1 : undefined,
+    ...(isMobile ? { flex: 1, overflow: 'visible' as const } : {}),
     display: 'flex',
     flexDirection: 'column',
     gap: isMobile ? 0.25 : 0.125,
     pt: isMobile ? 0.25 : 0,
-    overflow: isMobile ? 'visible' : undefined,
   };
 }
 
@@ -195,22 +194,22 @@ export function appNavItemSx(selected: boolean, collapsed = false) {
     minHeight: 44,
     borderRadius: 1.5,
     color: selected ? '#f8fafc' : '#cbd5e1',
-    bgcolor: selected ? 'rgba(37, 99, 235, 0.22)' : 'transparent',
-    borderLeft: selected ? '3px solid #60a5fa' : '3px solid transparent',
+    bgcolor: selected ? 'rgba(15, 118, 110, 0.28)' : 'transparent',
+    borderLeft: selected ? '3px solid #2DD4BF' : '3px solid transparent',
     transition: 'background-color 0.15s ease, color 0.15s ease',
     justifyContent: collapsed ? 'center' : undefined,
     px: collapsed ? 1 : undefined,
     '&.Mui-selected': {
-      bgcolor: 'rgba(37, 99, 235, 0.22)',
+      bgcolor: 'rgba(15, 118, 110, 0.28)',
       color: '#f8fafc',
-      '&:hover': { bgcolor: 'rgba(37, 99, 235, 0.28)' },
+      '&:hover': { bgcolor: 'rgba(15, 118, 110, 0.36)' },
     },
     '&:hover': {
-      bgcolor: selected ? 'rgba(37, 99, 235, 0.28)' : 'rgba(255, 255, 255, 0.06)',
+      bgcolor: selected ? 'rgba(15, 118, 110, 0.36)' : 'rgba(255, 255, 255, 0.06)',
       color: '#f8fafc',
     },
     '& .MuiListItemIcon-root': {
-      color: selected ? '#93c5fd' : '#94a3b8',
+      color: selected ? '#5EEAD4' : '#94a3b8',
       minWidth: collapsed ? 0 : 40,
       justifyContent: 'center',
     },
@@ -246,8 +245,9 @@ export function appTouchIconButtonSx() {
 
 export function appBarSx() {
   return {
-    bgcolor: '#ffffff',
+    bgcolor: 'rgba(255, 255, 255, 0.92)',
     color: '#0f172a',
+    backdropFilter: 'blur(10px)',
     boxShadow: '0 1px 0 #e2e8f0, 0 4px 16px rgba(15, 23, 42, 0.04)',
   };
 }
@@ -387,9 +387,9 @@ export function appUserAvatarSx() {
     height: 34,
     fontSize: 13,
     fontWeight: 700,
-    bgcolor: '#2563eb',
+    bgcolor: '#0F4C81',
     color: '#fff',
-    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.35)',
+    boxShadow: '0 2px 8px rgba(15, 76, 129, 0.35)',
   };
 }
 
