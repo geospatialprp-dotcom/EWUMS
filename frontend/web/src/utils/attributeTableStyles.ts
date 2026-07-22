@@ -14,18 +14,20 @@ export function attributeColumnWidth(
 ): number {
   if (field.type === 'image') return ATTRIBUTE_TABLE_IMAGE_WIDTH;
   if (field.type === 'boolean') return 52;
-  if (field.type === 'date') return 108;
-  if (field.type === 'number' || field.type === 'integer') return 88;
-  if (field.type === 'select') return 120;
-  if (coordFieldNames?.has(field.name)) return 100;
+  if (field.type === 'date') return 100;
+  if (field.type === 'number' || field.type === 'integer') return 80;
+  if (field.type === 'select') return 110;
+  if (coordFieldNames?.has(field.name)) return 96;
 
   const label = (field.label || field.name).toLowerCase();
   const name = field.name.toLowerCase();
   if (label.includes('remark') || name.includes('remark') || name.includes('description')) {
-    return 168;
+    return 140;
   }
-  if (label.length <= 5 || name.length <= 5) return 88;
-  return 128;
+  if (name.includes('chainage') || label.includes('chainage')) return 96;
+  if (name === 'source' || label === 'source') return 100;
+  if (label.length <= 5 || name.length <= 5) return 80;
+  return 110;
 }
 
 export function isFlexibleAttributeColumn(
@@ -58,9 +60,8 @@ export function pickFlexibleAttributeField(
 }
 
 export const attributeTableSx = {
-  tableLayout: 'auto' as const,
-  width: 'max-content',
-  minWidth: '100%',
+  tableLayout: 'fixed' as const,
+  width: '100%',
 };
 
 export type LayerGeometryTheme = {
@@ -147,10 +148,13 @@ export function attributePanelHeaderSx(geometryType?: string) {
 export function attributeHeaderCellWidth(
   field: AttributeField,
   coordFieldNames?: Set<string>,
-  _flexibleFieldName?: string | null,
+  flexibleFieldName?: string | null,
 ) {
   const width = attributeColumnWidth(field, coordFieldNames);
-  return { width, maxWidth: width, minWidth: width };
+  if (flexibleFieldName && field.name === flexibleFieldName) {
+    return { width: 'auto', minWidth: width };
+  }
+  return { width, maxWidth: width, minWidth: Math.min(width, 96) };
 }
 
 export const attributeHeaderCellSx = {
@@ -189,9 +193,10 @@ export function attributeBodyCellSx(
   field: AttributeField,
   coordFieldNames?: Set<string>,
   extra?: Record<string, unknown>,
-  _flexibleFieldName?: string | null,
+  flexibleFieldName?: string | null,
 ) {
   const width = attributeColumnWidth(field, coordFieldNames);
+  const isFlexible = Boolean(flexibleFieldName && field.name === flexibleFieldName);
   return {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -199,9 +204,9 @@ export function attributeBodyCellSx(
     px: 1,
     py: 0.5,
     verticalAlign: 'middle' as const,
-    width,
-    maxWidth: width,
-    minWidth: width,
+    ...(isFlexible
+      ? { width: 'auto', minWidth: width }
+      : { width, maxWidth: width, minWidth: Math.min(width, 96) }),
     ...extra,
   };
 }

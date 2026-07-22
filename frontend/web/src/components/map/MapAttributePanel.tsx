@@ -116,27 +116,16 @@ export default function MapAttributePanel({
   };
 
   const shellSx = {
-    ...(embedded
-      ? {}
-      : {
-          borderTop: 1,
-          borderColor: 'divider',
-          width: { xs: '100%', md: 360 },
-          maxWidth: '100%',
-          alignSelf: 'flex-start',
-          mx: 0.75,
-          mb: 0.75,
-          border: `2px solid ${ARCMAP.workspaceInset}`,
-          boxShadow: 'inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080',
-        }),
+    ...(embedded ? {} : { borderTop: 1, borderColor: 'divider' }),
     bgcolor: 'background.paper',
     display: 'flex',
     flexDirection: 'column',
-    ...(expanded ? { maxHeight: 200 } : { height: 40 }),
+    ...(expanded ? { maxHeight: 220 } : { height: 44 }),
     flexShrink: 0,
     transition: 'height 0.2s ease',
     flex: embedded ? 1 : undefined,
     minHeight: 0,
+    width: '100%',
   };
 
   const content = (
