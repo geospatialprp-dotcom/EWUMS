@@ -442,7 +442,7 @@ export function endpointMarkerToFeature(marker: PipelineEndpointMarker): Feature
     : marker.role === 'end'
       ? '#dc2626'
       : '#64748b';
-  const radius = marker.role === 'node' ? 5 : 8;
+  const radius = marker.role === 'node' ? 3.5 : 5;
   return {
     type: 'Feature',
     properties: {

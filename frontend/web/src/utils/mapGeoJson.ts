@@ -189,9 +189,9 @@ export function createOverlayStyle(
   viewExtent?: number[],
 ): StyleLike {
   const strokeColor = (styleConfig?.stroke as string) ?? '#E53935';
-  const width = Number(styleConfig?.width ?? styleConfig?.strokeWidth ?? 3);
-  const polygonOutline = polygonStyles(strokeColor, Math.max(width, 3));
-  const polygonFillOpacity = Number(styleConfig?.fillOpacity ?? 0.35);
+  const width = Number(styleConfig?.width ?? styleConfig?.strokeWidth ?? 1.75);
+  const polygonOutline = polygonStyles(strokeColor, Math.max(width, 1.25));
+  const polygonFillOpacity = Number(styleConfig?.fillOpacity ?? 0.28);
 
   if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
     const styleForFeature = (feature: FeatureLike) => {
@@ -225,9 +225,9 @@ export function createOverlayStyle(
       const pointFill = pointFillOverride
         ?? (pointRing ? 'rgba(255,255,255,0.92)' : (markerColor ?? (styleConfig?.fill as string) ?? '#7B1FA2'));
       const featureRadius = typeof feature.get === 'function' ? feature.get('pointRadius') : undefined;
-      const pointRadius = Number(featureRadius ?? styleConfig?.pointRadius ?? styleConfig?.radius ?? 7);
+      const pointRadius = Number(featureRadius ?? styleConfig?.pointRadius ?? styleConfig?.radius ?? 4.5);
       const strokeColor = pointRing ? (markerColor ?? '#e11d48') : '#FFFFFF';
-      const strokeWidth = pointRing ? 2 : 2;
+      const strokeWidth = pointRing ? 1.5 : 1.25;
       const circleStyle = new Style({
         image: new CircleStyle({
           radius: pointRadius,
@@ -244,10 +244,10 @@ export function createOverlayStyle(
           new Style({
             text: new Text({
               text: mapLabel.trim(),
-              offsetY: -(pointRadius + 10),
-              font: 'bold 10px "Segoe UI", Arial, sans-serif',
+              offsetY: -(pointRadius + 8),
+              font: '600 9px "IBM Plex Sans", "Segoe UI", Arial, sans-serif',
               fill: new Fill({ color: '#1e293b' }),
-              stroke: new Stroke({ color: '#ffffff', width: 3 }),
+              stroke: new Stroke({ color: '#ffffff', width: 2 }),
             }),
           }),
         ];
@@ -255,7 +255,14 @@ export function createOverlayStyle(
       return circleStyle;
     }
     if (geomType === 'LineString' || geomType === 'MultiLineString') {
-      return new Style({ stroke: new Stroke({ color: strokeColor, width: Math.max(width, 4) }) });
+      return new Style({
+        stroke: new Stroke({
+          color: strokeColor,
+          width: Math.min(Math.max(width, 1.25), 3),
+          lineCap: 'round',
+          lineJoin: 'round',
+        }),
+      });
     }
     if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
       const markerColor = typeof feature.get === 'function' ? feature.get('markerColor') as string | undefined : undefined;

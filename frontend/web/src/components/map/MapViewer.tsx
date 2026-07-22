@@ -138,18 +138,18 @@ function identifyHighlightStyle(feature: FeatureLike) {
   if (geomType === 'Point' || geomType === 'MultiPoint') {
     return new Style({
       image: new CircleStyle({
-        radius: 11,
+        radius: 6,
         fill: new Fill({ color }),
-        stroke: new Stroke({ color: '#fff', width: 3 }),
+        stroke: new Stroke({ color: '#fff', width: 1.5 }),
       }),
     });
   }
   if (geomType === 'LineString' || geomType === 'MultiLineString') {
-    return new Style({ stroke: new Stroke({ color, width: 6 }) });
+    return new Style({ stroke: new Stroke({ color, width: 2.5, lineCap: 'round', lineJoin: 'round' }) });
   }
   return new Style({
-    fill: new Fill({ color: 'rgba(21, 101, 192, 0.35)' }),
-    stroke: new Stroke({ color, width: 4 }),
+    fill: new Fill({ color: 'rgba(21, 101, 192, 0.28)' }),
+    stroke: new Stroke({ color, width: 2 }),
   });
 }
 
@@ -158,24 +158,24 @@ function dimmedFeatureStyle(feature: FeatureLike, geometryType?: string, styleCo
   const geomType = geom?.getType();
   const strokeColor = (styleConfig?.stroke as string) ?? '#E53935';
   const mutedStroke = strokeColor + '55';
-  const mutedFill = 'rgba(148, 163, 184, 0.12)';
+  const mutedFill = 'rgba(148, 163, 184, 0.1)';
 
   if (geomType === 'Point' || geomType === 'MultiPoint') {
     return new Style({
       image: new CircleStyle({
-        radius: 7,
+        radius: 4,
         fill: new Fill({ color: '#94a3b855' }),
-        stroke: new Stroke({ color: '#ffffff88', width: 2 }),
+        stroke: new Stroke({ color: '#ffffff88', width: 1 }),
       }),
     });
   }
   if (geomType === 'LineString' || geomType === 'MultiLineString') {
-    return new Style({ stroke: new Stroke({ color: mutedStroke, width: 2 }) });
+    return new Style({ stroke: new Stroke({ color: mutedStroke, width: 1.25 }) });
   }
   if (geometryType === 'Polygon' || geomType === 'Polygon' || geomType === 'MultiPolygon') {
     return new Style({
       fill: new Fill({ color: mutedFill }),
-      stroke: new Stroke({ color: mutedStroke, width: 1.5 }),
+      stroke: new Stroke({ color: mutedStroke, width: 1 }),
     });
   }
   return undefined;
@@ -189,18 +189,18 @@ function selectedEditStyle(feature: FeatureLike) {
   if (geomType === 'Point' || geomType === 'MultiPoint') {
     return new Style({
       image: new CircleStyle({
-        radius: 10,
+        radius: 5.5,
         fill: new Fill({ color }),
-        stroke: new Stroke({ color: '#fff', width: 2 }),
+        stroke: new Stroke({ color: '#fff', width: 1.5 }),
       }),
     });
   }
   if (geomType === 'LineString' || geomType === 'MultiLineString') {
-    return new Style({ stroke: new Stroke({ color, width: 5 }) });
+    return new Style({ stroke: new Stroke({ color, width: 2.5, lineCap: 'round', lineJoin: 'round' }) });
   }
   return new Style({
-    fill: new Fill({ color: 'rgba(255, 111, 0, 0.2)' }),
-    stroke: new Stroke({ color, width: 3 }),
+    fill: new Fill({ color: 'rgba(255, 111, 0, 0.18)' }),
+    stroke: new Stroke({ color, width: 2 }),
   });
 }
 
@@ -309,15 +309,19 @@ function getFeatureStyle(feature: FeatureLike) {
 
   if (geomType === 'Point') {
     return new Style({
-      image: new CircleStyle({ radius: 8, fill: new Fill({ color }), stroke: new Stroke({ color: '#fff', width: 2 }) }),
+      image: new CircleStyle({
+        radius: 4.5,
+        fill: new Fill({ color }),
+        stroke: new Stroke({ color: '#fff', width: 1.25 }),
+      }),
     });
   }
   if (geomType === 'LineString') {
-    return new Style({ stroke: new Stroke({ color, width: 4 }) });
+    return new Style({ stroke: new Stroke({ color, width: 1.75, lineCap: 'round', lineJoin: 'round' }) });
   }
   return new Style({
     fill: new Fill({ color: color + '40' }),
-    stroke: new Stroke({ color, width: 2 }),
+    stroke: new Stroke({ color, width: 1.5 }),
   });
 }
 
@@ -422,9 +426,9 @@ function applyOverlayStyles(
 
 const searchMarkerStyle = new Style({
   image: new CircleStyle({
-    radius: 8,
+    radius: 5,
     fill: new Fill({ color: '#D32F2F' }),
-    stroke: new Stroke({ color: '#FFFFFF', width: 3 }),
+    stroke: new Stroke({ color: '#FFFFFF', width: 1.5 }),
   }),
 });
 
@@ -576,9 +580,13 @@ export default function MapViewer({
     drawLayer.current = new VectorLayer({
       source: drawSource.current,
       style: new Style({
-        fill: new Fill({ color: 'rgba(21, 101, 192, 0.2)' }),
-        stroke: new Stroke({ color: '#1565C0', width: 2, lineDash: [5, 5] }),
-        image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#1565C0' }) }),
+        fill: new Fill({ color: 'rgba(21, 101, 192, 0.14)' }),
+        stroke: new Stroke({ color: '#1565C0', width: 1.5, lineDash: [4, 4], lineCap: 'round', lineJoin: 'round' }),
+        image: new CircleStyle({
+          radius: 4,
+          fill: new Fill({ color: '#1565C0' }),
+          stroke: new Stroke({ color: '#fff', width: 1.25 }),
+        }),
       }),
       zIndex: 10,
     });
@@ -1051,16 +1059,18 @@ export default function MapViewer({
     if (!drawLayer.current) return;
     const isAnalyze = activeTool === 'analyze';
     drawLayer.current.setStyle(new Style({
-      fill: new Fill({ color: isAnalyze ? 'rgba(123, 31, 162, 0.15)' : 'rgba(21, 101, 192, 0.2)' }),
+      fill: new Fill({ color: isAnalyze ? 'rgba(123, 31, 162, 0.12)' : 'rgba(21, 101, 192, 0.14)' }),
       stroke: new Stroke({
         color: isAnalyze ? '#7B1FA2' : '#1565C0',
-        width: 2,
-        lineDash: isAnalyze ? [8, 4] : [5, 5],
+        width: 1.5,
+        lineDash: isAnalyze ? [6, 4] : [4, 4],
+        lineCap: 'round',
+        lineJoin: 'round',
       }),
       image: new CircleStyle({
-        radius: 6,
+        radius: 4,
         fill: new Fill({ color: isAnalyze ? '#7B1FA2' : '#1565C0' }),
-        stroke: new Stroke({ color: '#fff', width: 2 }),
+        stroke: new Stroke({ color: '#fff', width: 1.25 }),
       }),
     }));
   }, [activeTool]);
