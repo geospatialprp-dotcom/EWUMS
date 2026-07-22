@@ -101,7 +101,7 @@ export function arcMapToolbarGroupSx(): SxProps<Theme> {
 
 export function arcMapTocColumnSx(): SxProps<Theme> {
   return {
-    width: 288,
+    width: 216,
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',

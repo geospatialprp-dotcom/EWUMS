@@ -45,7 +45,7 @@ export function mapDarkHeaderSx() {
 
 export function mapLayerPanelSx() {
   return {
-    width: { xs: 260, md: 288 },
+    width: { xs: 200, md: 216 },
     flexShrink: 0,
     display: { xs: 'none', md: 'flex' },
     flexDirection: 'column',
@@ -432,7 +432,7 @@ export function mapCompassCardSx() {
 /** Right-side spatial analysis panel — mirrors TOC panel chrome on the opposite edge. */
 export function mapSpatialAnalysisPanelSx(active = false) {
   return {
-    width: { xs: 260, md: 288 },
+    width: { xs: 200, md: 216 },
     flexShrink: 0,
     display: { xs: 'none', md: 'flex' },
     flexDirection: 'column',
