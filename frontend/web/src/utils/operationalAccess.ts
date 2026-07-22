@@ -47,20 +47,10 @@ export function isContractorUser(roles?: string[] | null): boolean {
 }
 
 /**
- * Operational workspaces Super Admin should not drive from chrome.
- * They monitor activity via Dashboard, Workflows, and Admin → Audit.
+ * Super Admin may open operational modules to watch activity, but must not
+ * drive create/initiate actions from chrome. Prefer hiding action buttons
+ * (Initiate / New / Register) rather than removing nav routes.
  */
-export const SUPER_ADMIN_HIDDEN_NAV_PATHS = [
-  '/assets',
-  '/projects',
-  '/om',
-  '/complaints',
-  '/billing',
-  '/mobile-billing',
-] as const;
-
-export function isSuperAdminHiddenNavPath(path: string): boolean {
-  return (SUPER_ADMIN_HIDDEN_NAV_PATHS as readonly string[]).some(
-    (hidden) => path === hidden || path.startsWith(`${hidden}/`),
-  );
+export function isSuperAdminHiddenNavPath(_path: string): boolean {
+  return false;
 }

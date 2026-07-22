@@ -18,7 +18,7 @@ import TravelExploreOutlinedIcon from '@mui/icons-material/TravelExploreOutlined
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import { useAuth } from '../../context/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
-import { isContractorUser, isSuperAdmin } from '../../utils/operationalAccess';
+import { isContractorUser } from '../../utils/operationalAccess';
 
 type QuickAction = {
   id: string;
@@ -102,7 +102,6 @@ export function MobileQuickActionStrip({ compact = false }: { compact?: boolean 
   const actions = FIELD_ACTIONS.filter((a) => {
     if (a.permission && !hasPermission(a.permission)) return false;
     if (isContractorUser(user?.roles) && a.path === '/complaints') return false;
-    if (isSuperAdmin(user?.roles) && (a.path === '/complaints' || a.path === '/projects')) return false;
     return true;
   });
 
@@ -187,7 +186,6 @@ export default function MobileFieldSpeedDial() {
   const actions = FIELD_ACTIONS.filter((a) => {
     if (a.permission && !hasPermission(a.permission)) return false;
     if (isContractorUser(user?.roles) && a.path === '/complaints') return false;
-    if (isSuperAdmin(user?.roles) && (a.path === '/complaints' || a.path === '/projects')) return false;
     return true;
   });
 

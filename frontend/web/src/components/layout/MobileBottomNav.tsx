@@ -24,19 +24,17 @@ import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined
 import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined';
 import LandscapeOutlinedIcon from '@mui/icons-material/LandscapeOutlined';
 import InventoryIcon from '@mui/icons-material/Inventory';
-import HistoryIcon from '@mui/icons-material/History';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { isSecretariatScopedUser } from '../../utils/roleNavigation';
-import { isContractorUser, isSuperAdmin, isSuperAdminHiddenNavPath } from '../../utils/operationalAccess';
+import { isContractorUser } from '../../utils/operationalAccess';
 
 export const MOBILE_BOTTOM_NAV_HEIGHT = 64;
 
-type TabKey = 'home' | 'projects' | 'map' | 'tasks' | 'more' | 'audit';
+type TabKey = 'home' | 'projects' | 'map' | 'tasks' | 'more';
 
-function resolveTab(pathname: string, superAdmin: boolean): TabKey {
-  if (superAdmin && pathname.startsWith('/admin/audit')) return 'audit';
-  if (pathname.startsWith('/projects')) return superAdmin ? 'more' : 'projects';
+function resolveTab(pathname: string): TabKey {
+  if (pathname.startsWith('/projects')) return 'projects';
   if (pathname.startsWith('/map')) return 'map';
   if (pathname.startsWith('/workflows')) return 'tasks';
   if (
@@ -64,6 +62,7 @@ const MORE_ITEMS: MoreItem[] = [
 /**
  * Touch-first bottom navigation for phones.
  * Desktop keeps the left sidebar; this is hidden from md+.
+ * Super Admin keeps the same destinations for view/watch; create actions are gated in pages.
  */
 export default function MobileBottomNav() {
   const navigate = useNavigate();
@@ -74,9 +73,8 @@ export default function MobileBottomNav() {
 
   const secretariatScoped = isSecretariatScopedUser(user?.roles);
   const contractorScoped = isContractorUser(user?.roles);
-  const superAdminScoped = isSuperAdmin(user?.roles);
 
-  const value = resolveTab(location.pathname, superAdminScoped);
+  const value = resolveTab(location.pathname);
 
   const moreItems = useMemo(() => {
     let items = MORE_ITEMS.filter((item) => !item.permission || hasPermission(item.permission));
@@ -86,11 +84,8 @@ export default function MobileBottomNav() {
     if (contractorScoped) {
       items = items.filter((item) => ['/om', '/platform', '/assets'].includes(item.path));
     }
-    if (superAdminScoped) {
-      items = items.filter((item) => !isSuperAdminHiddenNavPath(item.path));
-    }
     return items;
-  }, [hasPermission, secretariatScoped, contractorScoped, superAdminScoped]);
+  }, [hasPermission, secretariatScoped, contractorScoped]);
 
   const go = (path: string) => {
     setMoreOpen(false);
@@ -122,7 +117,6 @@ export default function MobileBottomNav() {
           onChange={(_e, next: TabKey) => {
             if (next === 'home') go('/dashboard');
             else if (next === 'projects') go('/projects');
-            else if (next === 'audit') go('/admin/audit');
             else if (next === 'map') go('/map');
             else if (next === 'tasks') go('/workflows');
             else setMoreOpen(true);
@@ -144,11 +138,7 @@ export default function MobileBottomNav() {
           }}
         >
           <BottomNavigationAction value="home" label={t('nav.home')} icon={<HomeOutlinedIcon />} />
-          {superAdminScoped ? (
-            <BottomNavigationAction value="audit" label={t('nav.auditTrail')} icon={<HistoryIcon />} />
-          ) : (
-            <BottomNavigationAction value="projects" label={t('nav.projectManagement')} icon={<AssignmentOutlinedIcon />} />
-          )}
+          <BottomNavigationAction value="projects" label={t('nav.projectManagement')} icon={<AssignmentOutlinedIcon />} />
           <BottomNavigationAction value="map" label={t('nav.mapExplorer')} icon={<MapOutlinedIcon />} />
           <BottomNavigationAction value="tasks" label={t('nav.tasks')} icon={<InboxOutlinedIcon />} />
           <BottomNavigationAction value="more" label={t('nav.more')} icon={<MoreHorizIcon />} />

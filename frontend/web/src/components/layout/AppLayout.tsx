@@ -29,7 +29,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import { useAuth } from '../../context/AuthContext';
 import { isSecretariatScopedUser } from '../../utils/roleNavigation';
-import { isContractorUser, isSuperAdmin, isSuperAdminHiddenNavPath } from '../../utils/operationalAccess';
+import { isContractorUser } from '../../utils/operationalAccess';
 import { APP_BRAND } from '../../constants/branding';
 import { formatHeaderUserCaption, formatUserProfileName } from '../../utils/userDisplayLabel';
 import AppLogo from '../branding/AppLogo';
@@ -146,7 +146,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const secretariatScoped = isSecretariatScopedUser(user?.roles);
   const contractorScoped = isContractorUser(user?.roles);
-  const superAdminScoped = isSuperAdmin(user?.roles);
 
   /** Consumer O&M billing/complaints are not part of the contractor workspace. */
   const CONTRACTOR_HIDDEN_PATHS = new Set(['/complaints', '/billing', '/mobile-billing']);
@@ -155,7 +154,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     items.filter((item) => {
       if (item.permission && !hasPermission(item.permission)) return false;
       if (contractorScoped && CONTRACTOR_HIDDEN_PATHS.has(item.path)) return false;
-      if (superAdminScoped && isSuperAdminHiddenNavPath(item.path)) return false;
       return true;
     });
 
