@@ -7,6 +7,8 @@ import {
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { omApi, projectsApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { isSuperAdmin } from '../../utils/operationalAccess';
 import SurfaceCard from '../layout/SurfaceCard';
 import {
   HANDOVER_STATUS_LABELS,
@@ -74,6 +76,8 @@ interface Props {
 }
 
 export default function OmHandoverStage({ handovers, onRefresh }: Props) {
+  const { user } = useAuth();
+  const canInitiateHandover = !isSuperAdmin(user?.roles);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -249,7 +253,9 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 Post-commissioning verification, document generation & O&M agency assignment
               </Typography>
             </Box>
-            <Button variant="contained" size="small" onClick={openNew}>Initiate Handover</Button>
+            {canInitiateHandover && (
+              <Button variant="contained" size="small" onClick={openNew}>Initiate Handover</Button>
+            )}
           </Box>
         )}
       >
