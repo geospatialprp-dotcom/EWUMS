@@ -12,7 +12,16 @@ import type { Feature as OlFeature } from 'ol';
 import Feature from 'ol/Feature';
 import Collection from 'ol/Collection';
 import Point from 'ol/geom/Point';
-import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style';
+import {
+  ARCMAP_SYM,
+  arcMapEditSelectionStyle,
+  arcMapLineStyle,
+  arcMapPointStyle,
+  arcMapPolygonStyle,
+  arcMapSearchMarkerStyle,
+  arcMapSelectionStyle,
+  arcMapSketchStyle,
+} from '../../utils/arcMapSymbology';
 import { createOverlayStyle, loadGeoJsonCollection } from '../../utils/mapGeoJson';
 import { captureMapSnapshot, type MapSnapshotResult } from '../../utils/mapSnapshot';
 import {
@@ -131,77 +140,34 @@ type CursorInspect = {
 };
 
 function identifyHighlightStyle(feature: FeatureLike) {
-  const geom = feature.getGeometry();
-  const geomType = geom?.getType();
-  const color = '#1565C0';
-
-  if (geomType === 'Point' || geomType === 'MultiPoint') {
-    return new Style({
-      image: new CircleStyle({
-        radius: 6,
-        fill: new Fill({ color }),
-        stroke: new Stroke({ color: '#fff', width: 1.5 }),
-      }),
-    });
-  }
-  if (geomType === 'LineString' || geomType === 'MultiLineString') {
-    return new Style({ stroke: new Stroke({ color, width: 2.5, lineCap: 'round', lineJoin: 'round' }) });
-  }
-  return new Style({
-    fill: new Fill({ color: 'rgba(21, 101, 192, 0.28)' }),
-    stroke: new Stroke({ color, width: 2 }),
-  });
+  return arcMapSelectionStyle(feature);
 }
 
 function dimmedFeatureStyle(feature: FeatureLike, geometryType?: string, styleConfig?: Record<string, unknown>) {
   const geom = feature.getGeometry();
   const geomType = geom?.getType();
-  const strokeColor = (styleConfig?.stroke as string) ?? '#E53935';
-  const mutedStroke = strokeColor + '55';
+  const strokeColor = (styleConfig?.stroke as string) ?? ARCMAP_SYM.defaultLine;
+  const mutedStroke = `${strokeColor}66`;
   const mutedFill = 'rgba(148, 163, 184, 0.1)';
 
   if (geomType === 'Point' || geomType === 'MultiPoint') {
-    return new Style({
-      image: new CircleStyle({
-        radius: 4,
-        fill: new Fill({ color: '#94a3b855' }),
-        stroke: new Stroke({ color: '#ffffff88', width: 1 }),
-      }),
+    return arcMapPointStyle('#94a3b8aa', {
+      radius: ARCMAP_SYM.dimPointRadius,
+      outline: '#ffffffaa',
+      outlineWidth: 1,
     });
   }
   if (geomType === 'LineString' || geomType === 'MultiLineString') {
-    return new Style({ stroke: new Stroke({ color: mutedStroke, width: 1.25 }) });
+    return arcMapLineStyle(mutedStroke, { width: ARCMAP_SYM.dimLineWidth });
   }
   if (geometryType === 'Polygon' || geomType === 'Polygon' || geomType === 'MultiPolygon') {
-    return new Style({
-      fill: new Fill({ color: mutedFill }),
-      stroke: new Stroke({ color: mutedStroke, width: 1 }),
-    });
+    return arcMapPolygonStyle(mutedStroke, mutedFill, 1);
   }
   return undefined;
 }
 
 function selectedEditStyle(feature: FeatureLike) {
-  const geom = feature.getGeometry();
-  const geomType = geom?.getType();
-  const color = '#FF6F00';
-
-  if (geomType === 'Point' || geomType === 'MultiPoint') {
-    return new Style({
-      image: new CircleStyle({
-        radius: 5.5,
-        fill: new Fill({ color }),
-        stroke: new Stroke({ color: '#fff', width: 1.5 }),
-      }),
-    });
-  }
-  if (geomType === 'LineString' || geomType === 'MultiLineString') {
-    return new Style({ stroke: new Stroke({ color, width: 2.5, lineCap: 'round', lineJoin: 'round' }) });
-  }
-  return new Style({
-    fill: new Fill({ color: 'rgba(255, 111, 0, 0.18)' }),
-    stroke: new Stroke({ color, width: 2 }),
-  });
+  return arcMapEditSelectionStyle(feature);
 }
 
 function getOlFeatureId(feature: OlFeature): string | null {
@@ -305,24 +271,15 @@ function getFeatureStyle(feature: FeatureLike) {
   const status = feature.get('status') as string;
   const geom = feature.getGeometry();
   const geomType = geom?.getType();
-  const color = statusColors[status] ?? '#1565C0';
+  const color = statusColors[status] ?? ARCMAP_SYM.sketch;
 
   if (geomType === 'Point') {
-    return new Style({
-      image: new CircleStyle({
-        radius: 4.5,
-        fill: new Fill({ color }),
-        stroke: new Stroke({ color: '#fff', width: 1.25 }),
-      }),
-    });
+    return arcMapPointStyle(color);
   }
   if (geomType === 'LineString') {
-    return new Style({ stroke: new Stroke({ color, width: 1.75, lineCap: 'round', lineJoin: 'round' }) });
+    return arcMapLineStyle(color);
   }
-  return new Style({
-    fill: new Fill({ color: color + '40' }),
-    stroke: new Stroke({ color, width: 1.5 }),
-  });
+  return arcMapPolygonStyle(color, `${color}40`);
 }
 
 function allowedGeometryTypes(geometryType?: string) {
@@ -424,13 +381,7 @@ function applyOverlayStyles(
   });
 }
 
-const searchMarkerStyle = new Style({
-  image: new CircleStyle({
-    radius: 5,
-    fill: new Fill({ color: '#D32F2F' }),
-    stroke: new Stroke({ color: '#FFFFFF', width: 1.5 }),
-  }),
-});
+const searchMarkerStyle = arcMapSearchMarkerStyle();
 
 function flyMapToTarget(map: OlMap, target: MapFlyTarget, markerSource: VectorSource) {
   const view = map.getView();
@@ -579,15 +530,7 @@ export default function MapViewer({
 
     drawLayer.current = new VectorLayer({
       source: drawSource.current,
-      style: new Style({
-        fill: new Fill({ color: 'rgba(21, 101, 192, 0.14)' }),
-        stroke: new Stroke({ color: '#1565C0', width: 1.5, lineDash: [4, 4], lineCap: 'round', lineJoin: 'round' }),
-        image: new CircleStyle({
-          radius: 4,
-          fill: new Fill({ color: '#1565C0' }),
-          stroke: new Stroke({ color: '#fff', width: 1.25 }),
-        }),
-      }),
+      style: arcMapSketchStyle('draw'),
       zIndex: 10,
     });
 
@@ -1058,21 +1001,7 @@ export default function MapViewer({
   useEffect(() => {
     if (!drawLayer.current) return;
     const isAnalyze = activeTool === 'analyze';
-    drawLayer.current.setStyle(new Style({
-      fill: new Fill({ color: isAnalyze ? 'rgba(123, 31, 162, 0.12)' : 'rgba(21, 101, 192, 0.14)' }),
-      stroke: new Stroke({
-        color: isAnalyze ? '#7B1FA2' : '#1565C0',
-        width: 1.5,
-        lineDash: isAnalyze ? [6, 4] : [4, 4],
-        lineCap: 'round',
-        lineJoin: 'round',
-      }),
-      image: new CircleStyle({
-        radius: 4,
-        fill: new Fill({ color: isAnalyze ? '#7B1FA2' : '#1565C0' }),
-        stroke: new Stroke({ color: '#fff', width: 1.25 }),
-      }),
-    }));
+    drawLayer.current.setStyle(arcMapSketchStyle(isAnalyze ? 'analyze' : 'draw'));
   }, [activeTool]);
 
   useEffect(() => {

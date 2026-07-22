@@ -3,7 +3,8 @@ import type { Feature as GeoFeature, FeatureCollection as GeoFeatureCollection }
 import type FeatureLike from 'ol/Feature';
 import type { StyleLike } from 'ol/style/Style';
 import VectorSource from 'ol/source/Vector';
-import { Fill, Stroke, Style, Text, Circle as CircleStyle } from 'ol/style';
+import { Fill, Stroke, Style, Text } from 'ol/style';
+import { ARCMAP_SYM, arcMapPointStyle, arcMapLineStyle, arcMapPolygonStyle } from './arcMapSymbology';
 
 const geoJsonFormat = new GeoJSONFormat();
 
@@ -122,15 +123,7 @@ function withAlpha(color: string, alpha: number): string {
 }
 
 function polygonStyles(strokeColor: string, width: number): Style {
-  return new Style({
-    fill: new Fill({ color: 'rgba(0, 0, 0, 0.01)' }),
-    stroke: new Stroke({
-      color: strokeColor,
-      width,
-      lineJoin: 'round',
-      lineCap: 'round',
-    }),
-  });
+  return arcMapPolygonStyle(strokeColor, 'rgba(0, 0, 0, 0.01)', width);
 }
 
 function featureNearExtent(geometry: import('ol/geom/Geometry').default, extent: number[], bufferMeters = 5000) {
@@ -160,7 +153,7 @@ function resolvePolygonFillColor(
 }
 
 function strokeColorFromStyle(styleConfig?: Record<string, unknown>): string {
-  return (styleConfig?.stroke as string) ?? '#E53935';
+  return (styleConfig?.stroke as string) ?? ARCMAP_SYM.defaultLine;
 }
 
 function polygonFeatureStyle(
@@ -172,15 +165,7 @@ function polygonFeatureStyle(
 ): Style {
   const stroke = markerColor ?? strokeColor;
   const fillColor = resolvePolygonFillColor(markerColor, styleConfig, fillOpacity);
-  return new Style({
-    fill: new Fill({ color: fillColor }),
-    stroke: new Stroke({
-      color: stroke,
-      width: Math.max(width, 2),
-      lineJoin: 'round',
-      lineCap: 'round',
-    }),
-  });
+  return arcMapPolygonStyle(stroke, fillColor, Math.max(width, ARCMAP_SYM.polygonOutlineWidth));
 }
 
 export function createOverlayStyle(
@@ -188,10 +173,10 @@ export function createOverlayStyle(
   geometryType?: string,
   viewExtent?: number[],
 ): StyleLike {
-  const strokeColor = (styleConfig?.stroke as string) ?? '#E53935';
-  const width = Number(styleConfig?.width ?? styleConfig?.strokeWidth ?? 1.75);
-  const polygonOutline = polygonStyles(strokeColor, Math.max(width, 1.25));
-  const polygonFillOpacity = Number(styleConfig?.fillOpacity ?? 0.28);
+  const strokeColor = (styleConfig?.stroke as string) ?? ARCMAP_SYM.defaultLine;
+  const width = Number(styleConfig?.width ?? styleConfig?.strokeWidth ?? ARCMAP_SYM.lineWidth);
+  const polygonOutline = polygonStyles(strokeColor, Math.max(width, ARCMAP_SYM.polygonOutlineWidth));
+  const polygonFillOpacity = Number(styleConfig?.fillOpacity ?? ARCMAP_SYM.polygonFillOpacity);
 
   if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
     const styleForFeature = (feature: FeatureLike) => {
@@ -223,17 +208,19 @@ export function createOverlayStyle(
         ? feature.get('pointFill') as string | undefined
         : undefined;
       const pointFill = pointFillOverride
-        ?? (pointRing ? 'rgba(255,255,255,0.92)' : (markerColor ?? (styleConfig?.fill as string) ?? '#7B1FA2'));
+        ?? (pointRing ? '#FFFFFF' : (markerColor ?? (styleConfig?.fill as string) ?? ARCMAP_SYM.defaultPointFill));
       const featureRadius = typeof feature.get === 'function' ? feature.get('pointRadius') : undefined;
-      const pointRadius = Number(featureRadius ?? styleConfig?.pointRadius ?? styleConfig?.radius ?? 4.5);
-      const strokeColor = pointRing ? (markerColor ?? '#e11d48') : '#FFFFFF';
-      const strokeWidth = pointRing ? 1.5 : 1.25;
-      const circleStyle = new Style({
-        image: new CircleStyle({
-          radius: pointRadius,
-          fill: new Fill({ color: pointFill }),
-          stroke: new Stroke({ color: strokeColor, width: strokeWidth }),
-        }),
+      const pointRadius = Number(
+        featureRadius ?? styleConfig?.pointRadius ?? styleConfig?.radius ?? ARCMAP_SYM.pointRadius,
+      );
+      // ArcMap simple marker: solid fill + dark outline (not a thick white halo)
+      const outlineColor = pointRing
+        ? (markerColor ?? ARCMAP_SYM.defaultLine)
+        : ARCMAP_SYM.defaultPointOutline;
+      const circleStyle = arcMapPointStyle(pointFill, {
+        radius: pointRadius,
+        outline: outlineColor,
+        outlineWidth: ARCMAP_SYM.pointOutlineWidth,
       });
       const mapLabel = typeof feature.get === 'function'
         ? feature.get('mapLabel') as string | undefined
@@ -245,8 +232,8 @@ export function createOverlayStyle(
             text: new Text({
               text: mapLabel.trim(),
               offsetY: -(pointRadius + 8),
-              font: '600 9px "IBM Plex Sans", "Segoe UI", Arial, sans-serif',
-              fill: new Fill({ color: '#1e293b' }),
+              font: '600 9px "Segoe UI", Tahoma, Arial, sans-serif',
+              fill: new Fill({ color: '#000000' }),
               stroke: new Stroke({ color: '#ffffff', width: 2 }),
             }),
           }),
@@ -255,22 +242,18 @@ export function createOverlayStyle(
       return circleStyle;
     }
     if (geomType === 'LineString' || geomType === 'MultiLineString') {
-      return new Style({
-        stroke: new Stroke({
-          color: strokeColor,
-          width: Math.min(Math.max(width, 1.25), 3),
-          lineCap: 'round',
-          lineJoin: 'round',
-        }),
-      });
+      // ArcMap simple line — keep configured width in a professional band
+      const lineWidth = Math.min(Math.max(width, 1), 2.5);
+      return arcMapLineStyle(strokeColor, { width: lineWidth });
     }
     if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
       const markerColor = typeof feature.get === 'function' ? feature.get('markerColor') as string | undefined : undefined;
       if (markerColor) {
-        return new Style({
-          fill: new Fill({ color: withAlpha(markerColor, polygonFillOpacity) }),
-          stroke: new Stroke({ color: markerColor, width: 1 }),
-        });
+        return arcMapPolygonStyle(
+          markerColor,
+          withAlpha(markerColor, polygonFillOpacity),
+          ARCMAP_SYM.polygonOutlineWidth,
+        );
       }
       return polygonOutline;
     }
