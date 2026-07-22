@@ -1,45 +1,67 @@
 import type { SxProps, Theme } from '@mui/material';
 
+/** Quiet institutional field — white surface, slate border, teal focus. */
 export const loginFieldSx: SxProps<Theme> = {
   '& .MuiOutlinedInput-root': {
-    borderRadius: 2.5,
-    bgcolor: 'rgba(248, 250, 252, 0.9)',
-    transition: 'box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s ease',
-    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#93c5fd' },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 0 0 4px rgba(37, 99, 235, 0.1)',
-      '& .MuiOutlinedInput-notchedOutline': { borderColor: '#2563eb', borderWidth: 1.5 },
+    borderRadius: 1.5,
+    bgcolor: '#ffffff',
+    fontSize: '0.9375rem',
+    transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+    '& .MuiOutlinedInput-notchedOutline': {
+      borderColor: '#cbd5e1',
     },
+    '&:hover .MuiOutlinedInput-notchedOutline': {
+      borderColor: '#94a3b8',
+    },
+    '&.Mui-focused': {
+      bgcolor: '#ffffff',
+      '& .MuiOutlinedInput-notchedOutline': {
+        borderColor: '#0F4C81',
+        borderWidth: 1.5,
+      },
+      boxShadow: '0 0 0 3px rgba(15, 76, 129, 0.12)',
+    },
+  },
+  '& .MuiInputLabel-root.Mui-focused': {
+    color: '#0F4C81',
   },
 };
 
 export const consumerFieldSx: SxProps<Theme> = {
   '& .MuiOutlinedInput-root': {
-    borderRadius: 2.5,
-    bgcolor: 'rgba(248, 250, 252, 0.95)',
-    transition: 'box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s ease',
-    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#7dd3fc' },
+    borderRadius: 1.5,
+    bgcolor: '#ffffff',
+    fontSize: '0.9375rem',
+    transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+    '& .MuiOutlinedInput-notchedOutline': {
+      borderColor: '#cbd5e1',
+    },
+    '&:hover .MuiOutlinedInput-notchedOutline': {
+      borderColor: '#7dd3fc',
+    },
     '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 0 0 4px rgba(2, 132, 199, 0.1)',
-      '& .MuiOutlinedInput-notchedOutline': { borderColor: '#0284c7', borderWidth: 1.5 },
+      '& .MuiOutlinedInput-notchedOutline': {
+        borderColor: '#0369a1',
+        borderWidth: 1.5,
+      },
+      boxShadow: '0 0 0 3px rgba(3, 105, 161, 0.12)',
     },
   },
 };
 
-export const glassCardSx = (accent = '#2563eb'): SxProps<Theme> => ({
+/** Staff login card — solid, calm, government-portal style. */
+export const glassCardSx = (accent = '#0F4C81'): SxProps<Theme> => ({
   width: '100%',
-  maxWidth: 420,
-  maxHeight: 'calc(100vh - 32px)',
-  borderRadius: 3,
+  maxWidth: 400,
+  maxHeight: 'calc(100vh - 40px)',
+  borderRadius: 2,
   overflow: 'hidden',
   display: 'flex',
   flexDirection: 'column',
   position: 'relative',
-  bgcolor: 'rgba(255, 255, 255, 0.98)',
-  border: '1px solid rgba(226, 232, 240, 0.9)',
-  boxShadow: '0 20px 48px rgba(0, 0, 0, 0.28)',
+  bgcolor: '#ffffff',
+  border: '1px solid rgba(226, 232, 240, 0.95)',
+  boxShadow: '0 12px 40px rgba(15, 23, 42, 0.22), 0 2px 8px rgba(15, 23, 42, 0.08)',
   '&::before': {
     content: '""',
     position: 'absolute',
@@ -47,11 +69,31 @@ export const glassCardSx = (accent = '#2563eb'): SxProps<Theme> => ({
     left: 0,
     right: 0,
     height: 3,
-    background: `linear-gradient(90deg, ${accent}, #0d9488, #4f46e5)`,
+    background: accent,
   },
 });
 
 export const consumerGlassCardSx: SxProps<Theme> = {
-  ...glassCardSx('#0284c7'),
-  boxShadow: '0 20px 48px rgba(2, 132, 199, 0.14)',
+  ...glassCardSx('#0369a1'),
+  boxShadow: '0 12px 36px rgba(2, 132, 199, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06)',
+};
+
+export const loginPrimaryButtonSx: SxProps<Theme> = {
+  mt: 2,
+  py: 1.15,
+  borderRadius: 1.5,
+  fontWeight: 700,
+  textTransform: 'none',
+  fontSize: '0.9375rem',
+  letterSpacing: '0.01em',
+  bgcolor: '#0F4C81',
+  boxShadow: '0 4px 14px rgba(15, 76, 129, 0.35)',
+  transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
+  '&:hover': {
+    bgcolor: '#0a3a63',
+    boxShadow: '0 6px 18px rgba(15, 76, 129, 0.4)',
+  },
+  '&:active': {
+    bgcolor: '#082f52',
+  },
 };

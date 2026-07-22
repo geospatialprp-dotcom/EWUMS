@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, InputAdornment,
+  Alert, Box, Button, Card, CardContent, Divider, Grid, InputAdornment,
   Stack, TextField, Typography,
 } from '@mui/material';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
@@ -20,10 +20,10 @@ import LoginAmbientBackground from '../components/auth/LoginAmbientBackground';
 import LoginKpiStats from '../components/auth/LoginKpiStats';
 import LoginBrandLogo from '../components/branding/LoginBrandLogo';
 import { getDepartmentById, DEFAULT_DEPARTMENT_ID } from '../constants/departments';
-import { glassCardSx, loginFieldSx } from '../components/auth/loginPageTheme';
+import { glassCardSx, loginFieldSx, loginPrimaryButtonSx } from '../components/auth/loginPageTheme';
 import StandaloneChrome from '../components/layout/StandaloneChrome';
 import { useTranslation } from '../context/LanguageContext';
-import { getLocale, translate, translateList } from '../i18n';
+import { getLocale, translate } from '../i18n';
 
 
 function formatApiMessage(message: unknown): string | undefined {
@@ -60,7 +60,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const { login, token, user } = useAuth();
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -88,7 +88,6 @@ export default function LoginPage() {
   };
 
   const ujsBrand = getDepartmentById(DEFAULT_DEPARTMENT_ID);
-  const moduleChips = translateList(locale, 'auth.moduleChips');
 
   return (
     <Box sx={{ height: '100vh', maxHeight: '100vh', display: 'flex', position: 'relative', overflow: 'hidden' }}>
@@ -110,64 +109,59 @@ export default function LoginPage() {
           }}
         >
           <Box sx={{ position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-            <Box sx={{ px: 4, pt: 2.5, pb: 0.5, flexShrink: 0 }}>
-              <Stack direction="row" alignItems="center" spacing={1.25} mb={1.5}>
+            <Box sx={{ px: 4, pt: 3, pb: 1, flexShrink: 0 }}>
+              <Stack direction="row" alignItems="center" spacing={1.5} mb={2}>
                 <Box
                   component="img"
                   src={ujsBrand.logoUrl}
                   alt={ujsBrand.logoAlt}
                   sx={{
-                    width: 48,
-                    height: 48,
+                    width: 52,
+                    height: 52,
                     borderRadius: '50%',
                     bgcolor: '#fff',
-                    p: 0.25,
+                    p: 0.35,
                     objectFit: 'contain',
-                    boxShadow: '0 8px 24px rgba(2, 132, 199, 0.25)',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
+                    border: '1px solid rgba(255,255,255,0.2)',
                   }}
                 />
-                <Box>
-                  <Typography variant="h5" fontWeight={800} sx={{ color: '#f8fafc', lineHeight: 1.1, letterSpacing: '-0.03em' }}>
-                    {ujsBrand.shortName}
+                <Box minWidth={0}>
+                  <Typography
+                    variant="h5"
+                    fontWeight={800}
+                    sx={{ color: '#f8fafc', lineHeight: 1.15, letterSpacing: '-0.02em', fontSize: '1.35rem' }}
+                  >
+                    {ujsBrand.name}
                   </Typography>
-                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', mt: 0.35 }}>
-                    {ujsBrand.nameHi ?? ujsBrand.name} · {APP_BRAND.name}
+                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', mt: 0.35, letterSpacing: '0.04em' }}>
+                    {ujsBrand.nameHi ? `${ujsBrand.nameHi}  ·  ` : ''}{APP_BRAND.name} · Government of Uttarakhand
                   </Typography>
                 </Box>
               </Stack>
 
-              <Box sx={{ mb: 1 }}>
+              <Box sx={{ mb: 1.5 }}>
                 <LoginKpiStats />
               </Box>
 
-              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ display: { md: 'none', lg: 'flex' } }}>
-                <Chip
-                  size="small"
-                  icon={<VerifiedUserOutlinedIcon sx={{ fontSize: '14px !important' }} />}
-                  label="Enterprise platform"
-                  sx={{
-                    height: 26,
-                    fontWeight: 700,
-                    fontSize: '0.68rem',
-                    bgcolor: 'rgba(37, 99, 235, 0.2)',
-                    color: '#93c5fd',
-                    border: '1px solid rgba(147, 197, 253, 0.35)',
-                  }}
-                />
-                {moduleChips.map((label) => (
-                  <Chip
+              <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ display: { md: 'none', lg: 'flex' } }}>
+                {['GIS', 'Projects', 'O&M', 'Billing', 'Analytics'].map((label) => (
+                  <Box
                     key={label}
-                    size="small"
-                    label={label}
                     sx={{
-                      height: 26,
-                      fontSize: '0.68rem',
+                      px: 1,
+                      py: 0.35,
+                      borderRadius: 1,
+                      fontSize: '0.6875rem',
                       fontWeight: 600,
-                      bgcolor: 'rgba(255,255,255,0.04)',
-                      color: '#94a3b8',
-                      border: '1px solid rgba(148, 163, 184, 0.18)',
+                      letterSpacing: '0.04em',
+                      color: '#cbd5e1',
+                      border: '1px solid rgba(148, 163, 184, 0.22)',
+                      bgcolor: 'rgba(255,255,255,0.03)',
                     }}
-                  />
+                  >
+                    {label}
+                  </Box>
                 ))}
               </Stack>
             </Box>
@@ -197,47 +191,58 @@ export default function LoginPage() {
           <Card elevation={0} sx={glassCardSx()}>
             <Box
               sx={{
-                px: 2.5,
-                py: 2,
+                px: 3,
+                pt: 2.5,
+                pb: 2,
                 textAlign: 'center',
-                background: 'linear-gradient(180deg, rgba(248,250,252,0.95) 0%, #ffffff 100%)',
+                bgcolor: '#ffffff',
                 borderBottom: '1px solid #e2e8f0',
                 flexShrink: 0,
               }}
             >
-              <LoginBrandLogo height={76} />
-              <Typography variant="h6" fontWeight={800} sx={{ color: '#0f172a', letterSpacing: '-0.02em', mt: 1.25 }}>
-                {t('auth.welcomeBack')}
+              <LoginBrandLogo height={72} />
+              <Typography
+                variant="h6"
+                fontWeight={800}
+                sx={{ color: '#0f172a', letterSpacing: '-0.02em', mt: 1.5, fontSize: '1.125rem' }}
+              >
+                Staff sign-in
               </Typography>
-              <Typography variant="caption" sx={{ color: '#64748b', mt: 0.5, lineHeight: 1.45, display: 'block', maxWidth: 300, mx: 'auto' }}>
+              <Typography
+                variant="caption"
+                sx={{ color: '#64748b', mt: 0.5, lineHeight: 1.5, display: 'block', maxWidth: 280, mx: 'auto' }}
+              >
                 {APP_BRAND.name} · {APP_BRAND.headerTitle}
               </Typography>
             </Box>
 
-            <Box sx={{ display: { xs: 'block', md: 'none' }, bgcolor: '#f8fafc' }}>
+            <Box sx={{ display: { xs: 'block', md: 'none' }, bgcolor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
               <LoginHeroShowcase compact />
               <LoginPipelineStrip compact />
             </Box>
 
-            <CardContent sx={{ p: 2.5, overflowY: 'auto', flex: 1, minHeight: 0 }}>
-              {apiStatus && <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>{apiStatus}</Alert>}
-              {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}
+            <CardContent sx={{ p: 3, pt: 2.5, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+              {apiStatus && <Alert severity="warning" sx={{ mb: 2, borderRadius: 1.5 }}>{apiStatus}</Alert>}
+              {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 1.5 }}>{error}</Alert>}
 
               <Stack
                 direction="row"
                 alignItems="center"
-                spacing={1}
+                spacing={0.75}
                 sx={{
-                  mb: 1.5,
-                  px: 1,
-                  py: 0.6,
-                  borderRadius: 2,
-                  bgcolor: '#eff6ff',
-                  border: '1px solid #bfdbfe',
+                  mb: 2,
+                  px: 1.25,
+                  py: 0.65,
+                  borderRadius: 1,
+                  bgcolor: '#f1f5f9',
+                  border: '1px solid #e2e8f0',
                 }}
               >
-                <LockIcon sx={{ fontSize: 16, color: '#2563eb' }} />
-                <Typography variant="caption" sx={{ color: '#1e40af', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                <LockIcon sx={{ fontSize: 15, color: '#0F4C81' }} />
+                <Typography
+                  variant="caption"
+                  sx={{ color: '#334155', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '0.65rem' }}
+                >
                   {t('auth.staffSignIn')}
                 </Typography>
               </Stack>
@@ -283,7 +288,7 @@ export default function LoginPage() {
                 <Box display="flex" justifyContent="flex-end" mt={0.5}>
                   <Button
                     size="small"
-                    sx={{ textTransform: 'none', color: '#2563eb', fontWeight: 600, minWidth: 0, p: 0.5 }}
+                    sx={{ textTransform: 'none', color: '#0F4C81', fontWeight: 600, minWidth: 0, p: 0.5 }}
                     onClick={() => setForgotOpen(true)}
                   >
                     Forgot password?
@@ -296,37 +301,31 @@ export default function LoginPage() {
                   size="large"
                   disabled={loading}
                   endIcon={!loading ? <ArrowForwardIcon /> : undefined}
-                  sx={{
-                    mt: 2,
-                    py: 1.2,
-                    borderRadius: 2.5,
-                    fontWeight: 700,
-                    textTransform: 'none',
-                    fontSize: '1rem',
-                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 40%, #1d4ed8 100%)',
-                    backgroundSize: '200% 200%',
-                    boxShadow: '0 10px 32px rgba(37, 99, 235, 0.45)',
-                    transition: 'transform 0.2s ease, box-shadow 0.25s ease, background-position 0.4s ease',
-                    '&:hover': {
-                      backgroundPosition: '100% 50%',
-                      boxShadow: '0 14px 40px rgba(37, 99, 235, 0.55)',
-                      transform: 'translateY(-2px)',
-                    },
-                    '&:active': { transform: 'translateY(0)' },
-                  }}
+                  sx={loginPrimaryButtonSx}
                 >
                   {loading ? t('auth.signingIn') : t('auth.signInToBrand', { brand: APP_BRAND.name })}
                 </Button>
               </form>
 
-              <Box sx={{ mt: 1.5, p: 1.25, borderRadius: 2, bgcolor: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <VerifiedUserOutlinedIcon sx={{ fontSize: 18, color: '#64748b', mt: 0.15 }} />
-                <Typography variant="caption" sx={{ color: '#64748b', lineHeight: 1.65 }}>
+              <Box
+                sx={{
+                  mt: 2,
+                  p: 1.25,
+                  borderRadius: 1.5,
+                  bgcolor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1,
+                }}
+              >
+                <VerifiedUserOutlinedIcon sx={{ fontSize: 17, color: '#64748b', mt: 0.1 }} />
+                <Typography variant="caption" sx={{ color: '#64748b', lineHeight: 1.6 }}>
                   {t('auth.authorizedOnly')}
                 </Typography>
               </Box>
 
-              <Divider sx={{ my: 1.5 }}>
+              <Divider sx={{ my: 2 }}>
                 <Typography variant="caption" sx={{ color: '#94a3b8', px: 1, fontWeight: 600 }}>
                   or
                 </Typography>
@@ -338,16 +337,17 @@ export default function LoginPage() {
                 fullWidth
                 variant="outlined"
                 sx={{
-                  py: 1.2,
-                  borderRadius: 2.5,
+                  py: 1.1,
+                  borderRadius: 1.5,
                   textTransform: 'none',
-                  fontWeight: 700,
-                  color: '#0284c7',
-                  borderColor: '#bae6fd',
-                  bgcolor: '#f0f9ff',
-                  background: 'linear-gradient(180deg, #f0f9ff, #ffffff)',
-                  '&:hover': { bgcolor: '#e0f2fe', borderColor: '#7dd3fc', transform: 'translateY(-1px)' },
-                  transition: 'all 0.2s ease',
+                  fontWeight: 600,
+                  color: '#0F4C81',
+                  borderColor: '#cbd5e1',
+                  bgcolor: '#ffffff',
+                  '&:hover': {
+                    bgcolor: '#f8fafc',
+                    borderColor: '#0F4C81',
+                  },
                 }}
               >
                 Consumer portal sign-in

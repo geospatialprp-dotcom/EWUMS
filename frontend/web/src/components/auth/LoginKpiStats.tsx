@@ -95,6 +95,7 @@ function StatCard({
   const animated = useAnimatedNumber(value);
   const Icon = item.icon;
   const showSuffix = item.suffix && value > 0;
+  void pulse;
 
   return (
     <Box
@@ -102,19 +103,11 @@ function StatCard({
         flex: 1,
         minWidth: 0,
         p: 1,
-        borderRadius: 2,
+        borderRadius: 1.5,
         bgcolor: 'rgba(255,255,255,0.04)',
         border: '1px solid rgba(148, 163, 184, 0.15)',
-        backdropFilter: 'blur(8px)',
-        transition: 'transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease',
-        animation: pulse ? 'kpiPulse 0.6s ease' : 'none',
-        '@keyframes kpiPulse': {
-          '0%': { boxShadow: `0 0 0 0 ${item.color}44` },
-          '70%': { boxShadow: `0 0 0 8px ${item.color}00` },
-          '100%': { boxShadow: 'none' },
-        },
+        transition: 'border-color 0.2s ease',
         '&:hover': {
-          transform: 'translateY(-2px)',
           borderColor: `${item.color}55`,
         },
       }}
