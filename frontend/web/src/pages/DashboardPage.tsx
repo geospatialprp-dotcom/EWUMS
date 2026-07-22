@@ -453,7 +453,7 @@ export default function DashboardPage() {
 
           <Box sx={{ display: { xs: 'block', md: 'none' } }}>
             <Typography variant="subtitle2" fontWeight={700} color="text.secondary" mb={1}>
-              Field quick actions
+              {t('nav.fieldQuickActions')}
             </Typography>
             <MobileQuickActionStrip />
           </Box>

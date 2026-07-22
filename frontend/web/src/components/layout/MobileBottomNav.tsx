@@ -22,6 +22,8 @@ import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
 import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined';
+import LandscapeOutlinedIcon from '@mui/icons-material/LandscapeOutlined';
+import InventoryIcon from '@mui/icons-material/Inventory';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { isSecretariatScopedUser } from '../../utils/roleNavigation';
@@ -49,14 +51,16 @@ type MoreItem = { path: string; labelKey: string; icon: React.ReactNode; permiss
 
 const MORE_ITEMS: MoreItem[] = [
   { path: '/platform', labelKey: 'nav.platformModules', icon: <AppsOutlinedIcon />, permission: 'project:read' },
+  { path: '/assets', labelKey: 'nav.assetRegistry', icon: <InventoryIcon />, permission: 'asset:read' },
   { path: '/dpr-planning', labelKey: 'nav.dprApprovalPipeline', icon: <DescriptionOutlinedIcon />, permission: 'dpr_proposal:read' },
+  { path: '/land-acquisition', labelKey: 'nav.landAcquisition', icon: <LandscapeOutlinedIcon />, permission: 'la_case:read' },
   { path: '/om', labelKey: 'nav.omManagement', icon: <BuildCircleOutlinedIcon />, permission: 'om:read' },
   { path: '/billing', labelKey: 'nav.billingRevenue', icon: <ReceiptLongOutlinedIcon />, permission: 'om:read' },
   { path: '/complaints', labelKey: 'nav.consumerComplaints', icon: <ReportProblemOutlinedIcon />, permission: 'om:read' },
 ];
 
 /**
- * Touch-first bottom navigation for phones/tablets in portrait.
+ * Touch-first bottom navigation for phones.
  * Desktop keeps the left sidebar; this is hidden from md+.
  */
 export default function MobileBottomNav() {
@@ -77,7 +81,7 @@ export default function MobileBottomNav() {
       items = items.filter((item) => item.path === '/dpr-planning');
     }
     if (contractorScoped) {
-      items = items.filter((item) => ['/om', '/platform'].includes(item.path));
+      items = items.filter((item) => ['/om', '/platform', '/assets'].includes(item.path));
     }
     return items;
   }, [hasPermission, secretariatScoped, contractorScoped]);
@@ -100,8 +104,10 @@ export default function MobileBottomNav() {
           zIndex: (theme) => theme.zIndex.appBar,
           borderTop: '1px solid',
           borderColor: 'divider',
-          bgcolor: 'background.paper',
+          bgcolor: 'rgba(255,255,255,0.96)',
+          backdropFilter: 'blur(10px)',
           pb: 'env(safe-area-inset-bottom)',
+          boxShadow: '0 -4px 20px rgba(15, 23, 42, 0.06)',
         }}
       >
         <BottomNavigation
@@ -116,6 +122,7 @@ export default function MobileBottomNav() {
           }}
           sx={{
             height: MOBILE_BOTTOM_NAV_HEIGHT,
+            bgcolor: 'transparent',
             '& .MuiBottomNavigationAction-root': {
               minWidth: 0,
               px: 0.5,
@@ -129,11 +136,11 @@ export default function MobileBottomNav() {
             },
           }}
         >
-          <BottomNavigationAction value="home" label="Home" icon={<HomeOutlinedIcon />} />
-          <BottomNavigationAction value="projects" label="Projects" icon={<AssignmentOutlinedIcon />} />
-          <BottomNavigationAction value="map" label="Map" icon={<MapOutlinedIcon />} />
-          <BottomNavigationAction value="tasks" label="Tasks" icon={<InboxOutlinedIcon />} />
-          <BottomNavigationAction value="more" label="More" icon={<MoreHorizIcon />} />
+          <BottomNavigationAction value="home" label={t('nav.home')} icon={<HomeOutlinedIcon />} />
+          <BottomNavigationAction value="projects" label={t('nav.projectManagement')} icon={<AssignmentOutlinedIcon />} />
+          <BottomNavigationAction value="map" label={t('nav.mapExplorer')} icon={<MapOutlinedIcon />} />
+          <BottomNavigationAction value="tasks" label={t('nav.tasks')} icon={<InboxOutlinedIcon />} />
+          <BottomNavigationAction value="more" label={t('nav.more')} icon={<MoreHorizIcon />} />
         </BottomNavigation>
       </Paper>
 
@@ -145,15 +152,16 @@ export default function MobileBottomNav() {
           sx: {
             borderTopLeftRadius: 16,
             borderTopRightRadius: 16,
-            maxHeight: '70vh',
+            maxHeight: '75vh',
             pb: 'env(safe-area-inset-bottom)',
+            bgcolor: 'background.paper',
           },
         }}
       >
         <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
           <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'grey.300', mx: 'auto', mb: 1.5 }} />
           <Typography variant="subtitle1" fontWeight={700} mb={1}>
-            More modules
+            {t('nav.moreModules')}
           </Typography>
         </Box>
         <List disablePadding sx={{ px: 1, pb: 2 }}>
@@ -162,9 +170,19 @@ export default function MobileBottomNav() {
               key={item.path}
               onClick={() => go(item.path)}
               selected={location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)}
-              sx={{ borderRadius: 2, mb: 0.5, minHeight: 48 }}
+              sx={{
+                borderRadius: 2,
+                mb: 0.5,
+                minHeight: 52,
+                border: '1px solid',
+                borderColor: 'transparent',
+                '&.Mui-selected': {
+                  bgcolor: 'rgba(15, 76, 129, 0.08)',
+                  borderColor: 'rgba(15, 76, 129, 0.16)',
+                },
+              }}
             >
-              <ListItemIcon sx={{ minWidth: 40, color: 'primary.main' }}>{item.icon}</ListItemIcon>
+              <ListItemIcon sx={{ minWidth: 44, color: 'primary.main' }}>{item.icon}</ListItemIcon>
               <ListItemText
                 primary={t(item.labelKey)}
                 primaryTypographyProps={{ fontWeight: 600, fontSize: '0.9375rem' }}

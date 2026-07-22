@@ -116,7 +116,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
 
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('egip.sidebarCollapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const { user, hasPermission } = useAuth();
   const { t } = useTranslation();
@@ -127,10 +133,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
 
   useEffect(() => {
-    if (isDesktop) setSidebarCollapsed(false);
-  }, [isDesktop]);
+    try {
+      localStorage.setItem('egip.sidebarCollapsed', sidebarCollapsed ? '1' : '0');
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [sidebarCollapsed]);
 
-  const drawerCollapsed = !isMobile && !isDesktop && sidebarCollapsed;
+  /** Collapsible rail on tablet/desktop (md+). Mobile uses temporary drawer. */
+  const drawerCollapsed = isDesktop && sidebarCollapsed;
   const drawerWidth = drawerCollapsed ? DRAWER_WIDTH_MINI : DRAWER_WIDTH;
 
   const secretariatScoped = isSecretariatScopedUser(user?.roles);
@@ -199,7 +210,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Box>
           </Box>
         )}
-        {!isMobile && !isDesktop && (
+        {!isMobile && (
           <IconButton
             onClick={() => setSidebarCollapsed((v) => !v)}
             size="small"

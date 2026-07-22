@@ -213,6 +213,20 @@ export const theme = createTheme({
         paper: { borderRight: 'none' },
       },
     },
+    MuiBottomNavigation: {
+      styleOverrides: {
+        root: {
+          backgroundImage: 'none',
+        },
+      },
+    },
+    MuiBottomNavigationAction: {
+      styleOverrides: {
+        root: {
+          minHeight: 56,
+        },
+      },
+    },
     MuiCssBaseline: {
       styleOverrides: {
         html: { overflowX: 'hidden' },

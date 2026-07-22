@@ -54,14 +54,15 @@ export default function AppBreadcrumbs() {
       separator={<NavigateNextIcon fontSize="small" sx={{ color: 'text.disabled' }} />}
       aria-label="Breadcrumb"
       sx={{
-        display: { xs: 'none', sm: 'flex' },
-        mb: 1.5,
+        display: { xs: 'flex', sm: 'flex' },
+        mb: { xs: 1, sm: 1.5 },
         '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' },
         '& .MuiBreadcrumbs-li': { minWidth: 0 },
+        '& .MuiBreadcrumbs-separator': { mx: 0.5 },
       }}
     >
       <Link component={RouterLink} to="/dashboard" underline="hover" color="text.secondary" variant="caption" fontWeight={600}>
-        Home
+        {t('nav.home')}
       </Link>
       {crumbs.map((crumb) =>
         crumb.last ? (

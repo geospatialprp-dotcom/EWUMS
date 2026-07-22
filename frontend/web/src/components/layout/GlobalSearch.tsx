@@ -3,15 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import {
   Autocomplete,
   Box,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  IconButton,
   InputAdornment,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import CloseIcon from '@mui/icons-material/Close';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { isSecretariatScopedUser } from '../../utils/roleNavigation';
 import { isContractorUser } from '../../utils/operationalAccess';
+import { appTouchIconButtonSx } from '../../utils/appShellStyles';
 
 type SearchItem = {
   path: string;
@@ -37,8 +45,13 @@ const SEARCH_ITEMS: SearchItem[] = [
   { path: '/admin/audit', labelKey: 'nav.auditTrail', group: 'Admin', permission: 'audit:read' },
 ];
 
-/** Desktop global module search — navigation only (no API change). */
-export default function GlobalSearch() {
+function SearchAutocomplete({
+  autoFocus = false,
+  onNavigate,
+}: {
+  autoFocus?: boolean;
+  onNavigate?: () => void;
+}) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { hasPermission, user } = useAuth();
@@ -62,48 +75,117 @@ export default function GlobalSearch() {
   }, [hasPermission, secretariatScoped, contractorScoped, t]);
 
   return (
-    <Box sx={{ display: { xs: 'none', md: 'block' }, flex: 1, maxWidth: 420, minWidth: 180, mx: 2 }}>
-      <Autocomplete
-        open={open}
-        onOpen={() => setOpen(true)}
-        onClose={() => setOpen(false)}
-        options={options}
-        groupBy={(option) => option.group}
-        getOptionLabel={(option) => option.label}
-        noOptionsText="No modules found"
-        onChange={(_e, value) => {
-          if (value) navigate(value.path);
-        }}
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            placeholder="Search modules…"
-            size="small"
-            InputProps={{
-              ...params.InputProps,
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ color: 'text.disabled', fontSize: 20 }} />
-                </InputAdornment>
-              ),
-            }}
+    <Autocomplete
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
+      options={options}
+      groupBy={(option) => option.group}
+      getOptionLabel={(option) => option.label}
+      noOptionsText={t('common.noResults')}
+      onChange={(_e, value) => {
+        if (value) {
+          navigate(value.path);
+          onNavigate?.();
+        }
+      }}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          autoFocus={autoFocus}
+          placeholder={t('common.searchModules')}
+          size="small"
+          InputProps={{
+            ...params.InputProps,
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ color: 'text.disabled', fontSize: 20 }} />
+              </InputAdornment>
+            ),
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              bgcolor: 'grey.50',
+              borderRadius: 2,
+              minHeight: 44,
+              '& fieldset': { borderColor: 'divider' },
+            },
+          }}
+        />
+      )}
+      renderOption={(props, option) => (
+        <li {...props} key={option.path}>
+          <Typography variant="body2" fontWeight={600}>
+            {option.label}
+          </Typography>
+        </li>
+      )}
+    />
+  );
+}
+
+/** Global module search — desktop inline field; mobile opens a full-screen dialog. */
+export default function GlobalSearch() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { t } = useTranslation();
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  if (isMobile) {
+    return (
+      <>
+        <IconButton
+          aria-label={t('common.search')}
+          onClick={() => setDialogOpen(true)}
+          sx={{
+            ...appTouchIconButtonSx(),
+            color: '#334155',
+            flexShrink: 0,
+            display: { xs: 'inline-flex', md: 'none' },
+          }}
+        >
+          <SearchIcon />
+        </IconButton>
+        <Dialog
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+          fullScreen
+          PaperProps={{ sx: { bgcolor: 'background.default' } }}
+        >
+          <DialogTitle
             sx={{
-              '& .MuiOutlinedInput-root': {
-                bgcolor: 'grey.50',
-                borderRadius: 2,
-                '& fieldset': { borderColor: 'divider' },
-              },
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              py: 1.5,
+              px: 2,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              bgcolor: 'background.paper',
             }}
-          />
-        )}
-        renderOption={(props, option) => (
-          <li {...props} key={option.path}>
-            <Typography variant="body2" fontWeight={600}>
-              {option.label}
+          >
+            <Typography variant="subtitle1" fontWeight={700}>
+              {t('common.search')}
             </Typography>
-          </li>
-        )}
-      />
+            <IconButton
+              aria-label={t('common.close')}
+              onClick={() => setDialogOpen(false)}
+              sx={appTouchIconButtonSx()}
+            >
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 2, px: 2 }}>
+            <SearchAutocomplete autoFocus onNavigate={() => setDialogOpen(false)} />
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  return (
+    <Box sx={{ display: { xs: 'none', md: 'block' }, flex: 1, maxWidth: 420, minWidth: 180, mx: 2 }}>
+      <SearchAutocomplete />
     </Box>
   );
 }

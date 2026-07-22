@@ -40,3 +40,8 @@ export function hasOperationalRole(
   if (isSuperAdmin(roles)) return false;
   return roles?.some((r) => allowed.includes(r)) ?? false;
 }
+
+/** Contractor portal users — limited module navigation. */
+export function isContractorUser(roles?: string[] | null): boolean {
+  return roles?.includes('contractor') ?? false;
+}

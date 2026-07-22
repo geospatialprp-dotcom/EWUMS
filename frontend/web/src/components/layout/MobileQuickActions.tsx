@@ -25,21 +25,71 @@ type QuickAction = {
   icon: React.ReactNode;
   path: string;
   permission?: string;
+  tone: string;
 };
 
 const FIELD_ACTIONS: QuickAction[] = [
-  { id: 'progress', label: 'Add Progress', icon: <TrendingUpOutlinedIcon />, path: '/projects', permission: 'project:read' },
-  { id: 'visit', label: 'Site Visit', icon: <TravelExploreOutlinedIcon />, path: '/projects', permission: 'project:read' },
-  { id: 'photo', label: 'Upload Photo', icon: <AddAPhotoOutlinedIcon />, path: '/projects', permission: 'project:read' },
-  { id: 'measure', label: 'Add Measurement', icon: <StraightenOutlinedIcon />, path: '/projects', permission: 'project:read' },
-  { id: 'project', label: 'View Project', icon: <AssignmentOutlinedIcon />, path: '/projects', permission: 'project:read' },
-  { id: 'map', label: 'View Map', icon: <MapOutlinedIcon />, path: '/map', permission: 'project:read' },
-  { id: 'issue', label: 'Report Issue', icon: <ReportProblemOutlinedIcon />, path: '/complaints', permission: 'om:read' },
+  {
+    id: 'progress',
+    label: 'Add Progress',
+    icon: <TrendingUpOutlinedIcon />,
+    path: '/projects',
+    permission: 'project:read',
+    tone: '#0F4C81',
+  },
+  {
+    id: 'visit',
+    label: 'Site Visit',
+    icon: <TravelExploreOutlinedIcon />,
+    path: '/projects',
+    permission: 'project:read',
+    tone: '#0F766E',
+  },
+  {
+    id: 'photo',
+    label: 'Upload Photo',
+    icon: <AddAPhotoOutlinedIcon />,
+    path: '/projects',
+    permission: 'project:read',
+    tone: '#0369A1',
+  },
+  {
+    id: 'measure',
+    label: 'Add Measurement',
+    icon: <StraightenOutlinedIcon />,
+    path: '/projects',
+    permission: 'project:read',
+    tone: '#B45309',
+  },
+  {
+    id: 'project',
+    label: 'View Project',
+    icon: <AssignmentOutlinedIcon />,
+    path: '/projects',
+    permission: 'project:read',
+    tone: '#334155',
+  },
+  {
+    id: 'map',
+    label: 'View Map',
+    icon: <MapOutlinedIcon />,
+    path: '/map',
+    permission: 'project:read',
+    tone: '#047857',
+  },
+  {
+    id: 'issue',
+    label: 'Report Issue',
+    icon: <ReportProblemOutlinedIcon />,
+    path: '/complaints',
+    permission: 'om:read',
+    tone: '#B91C1C',
+  },
 ];
 
 /**
- * Mobile field quick actions — SpeedDial on non-home pages;
- * horizontal action strip intended for dashboard/home cards.
+ * Touch-first field quick actions for mobile home.
+ * Routes to existing modules only — no new APIs or workflows.
  */
 export function MobileQuickActionStrip({ compact = false }: { compact?: boolean }) {
   const navigate = useNavigate();
@@ -55,36 +105,58 @@ export function MobileQuickActionStrip({ compact = false }: { compact?: boolean 
       sx={{
         display: 'grid',
         gridTemplateColumns: compact ? 'repeat(4, 1fr)' : 'repeat(2, minmax(0, 1fr))',
-        gap: 1,
-        mb: 2,
+        gap: 1.25,
+        mb: 2.5,
       }}
     >
-      {actions.slice(0, compact ? 4 : 6).map((action) => (
+      {actions.map((action) => (
         <ButtonBase
           key={action.id}
           onClick={() => navigate(action.path)}
           sx={{
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'center',
-            gap: 0.75,
-            minHeight: compact ? 72 : 84,
-            px: 1,
+            justifyContent: 'flex-start',
+            gap: 1.25,
+            minHeight: 56,
+            px: 1.5,
             py: 1.25,
             borderRadius: 2.5,
             border: '1px solid',
             borderColor: 'divider',
             bgcolor: 'background.paper',
-            boxShadow: 1,
-            textAlign: 'center',
-            '&:active': { bgcolor: 'grey.50' },
+            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)',
+            textAlign: 'left',
+            transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
+            '&:active': {
+              bgcolor: 'grey.50',
+              boxShadow: 'none',
+            },
           }}
         >
-          <Box sx={{ color: 'primary.main', display: 'flex', '& .MuiSvgIcon-root': { fontSize: 26 } }}>
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: 2,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: `${action.tone}14`,
+              color: action.tone,
+              '& .MuiSvgIcon-root': { fontSize: 22 },
+            }}
+          >
             {action.icon}
           </Box>
-          <Typography variant="caption" fontWeight={700} color="text.primary" sx={{ lineHeight: 1.2 }}>
+          <Typography
+            variant="caption"
+            fontWeight={700}
+            color="text.primary"
+            sx={{ lineHeight: 1.25, fontSize: '0.75rem' }}
+          >
             {action.label}
           </Typography>
         </ButtonBase>
