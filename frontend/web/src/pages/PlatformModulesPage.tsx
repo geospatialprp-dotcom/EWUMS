@@ -43,8 +43,18 @@ export default function PlatformModulesPage() {
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const visibleModules = useMemo(
-    () => PLATFORM_MODULES.filter((m) => !m.permission || hasPermission(m.permission)),
-    [hasPermission],
+    () =>
+      PLATFORM_MODULES.filter((m) => {
+        if (m.permission && !hasPermission(m.permission)) return false;
+        if (
+          contractorScoped &&
+          ['complaint-management', 'billing-revenue', 'mobile-workforce'].includes(m.key)
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [hasPermission, contractorScoped],
   );
 
   const groupCounts = useMemo(() => {
