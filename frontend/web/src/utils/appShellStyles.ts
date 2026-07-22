@@ -189,16 +189,16 @@ export function appDrawerCompanyLinkSx() {
 
 export function appNavItemSx(selected: boolean, collapsed = false) {
   return {
-    mx: collapsed ? 0.75 : 1.25,
-    mb: 0.35,
-    minHeight: 44,
-    borderRadius: 1.5,
+    mx: collapsed ? 0.5 : 0.75,
+    mb: 0.25,
+    minHeight: 40,
+    borderRadius: 1.25,
     color: selected ? '#f8fafc' : '#cbd5e1',
     bgcolor: selected ? 'rgba(15, 118, 110, 0.28)' : 'transparent',
     borderLeft: selected ? '3px solid #2DD4BF' : '3px solid transparent',
     transition: 'background-color 0.15s ease, color 0.15s ease',
     justifyContent: collapsed ? 'center' : undefined,
-    px: collapsed ? 1 : undefined,
+    px: collapsed ? 0.75 : 1,
     '&.Mui-selected': {
       bgcolor: 'rgba(15, 118, 110, 0.28)',
       color: '#f8fafc',
@@ -210,12 +210,12 @@ export function appNavItemSx(selected: boolean, collapsed = false) {
     },
     '& .MuiListItemIcon-root': {
       color: selected ? '#5EEAD4' : '#94a3b8',
-      minWidth: collapsed ? 0 : 40,
+      minWidth: collapsed ? 0 : 36,
       justifyContent: 'center',
     },
     '& .MuiListItemText-root': collapsed ? { display: 'none' } : undefined,
     '& .MuiListItemText-primary': {
-      fontSize: '0.875rem',
+      fontSize: '0.8125rem',
       fontWeight: selected ? 700 : 500,
       letterSpacing: '0.01em',
     },
