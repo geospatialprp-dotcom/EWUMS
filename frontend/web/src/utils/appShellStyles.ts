@@ -29,12 +29,12 @@ export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
 
 export function appDrawerBrandSx(collapsed = false, isMobile = false) {
   return {
-    px: collapsed ? 1 : isMobile ? 2 : 2,
+    px: collapsed ? 0.75 : isMobile ? 1.5 : 1.25,
     display: 'flex',
     flexDirection: collapsed ? 'column' : isMobile ? 'column' : 'row',
     alignItems: collapsed ? 'center' : isMobile ? 'flex-start' : 'center',
     justifyContent: collapsed ? 'center' : isMobile ? 'flex-start' : 'space-between',
-    gap: collapsed ? 0 : isMobile ? 0 : 0.5,
+    gap: collapsed ? 0 : isMobile ? 0 : 0.25,
     borderBottom: '1px solid rgba(148, 163, 184, 0.18)',
     background: 'linear-gradient(160deg, #0A3559 0%, #0F172A 52%, #0B1220 100%)',
     boxShadow: 'inset 0 -1px 0 rgba(255, 255, 255, 0.04)',
@@ -48,8 +48,8 @@ export function appDrawerBrandSx(collapsed = false, isMobile = false) {
             content: '""',
             position: 'absolute',
             bottom: 0,
-            left: { xs: 20, md: 16 },
-            right: { xs: 20, md: 16 },
+            left: { xs: 16, md: 12 },
+            right: { xs: 16, md: 12 },
             height: '1px',
             background: 'linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.28), transparent)',
           },
@@ -138,11 +138,11 @@ export function appToolbarSx() {
 export function appDrawerEyebrowSx() {
   return {
     color: '#94a3b8',
-    letterSpacing: '0.14em',
+    letterSpacing: '0.1em',
     fontWeight: 600,
     display: 'block',
     lineHeight: 1.15,
-    fontSize: { xs: '0.625rem', md: '0.5625rem' },
+    fontSize: { xs: '0.5625rem', md: '0.5rem' },
     textTransform: 'uppercase' as const,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
@@ -155,7 +155,7 @@ export function appDrawerNameSx() {
     color: '#f8fafc',
     fontWeight: 800,
     letterSpacing: '-0.03em',
-    fontSize: { xs: '1.25rem', md: '1.0625rem' },
+    fontSize: { xs: '1.125rem', md: '0.9375rem' },
     lineHeight: 1.15,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
@@ -167,7 +167,7 @@ export function appDrawerCompanyLinkSx() {
   return {
     display: 'inline-block',
     color: '#94a3b8',
-    fontSize: { xs: '0.6875rem', md: '0.625rem' },
+    fontSize: { xs: '0.625rem', md: '0.5625rem' },
     fontWeight: 600,
     lineHeight: 1.2,
     letterSpacing: '0.02em',
@@ -224,12 +224,12 @@ export function appNavItemSx(selected: boolean, collapsed = false) {
 
 export function appNavSectionLabelSx(collapsed = false) {
   return {
-    px: collapsed ? 0 : 2.5,
-    pt: 1.5,
-    pb: 0.75,
-    fontSize: '0.625rem',
+    px: collapsed ? 0 : 1.75,
+    pt: 1.25,
+    pb: 0.5,
+    fontSize: '0.5625rem',
     fontWeight: 700,
-    letterSpacing: '0.14em',
+    letterSpacing: '0.12em',
     textTransform: 'uppercase' as const,
     color: '#64748b',
     display: collapsed ? 'none' : 'block',
