@@ -468,7 +468,10 @@ export default function MapPage() {
   const refreshEditLayerData = useCallback(async (layer: CatalogLayer) => {
     const { projectId, featureClassId } = layer.sourceConfig;
     if (!projectId || !featureClassId) return;
-    if (layerJurisdiction[layer.id]?.blockedOutsideDistrict) return;
+    // Still load attribute rows for LineString/pipeline layers even if jurisdiction flagged a block.
+    const isLineLayer = layer.sourceConfig.geometryType === 'LineString'
+      || /pipeline|alignment/i.test(layer.name);
+    if (layerJurisdiction[layer.id]?.blockedOutsideDistrict && !isLineLayer) return;
 
     setLayerAttributeLoading((prev) => ({ ...prev, [layer.id]: true }));
     setMapError('');
@@ -762,13 +765,19 @@ export default function MapPage() {
           (result) => result.layerId === focusLayerId && result.jurisdiction?.blockedOutsideDistrict,
         );
         if (blockedFocus?.jurisdiction) {
+          // Keep LineString layers (pipeline alignment) visible — hard-block was blanking the map.
+          const focusLayer = featureClassLayers.find((layer) => layer.id === focusLayerId);
+          const isLineLayer = focusLayer?.sourceConfig.geometryType === 'LineString'
+            || /pipeline|alignment/i.test(focusLayer?.name ?? '');
           setMapError(blockedFocus.jurisdiction.message ?? OUTSIDE_DISTRICT_LAYER_MESSAGE);
-          setLayerVisibility((prev) => ({ ...prev, [focusLayerId]: false }));
-          setActiveEditLayerId('');
-          const nextParams = new URLSearchParams(searchParams);
-          nextParams.delete('layer');
-          nextParams.delete('fit');
-          navigate(`/map?${nextParams.toString()}`, { replace: true });
+          if (!isLineLayer) {
+            setLayerVisibility((prev) => ({ ...prev, [focusLayerId]: false }));
+            setActiveEditLayerId('');
+            const nextParams = new URLSearchParams(searchParams);
+            nextParams.delete('layer');
+            nextParams.delete('fit');
+            navigate(`/map?${nextParams.toString()}`, { replace: true });
+          }
           return;
         }
       })
@@ -1018,7 +1027,15 @@ export default function MapPage() {
   }, []);
 
   const focusLayerBlocked = Boolean(
-    focusLayerId && !featuresLoading && layerJurisdiction[focusLayerId]?.blockedOutsideDistrict,
+    focusLayerId
+    && !featuresLoading
+    && layerJurisdiction[focusLayerId]?.blockedOutsideDistrict
+    && !(
+      featureClassLayers.find((layer) => layer.id === focusLayerId)?.sourceConfig.geometryType === 'LineString'
+      || /pipeline|alignment/i.test(
+        featureClassLayers.find((layer) => layer.id === focusLayerId)?.name ?? '',
+      )
+    ),
   );
 
   const waitingForImportView = shouldFit && Boolean(focusLayerId)
