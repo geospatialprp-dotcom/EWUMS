@@ -42,7 +42,7 @@ type CompensationSummary = {
 };
 
 function inr(v?: number) {
-  return Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  return `₹${Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 function parcelLabel(parcel: Record<string, unknown> | undefined, row: CompensationRow) {
