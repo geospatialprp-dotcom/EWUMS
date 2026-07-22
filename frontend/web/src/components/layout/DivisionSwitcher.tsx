@@ -67,7 +67,7 @@ export default function DivisionSwitcher() {
             <Typography
               variant="body2"
               noWrap
-              sx={{ fontWeight: 600, color: '#334155', fontSize: { xs: '0.7rem', sm: '0.75rem', md: '0.875rem' } }}
+              sx={{ fontWeight: 600, color: '#334155', fontSize: { xs: '0.6875rem', sm: '0.75rem', md: '0.75rem' }, lineHeight: 1.2 }}
             >
               {selectedLabel}
             </Typography>
@@ -77,14 +77,19 @@ export default function DivisionSwitcher() {
           bgcolor: '#fff',
           borderRadius: 1,
           border: '1px solid #e2e8f0',
-          height: { xs: 36, md: 40 },
+          height: { xs: 28, md: 30 },
+          minHeight: { xs: 28, md: 30 },
           '& .MuiSelect-select': {
-            py: { xs: 0.75, md: 1 },
-            pl: { xs: 0.75, md: 1.5 },
-            pr: { xs: 2.5, md: 4 },
+            py: 0,
+            pl: { xs: 0.75, md: 1 },
+            pr: { xs: 2.25, md: 3 },
             display: 'flex',
             alignItems: 'center',
+            minHeight: '28px !important',
+            boxSizing: 'border-box',
           },
+          '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+          '& .MuiSvgIcon-root': { fontSize: 18, right: 4 },
         }}
         aria-label={t('division.label')}
       >
