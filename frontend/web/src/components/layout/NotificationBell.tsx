@@ -21,7 +21,7 @@ import { workflowsApi, WorkflowInboxItem } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useDivisionScopeKey } from '../../context/DivisionContext';
 import { useTranslation } from '../../context/LanguageContext';
-import { appTouchIconButtonSx } from '../../utils/appShellStyles';
+import { appHeaderIconButtonSx } from '../../utils/appShellStyles';
 
 const POLL_INTERVAL_MS = 60_000;
 const DISPLAY_LIMIT = 12;
@@ -70,7 +70,7 @@ class NotificationBellErrorBoundary extends Component<
         <IconButton
           aria-label={this.props.fallbackLabel}
           disabled
-          sx={{ color: '#475569', flexShrink: 0, minWidth: 44, minHeight: 44, ...appTouchIconButtonSx() }}
+          sx={{ color: '#475569', flexShrink: 0, minWidth: 32, minHeight: 32, ...appHeaderIconButtonSx() }}
         >
           <NotificationsOutlinedIcon fontSize="small" />
         </IconButton>
@@ -158,15 +158,15 @@ function NotificationBellInner() {
             flexShrink: 0,
             alignItems: 'center',
             justifyContent: 'center',
-            minWidth: 44,
-            minHeight: 44,
+            minWidth: 32,
+            minHeight: 32,
             lineHeight: 0,
           }}
         >
           <IconButton
             onClick={handleOpen}
             aria-label={t('common.notifications')}
-            sx={{ color: '#475569', flexShrink: 0, ...appTouchIconButtonSx() }}
+            sx={{ color: '#475569', flexShrink: 0, ...appHeaderIconButtonSx() }}
           >
           <Badge
             badgeContent={count}

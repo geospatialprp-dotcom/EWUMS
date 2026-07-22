@@ -14,7 +14,7 @@ import {
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import CloseIcon from '@mui/icons-material/Close';
 import { useTranslation } from '../../context/LanguageContext';
-import { appTouchIconButtonSx } from '../../utils/appShellStyles';
+import { appHeaderIconButtonSx } from '../../utils/appShellStyles';
 
 export default function HelpPanel() {
   const { t } = useTranslation();
@@ -34,7 +34,7 @@ export default function HelpPanel() {
       <IconButton
         onClick={() => setOpen(true)}
         aria-label={t('common.help')}
-        sx={{ color: '#475569', ...appTouchIconButtonSx() }}
+        sx={{ color: '#475569', ...appHeaderIconButtonSx() }}
       >
         <HelpOutlineIcon fontSize="small" />
       </IconButton>
