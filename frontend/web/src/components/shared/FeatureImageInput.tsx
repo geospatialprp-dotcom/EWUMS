@@ -79,7 +79,7 @@ export default function FeatureImageInput({
           <Box
             component="img"
             src={value}
-            alt="Feature"
+            alt="Map item"
             sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           />
           <IconButton

@@ -54,7 +54,7 @@ function featureTitle(
     const value = feature.properties.attributes[titleField.name];
     if (value != null && String(value).trim()) return String(value);
   }
-  return featureClass?.name ?? feature.properties.featureClassName ?? 'Feature';
+  return featureClass?.name ?? feature.properties.featureClassName ?? feature.properties.name ?? 'Selected item';
 }
 
 export default function MapInfoDialog({

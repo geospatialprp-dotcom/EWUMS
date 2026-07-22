@@ -1532,29 +1532,48 @@ export default function MapViewer({
         </Box>
       )}
 
-      {selectedFeature && props && activeTool !== 'info' && (
-        <Paper elevation={0} sx={{
-          position: 'absolute', bottom: 16, left: 72, maxWidth: 360,
-          p: 2, maxHeight: 180, overflow: 'auto',
-          borderRadius: 2, border: 1, borderColor: 'divider',
-          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.1)',
-        }}>
-          <Typography variant="subtitle1" fontWeight={600}>
-            {(props.name as string) ?? (props.featureClassName as string) ?? 'Feature'}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {props.assetCode
-              ? `${props.assetCode as string} · ${props.assetTypeName as string}`
-              : (props.featureClassName as string)}
-          </Typography>
-          {props.status != null ? (
-            <Box mt={1} display="flex" gap={1}>
-              <Chip label={props.status as string} size="small" color={props.status === 'critical' ? 'error' : 'success'} />
-              <Chip label={`Health: ${props.healthScore}%`} size="small" variant="outlined" />
-            </Box>
-          ) : null}
-        </Paper>
-      )}
+      {selectedFeature && props && activeTool !== 'info' && (() => {
+        const title = String(
+          props.name
+            ?? props.assetCode
+            ?? props.featureClassName
+            ?? props.label
+            ?? '',
+        ).trim();
+        // Never show a generic "Feature" highlight card on the map.
+        if (!title || /^feature$/i.test(title)) return null;
+        const subtitle = props.assetCode
+          ? `${String(props.assetCode)}${props.assetTypeName ? ` · ${String(props.assetTypeName)}` : ''}`
+          : (props.featureClassName && String(props.featureClassName) !== title
+            ? String(props.featureClassName)
+            : null);
+        return (
+          <Paper elevation={0} sx={{
+            position: 'absolute', bottom: 16, left: 72, maxWidth: 320,
+            px: 1.5, py: 1, maxHeight: 140, overflow: 'auto',
+            borderRadius: 1.5, border: 1, borderColor: 'divider',
+            boxShadow: '0 4px 16px rgba(15, 23, 42, 0.1)',
+            bgcolor: 'rgba(255,255,255,0.96)',
+          }}>
+            <Typography variant="subtitle2" fontWeight={700} noWrap>
+              {title}
+            </Typography>
+            {subtitle ? (
+              <Typography variant="caption" color="text.secondary" noWrap display="block">
+                {subtitle}
+              </Typography>
+            ) : null}
+            {props.status != null ? (
+              <Box mt={0.75} display="flex" gap={0.75} flexWrap="wrap">
+                <Chip label={props.status as string} size="small" color={props.status === 'critical' ? 'error' : 'success'} />
+                {props.healthScore != null ? (
+                  <Chip label={`Health: ${props.healthScore}%`} size="small" variant="outlined" />
+                ) : null}
+              </Box>
+            ) : null}
+          </Paper>
+        );
+      })()}
     </Box>
   );
 }
