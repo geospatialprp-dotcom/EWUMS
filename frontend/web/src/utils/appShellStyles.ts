@@ -12,7 +12,12 @@ export function appMainTopOffsetSx() {
 
 /** Full-height page content below the app bar. */
 export function appMainHeightSx() {
-  return { height: { xs: 'calc(100vh - 64px)', sm: 'calc(100vh - 68px)' } };
+  return {
+    height: {
+      xs: `calc(100vh - ${APP_TOOLBAR_MIN_HEIGHT.xs}px)`,
+      sm: `calc(100vh - ${APP_TOOLBAR_MIN_HEIGHT.sm}px)`,
+    },
+  };
 }
 
 export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
@@ -102,14 +107,19 @@ export function appDrawerBrandTextStackSx(isMobile = false) {
 /** Shared md+ height so sidebar brand and AppBar share one clean edge. Mobile drawer uses auto height. */
 export function appDrawerBrandHeightSx(collapsed = false, isMobile = false) {
   if (collapsed) {
-    return { minHeight: 56, height: 56, maxHeight: 56, py: 0 };
+    return {
+      minHeight: APP_HEADER_HEIGHT_MD,
+      height: APP_HEADER_HEIGHT_MD,
+      maxHeight: APP_HEADER_HEIGHT_MD,
+      py: 0,
+    };
   }
   if (isMobile) {
     return {
-      minHeight: 72,
+      minHeight: 56,
       height: 'auto',
       maxHeight: 'none',
-      py: 1.5,
+      py: 1,
       overflow: 'visible',
     };
   }
@@ -123,13 +133,16 @@ export function appDrawerBrandHeightSx(collapsed = false, isMobile = false) {
 
 export function appToolbarSx() {
   return {
-    minHeight: APP_TOOLBAR_MIN_HEIGHT,
-    height: { md: APP_HEADER_HEIGHT_MD },
-    maxHeight: { md: APP_HEADER_HEIGHT_MD },
-    gap: { xs: 0.5, sm: 1 },
-    px: { xs: 1, sm: 2 },
-    py: { xs: 0.25, sm: 0 },
-    overflow: 'visible',
+    '&.MuiToolbar-root': {
+      minHeight: { xs: APP_TOOLBAR_MIN_HEIGHT.xs, sm: APP_HEADER_HEIGHT_MD },
+    },
+    minHeight: { xs: APP_TOOLBAR_MIN_HEIGHT.xs, sm: APP_HEADER_HEIGHT_MD },
+    height: { xs: APP_TOOLBAR_MIN_HEIGHT.xs, sm: APP_HEADER_HEIGHT_MD },
+    maxHeight: { xs: APP_TOOLBAR_MIN_HEIGHT.xs, sm: APP_HEADER_HEIGHT_MD },
+    gap: { xs: 0.5, sm: 0.75 },
+    px: { xs: 1, sm: 1.5 },
+    py: 0,
+    overflow: 'hidden',
     flexWrap: 'nowrap',
     justifyContent: 'flex-start',
   };
@@ -248,6 +261,17 @@ export function appTouchIconButtonSx() {
   };
 }
 
+/** Compact header toolbar icons — fit 52px app bar. */
+export function appHeaderIconButtonSx() {
+  return {
+    width: 32,
+    height: 32,
+    minWidth: 32,
+    minHeight: 32,
+    p: 0.5,
+  };
+}
+
 export function appBarSx() {
   return {
     bgcolor: 'rgba(255, 255, 255, 0.92)',
@@ -307,9 +331,9 @@ export function appNotificationBellSlotSx() {
     flexGrow: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 44,
-    minHeight: 44,
-    width: 44,
+    minWidth: 32,
+    minHeight: 32,
+    width: 32,
     visibility: 'visible' as const,
     overflow: 'visible' as const,
     position: 'relative' as const,
@@ -340,8 +364,8 @@ export function appBarTitleSx() {
     fontWeight: 700,
     letterSpacing: '-0.01em',
     color: '#0f172a',
-    fontSize: { xs: '0.72rem', sm: '0.875rem', md: '1.0625rem', lg: '1.125rem' },
-    lineHeight: { xs: 1.2, sm: 1.25, md: 1.3 },
+    fontSize: { xs: '0.6875rem', sm: '0.8125rem', md: '0.9375rem', lg: '1rem' },
+    lineHeight: 1.2,
     minWidth: 0,
     display: { xs: '-webkit-box', md: 'block' },
     WebkitLineClamp: { xs: 2, md: 'unset' as const },

@@ -12,8 +12,8 @@ export const DRAWER_WIDTH = 156;
 export const DRAWER_WIDTH_MINI = 56;
 
 export const APP_TOOLBAR_MIN_HEIGHT = {
-  xs: 64,
-  sm: 68,
+  xs: 48,
+  sm: 52,
 } as const;
 
 export const APP_HEADER_HEIGHT_MD = APP_TOOLBAR_MIN_HEIGHT.sm;

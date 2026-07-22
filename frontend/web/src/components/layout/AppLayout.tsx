@@ -315,7 +315,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               aria-label={`${APP_BRAND.companyName} website`}
               sx={appBarLogoLinkSx()}
             >
-              <AppLogo height={isMobile ? 34 : 46} />
+              <AppLogo height={isMobile ? 28 : 34} />
             </Box>
             <Typography component="h1" variant="h6" sx={appBarTitleSx()}>
               {APP_BRAND.headerTitle}
