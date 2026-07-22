@@ -35,7 +35,6 @@ import AppLogo from '../branding/AppLogo';
 import DepartmentLogoMenu from '../branding/DepartmentLogoMenu';
 import ApiModeBanner from './ApiModeBanner';
 import DivisionSwitcher from './DivisionSwitcher';
-import GlobalSearch from './GlobalSearch';
 import LanguageSwitcher from './LanguageSwitcher';
 import HelpPanel from './HelpPanel';
 import MobileBottomNav from './MobileBottomNav';
@@ -309,9 +308,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Typography>
           </Box>
 
-          <GlobalSearch />
-
-          <Box sx={{ flex: { xs: '0 0 auto', md: 0 }, minWidth: { xs: 0, md: 8 } }} />
+          <Box sx={{ flex: 1, minWidth: 8 }} />
 
           <Box sx={appHeaderActionsSx()}>
             {!secretariatScoped && <DivisionSwitcher />}
