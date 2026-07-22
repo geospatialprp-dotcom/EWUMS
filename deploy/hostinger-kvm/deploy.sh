@@ -19,8 +19,12 @@ set -a
 source .env
 set +a
 
-echo "==> Pulling latest code"
-sudo -u egip git -C ../.. pull --ff-only origin "${BRANCH:-main}"
+echo "==> Syncing code to origin/main"
+# Always deploy from GitHub main. Do not use BRANCH from .env (it may still
+# point at an old feature branch and break --ff-only pulls).
+sudo -u egip git -C ../.. fetch origin main
+sudo -u egip git -C ../.. checkout main
+sudo -u egip git -C ../.. reset --hard origin/main
 
 echo "==> Building images (web + api)"
 ${COMPOSE} build web api
