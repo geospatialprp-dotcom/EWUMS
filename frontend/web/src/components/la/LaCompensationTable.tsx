@@ -3,6 +3,7 @@ import {
 } from '@mui/material';
 import KpiStatCard from '../layout/KpiStatCard';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
+import { formatCompactInr } from '../../utils/formatCompactInr';
 
 type CompensationRow = {
   id?: string;
@@ -41,7 +42,7 @@ type CompensationSummary = {
 };
 
 function inr(v?: number) {
-  return `₹ ${Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return Number(v ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
 function parcelLabel(parcel: Record<string, unknown> | undefined, row: CompensationRow) {
@@ -70,18 +71,30 @@ export default function LaCompensationTable({
   return (
     <Box>
       {summary && (
-        <Grid container spacing={2} mb={2}>
+        <Grid container spacing={1.25} mb={2}>
           <Grid item xs={6} sm={4} md={3}>
-            <KpiStatCard label="Total Compensation" value={inr(summary.totalCompensation)} />
+            {(() => {
+              const c = formatCompactInr(summary.totalCompensation);
+              return <KpiStatCard label="Total Compensation" value={c.display} title={c.full} tone="rose" />;
+            })()}
           </Grid>
           <Grid item xs={6} sm={4} md={3}>
-            <KpiStatCard label="Interest" value={inr(summary.totalInterest)} />
+            {(() => {
+              const c = formatCompactInr(summary.totalInterest);
+              return <KpiStatCard label="Interest" value={c.display} title={c.full} tone="amber" />;
+            })()}
           </Grid>
           <Grid item xs={6} sm={4} md={3}>
-            <KpiStatCard label="Rehabilitation" value={inr(summary.totalRehabilitationCost)} />
+            {(() => {
+              const c = formatCompactInr(summary.totalRehabilitationCost);
+              return <KpiStatCard label="Rehabilitation" value={c.display} title={c.full} tone="violet" />;
+            })()}
           </Grid>
           <Grid item xs={6} sm={4} md={3}>
-            <KpiStatCard label="Total Acquisition Cost" value={inr(summary.totalAcquisitionCost)} />
+            {(() => {
+              const c = formatCompactInr(summary.totalAcquisitionCost);
+              return <KpiStatCard label="Total Acquisition Cost" value={c.display} title={c.full} tone="blue" />;
+            })()}
           </Grid>
         </Grid>
       )}

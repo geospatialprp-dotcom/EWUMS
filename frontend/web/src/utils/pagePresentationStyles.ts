@@ -125,51 +125,71 @@ export function dataTableSx() {
 
 export type KpiTone = 'blue' | 'teal' | 'amber' | 'rose' | 'violet' | 'slate';
 
-const KPI_TONES: Record<KpiTone, { accent: string; bg: string; bar: string; label: string }> = {
-  blue: { accent: '#1e40af', bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', bar: '#2563eb', label: '#1e3a8a' },
-  teal: { accent: '#0f766e', bg: 'linear-gradient(135deg, #ecfdf5 0%, #ccfbf1 100%)', bar: '#0d9488', label: '#134e4a' },
-  amber: { accent: '#b45309', bg: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)', bar: '#d97706', label: '#92400e' },
-  rose: { accent: '#be123c', bg: 'linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)', bar: '#e11d48', label: '#9f1239' },
-  violet: { accent: '#6d28d9', bg: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)', bar: '#7c3aed', label: '#5b21b6' },
-  slate: { accent: '#334155', bg: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)', bar: '#475569', label: '#334155' },
+const KPI_TONES: Record<KpiTone, { accent: string; soft: string; label: string }> = {
+  blue: { accent: '#0F4C81', soft: '#EFF6FF', label: '#475569' },
+  teal: { accent: '#0F766E', soft: '#F0FDFA', label: '#475569' },
+  amber: { accent: '#B45309', soft: '#FFFBEB', label: '#475569' },
+  rose: { accent: '#BE123C', soft: '#FFF1F2', label: '#475569' },
+  violet: { accent: '#5B21B6', soft: '#F5F3FF', label: '#475569' },
+  slate: { accent: '#334155', soft: '#F8FAFC', label: '#475569' },
 };
 
+/** Compact enterprise KPI tile — fits long currency without overflow. */
 export function kpiCardSx(tone: KpiTone = 'blue') {
   const theme = KPI_TONES[tone];
   return {
-    background: theme.bg,
-    border: `1px solid ${theme.accent}22`,
-    borderRadius: 2,
-    p: 2,
+    bgcolor: '#FFFFFF',
+    backgroundImage: `linear-gradient(90deg, ${theme.soft} 0%, #FFFFFF 48%)`,
+    border: '1px solid #E2E8F0',
+    borderLeft: `3px solid ${theme.accent}`,
+    borderRadius: 1.5,
+    px: 1.5,
+    py: 1.25,
+    minHeight: 76,
+    maxWidth: '100%',
     height: '100%',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8)',
-    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: 0.5,
+    overflow: 'hidden',
+    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+    transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
     '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow: `0 8px 24px ${theme.accent}18`,
+      boxShadow: '0 4px 12px rgba(15, 23, 42, 0.06)',
+      borderColor: '#CBD5E1',
     },
   };
 }
 
 export function kpiLabelSx(tone: KpiTone = 'blue') {
-  const theme = KPI_TONES[tone];
   return {
-    fontSize: '0.6875rem',
+    fontSize: '0.625rem',
     fontWeight: 700,
     textTransform: 'uppercase' as const,
-    letterSpacing: '0.08em',
-    color: theme.label,
-    mb: 0.5,
+    letterSpacing: '0.06em',
+    color: KPI_TONES[tone].label,
+    lineHeight: 1.25,
+    mb: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    maxWidth: '100%',
   };
 }
 
 export function kpiValueSx(tone: KpiTone = 'blue') {
   return {
-    fontSize: { xs: '1.5rem', sm: '1.75rem', md: '2rem' },
-    fontWeight: 800,
-    lineHeight: 1.1,
+    fontSize: '1.125rem',
+    fontWeight: 700,
+    lineHeight: 1.2,
     letterSpacing: '-0.02em',
     color: KPI_TONES[tone].accent,
+    maxWidth: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    fontVariantNumeric: 'tabular-nums',
   };
 }
 
