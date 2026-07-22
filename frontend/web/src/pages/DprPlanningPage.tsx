@@ -43,7 +43,6 @@ import {
   canPerformHqReview,
   canPerformTacReview,
   canPerformTacRound2Review,
-  canPlatformInitiateDpr,
   canRecordDprSanction,
   isDivisionDprViewer,
   isSecretariatReviewer,
@@ -104,7 +103,8 @@ export default function DprPlanningPage() {
   const roles = user?.roles ?? [];
   const isSuperAdmin = roles.includes('super_admin');
   const canInitiateAsEe = (roles.includes('ee') || roles.includes('je') || roles.includes('ae')) && !isSuperAdmin;
-  const canInitiateProposal = canInitiateAsEe || canPlatformInitiateDpr(roles);
+  /** Initiate Proposal is division EE/JE/AE only — not Super Admin / platform admin. */
+  const canInitiateProposal = canInitiateAsEe;
   const { activeDivisionId } = useDivisionScope();
   const canHqReview = canPerformHqReview(roles);
   const canForwardToTac = canForwardDprToTac(roles);
@@ -576,12 +576,10 @@ export default function DprPlanningPage() {
       </Box>
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: dprDialogPaperSx }}>
-        <DprDialogHeader stage={1} title={isSuperAdmin ? 'Initiate DPR Proposal (Platform Setup)' : 'Initiate DPR Proposal (Division EE)'} busy={busy} />
+        <DprDialogHeader stage={1} title="Initiate DPR Proposal (Division EE)" busy={busy} />
         <DialogContent sx={dprDialogContentSx}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {isSuperAdmin
-              ? 'Super Admin can initiate proposals for a selected division. Division EE/JE/AE must prepare Stage 1 documents and forward for HQ review.'
-              : 'The system will generate a unique Project Proposal ID (e.g. DPRP-2025-26-KPG-0001). After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding for review.'}
+            The system will generate a unique Project Proposal ID (e.g. DPRP-2025-26-KPG-0001). After creation, upload concept note, estimate, justification, survey data, and GIS boundaries before forwarding for review.
           </Typography>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12}>

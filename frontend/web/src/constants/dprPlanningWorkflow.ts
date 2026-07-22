@@ -191,9 +191,9 @@ export function canInitiateDprTenderPrep(roles: string[]): boolean {
   return isStateReviewer(roles);
 }
 
-/** Super Admin may initiate proposals only — not post-creation pipeline actions. */
-export function canPlatformInitiateDpr(roles: string[]): boolean {
-  return roles.includes('super_admin');
+/** Platform Super Admin does not initiate proposals — division EE/JE/AE only (UI policy). */
+export function canPlatformInitiateDpr(_roles: string[]): boolean {
+  return false;
 }
 
 /** Division users (EE/JE/AE) without HQ state reviewer — read-only TAC tracking. */
