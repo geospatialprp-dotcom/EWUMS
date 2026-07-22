@@ -120,7 +120,7 @@ export default function MapAttributePanel({
     bgcolor: 'background.paper',
     display: 'flex',
     flexDirection: 'column',
-    ...(expanded ? { maxHeight: 220 } : { height: 44 }),
+    ...(expanded ? { maxHeight: 220 } : { height: 32 }),
     flexShrink: 0,
     transition: 'height 0.2s ease',
     flex: embedded ? 1 : undefined,
@@ -131,32 +131,51 @@ export default function MapAttributePanel({
   const content = (
     <>
       <Box
-        px={embedded ? 1 : 1.25}
-        py={embedded ? 0.35 : 0.5}
         display="flex"
         alignItems="center"
-        gap={0.75}
+        gap={0.5}
         sx={{
-          ...(embedded ? arcMapPanelHeaderSx() : {}),
-          px: embedded ? 1 : 1.25,
-          py: embedded ? 0.35 : 0.5,
+          ...(embedded ? arcMapPanelHeaderSx() : { borderBottom: 1, borderColor: 'divider' }),
+          px: 1,
+          py: 0.15,
+          minHeight: 28,
+          height: 28,
+          maxHeight: 28,
+          boxSizing: 'border-box',
           ...(expanded ? {} : { borderBottom: 0 }),
         }}
       >
-        <TableChartOutlinedIcon sx={{ fontSize: 15, color: ARCMAP.accent, flexShrink: 0 }} />
-        <Box flex={1} minWidth={0}>
-          <Typography variant="body2" fontWeight={700} noWrap fontSize="0.75rem">
+        <TableChartOutlinedIcon sx={{ fontSize: 14, color: ARCMAP.accent, flexShrink: 0 }} />
+        <Box
+          flex={1}
+          minWidth={0}
+          display="flex"
+          alignItems="baseline"
+          gap={0.75}
+          overflow="hidden"
+        >
+          <Typography
+            variant="body2"
+            fontWeight={700}
+            noWrap
+            sx={{ fontSize: '0.6875rem', lineHeight: 1.2, flexShrink: 1, minWidth: 0 }}
+          >
             {featureClass.name}
           </Typography>
-          <Typography variant="caption" color="text.secondary" fontSize="0.625rem" noWrap display="block">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            noWrap
+            sx={{ fontSize: '0.5625rem', lineHeight: 1.2, flexShrink: 0 }}
+          >
             {subtitle ?? (
               <>
-                {featureClass.geometryType} layer · {features.length} record{features.length === 1 ? '' : 's'}
+                {featureClass.geometryType} · {features.length} record{features.length === 1 ? '' : 's'}
               </>
             )}
           </Typography>
         </Box>
-        {loading && <CircularProgress size={16} />}
+        {loading && <CircularProgress size={14} />}
         {onDeleteFeature && selectedFeatureId && (
           <Tooltip title="Delete selected feature (Del)">
             <span>
@@ -166,17 +185,17 @@ export default function MapAttributePanel({
                 aria-label="Delete selected feature"
                 disabled={deletingFeatureId === selectedFeatureId}
                 onClick={() => onDeleteFeature(selectedFeatureId)}
-                sx={{ p: 0.35 }}
+                sx={{ p: 0.2 }}
               >
                 {deletingFeatureId === selectedFeatureId
-                  ? <CircularProgress size={14} color="inherit" />
-                  : <DeleteOutlineIcon sx={{ fontSize: 16 }} />}
+                  ? <CircularProgress size={12} color="inherit" />
+                  : <DeleteOutlineIcon sx={{ fontSize: 15 }} />}
               </IconButton>
             </span>
           </Tooltip>
         )}
-        <IconButton size="small" onClick={() => setExpanded((v) => !v)} sx={{ p: 0.35, flexShrink: 0 }}>
-          {expanded ? <KeyboardArrowDownIcon sx={{ fontSize: 18 }} /> : <KeyboardArrowUpIcon sx={{ fontSize: 18 }} />}
+        <IconButton size="small" onClick={() => setExpanded((v) => !v)} sx={{ p: 0.2, flexShrink: 0 }}>
+          {expanded ? <KeyboardArrowDownIcon sx={{ fontSize: 16 }} /> : <KeyboardArrowUpIcon sx={{ fontSize: 16 }} />}
         </IconButton>
       </Box>
 
