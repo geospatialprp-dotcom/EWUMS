@@ -18,18 +18,19 @@ export const ARCMAP_SYM = {
   defaultPointOutline: '#000000',
   defaultLine: '#E53935',
   searchMarker: '#C62828',
-  /** Screen pixels — ArcMap-like simple symbols */
-  pointRadius: 5,
+  /** Screen pixels — thin ArcMap simple symbols */
+  pointRadius: 3.5,
   pointOutlineWidth: 1,
-  lineWidth: 1.5,
-  selectPointRadius: 6,
-  selectLineWidth: 2,
-  sketchPointRadius: 4,
-  sketchLineWidth: 1.5,
-  dimPointRadius: 4,
-  dimLineWidth: 1,
-  polygonOutlineWidth: 1,
-  polygonFillOpacity: 0.22,
+  lineWidth: 1,
+  maxLineWidth: 1.5,
+  selectPointRadius: 4.5,
+  selectLineWidth: 1.5,
+  sketchPointRadius: 3,
+  sketchLineWidth: 1,
+  dimPointRadius: 3,
+  dimLineWidth: 0.75,
+  polygonOutlineWidth: 0.75,
+  polygonFillOpacity: 0.18,
 } as const;
 
 export function arcMapPointStyle(
@@ -86,7 +87,7 @@ export function arcMapSelectionStyle(feature: FeatureLike): Style {
     return arcMapPointStyle(ARCMAP_SYM.selection, {
       radius: ARCMAP_SYM.selectPointRadius,
       outline: ARCMAP_SYM.selectionOutline,
-      outlineWidth: 1.25,
+      outlineWidth: 1,
     });
   }
   if (geomType === 'LineString' || geomType === 'MultiLineString') {
@@ -94,7 +95,7 @@ export function arcMapSelectionStyle(feature: FeatureLike): Style {
   }
   return arcMapPolygonStyle(
     ARCMAP_SYM.selection,
-    'rgba(0, 255, 255, 0.22)',
+    'rgba(0, 255, 255, 0.18)',
     ARCMAP_SYM.selectLineWidth,
   );
 }
@@ -121,15 +122,22 @@ export function arcMapSketchStyle(mode: 'draw' | 'analyze' = 'draw'): Style {
     image: new CircleStyle({
       radius: ARCMAP_SYM.sketchPointRadius,
       fill: new Fill({ color: ARCMAP_SYM.sketchVertexFill }),
-      stroke: new Stroke({ color: color, width: 1.5 }),
+      stroke: new Stroke({ color: color, width: 1 }),
     }),
   });
 }
 
 export function arcMapSearchMarkerStyle(): Style {
   return arcMapPointStyle(ARCMAP_SYM.searchMarker, {
-    radius: 5,
+    radius: 4,
     outline: '#FFFFFF',
-    outlineWidth: 1.25,
+    outlineWidth: 1,
   });
+}
+
+/** Clamp any layer/config stroke width into ArcMap thin range. */
+export function clampArcMapLineWidth(width: number | undefined | null): number {
+  const n = Number(width);
+  if (!Number.isFinite(n) || n <= 0) return ARCMAP_SYM.lineWidth;
+  return Math.min(Math.max(n, 0.75), ARCMAP_SYM.maxLineWidth);
 }

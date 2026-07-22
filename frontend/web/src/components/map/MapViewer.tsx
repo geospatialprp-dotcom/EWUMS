@@ -1028,7 +1028,14 @@ export default function MapViewer({
 
     if (activeTool === 'digitize' && !digitizeGeometryType) return;
 
-    const draw = new Draw({ source: drawSource.current, type: drawType });
+    const sketchStyle = arcMapSketchStyle(
+      activeTool === 'analyze' ? 'analyze' : 'draw',
+    );
+    const draw = new Draw({
+      source: drawSource.current,
+      type: drawType,
+      style: sketchStyle,
+    });
     drawInteraction.current = draw;
     mapInstance.current.addInteraction(draw);
 
@@ -1113,7 +1120,7 @@ export default function MapViewer({
       layers: [editLayer],
       style: selectedEditStyle,
       condition: click,
-      hitTolerance: 6,
+      hitTolerance: 4,
     });
     selectInteraction.current = select;
     map.addInteraction(select);
@@ -1127,6 +1134,8 @@ export default function MapViewer({
     const modify = new Modify({
       source: editSource,
       deleteCondition: vertexDeleteCondition,
+      style: arcMapSketchStyle('draw'),
+      pixelTolerance: 6,
     });
     modifyInteraction.current = modify;
     map.addInteraction(modify);

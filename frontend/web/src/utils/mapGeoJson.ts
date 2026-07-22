@@ -4,7 +4,7 @@ import type FeatureLike from 'ol/Feature';
 import type { StyleLike } from 'ol/style/Style';
 import VectorSource from 'ol/source/Vector';
 import { Fill, Stroke, Style, Text } from 'ol/style';
-import { ARCMAP_SYM, arcMapPointStyle, arcMapLineStyle, arcMapPolygonStyle } from './arcMapSymbology';
+import { ARCMAP_SYM, arcMapPointStyle, arcMapLineStyle, arcMapPolygonStyle, clampArcMapLineWidth } from './arcMapSymbology';
 
 const geoJsonFormat = new GeoJSONFormat();
 
@@ -174,7 +174,7 @@ export function createOverlayStyle(
   viewExtent?: number[],
 ): StyleLike {
   const strokeColor = (styleConfig?.stroke as string) ?? ARCMAP_SYM.defaultLine;
-  const width = Number(styleConfig?.width ?? styleConfig?.strokeWidth ?? ARCMAP_SYM.lineWidth);
+  const width = clampArcMapLineWidth(styleConfig?.width ?? styleConfig?.strokeWidth ?? ARCMAP_SYM.lineWidth);
   const polygonOutline = polygonStyles(strokeColor, Math.max(width, ARCMAP_SYM.polygonOutlineWidth));
   const polygonFillOpacity = Number(styleConfig?.fillOpacity ?? ARCMAP_SYM.polygonFillOpacity);
 
@@ -213,12 +213,13 @@ export function createOverlayStyle(
       const pointRadius = Number(
         featureRadius ?? styleConfig?.pointRadius ?? styleConfig?.radius ?? ARCMAP_SYM.pointRadius,
       );
-      // ArcMap simple marker: solid fill + dark outline (not a thick white halo)
+      const cappedRadius = Math.min(Math.max(pointRadius, 2.5), 5);
+      // ArcMap simple marker: solid fill + thin dark outline (not a thick white halo)
       const outlineColor = pointRing
         ? (markerColor ?? ARCMAP_SYM.defaultLine)
         : ARCMAP_SYM.defaultPointOutline;
       const circleStyle = arcMapPointStyle(pointFill, {
-        radius: pointRadius,
+        radius: cappedRadius,
         outline: outlineColor,
         outlineWidth: ARCMAP_SYM.pointOutlineWidth,
       });
@@ -231,7 +232,7 @@ export function createOverlayStyle(
           new Style({
             text: new Text({
               text: mapLabel.trim(),
-              offsetY: -(pointRadius + 8),
+              offsetY: -(cappedRadius + 7),
               font: '600 9px "Segoe UI", Tahoma, Arial, sans-serif',
               fill: new Fill({ color: '#000000' }),
               stroke: new Stroke({ color: '#ffffff', width: 2 }),
@@ -242,9 +243,7 @@ export function createOverlayStyle(
       return circleStyle;
     }
     if (geomType === 'LineString' || geomType === 'MultiLineString') {
-      // ArcMap simple line — keep configured width in a professional band
-      const lineWidth = Math.min(Math.max(width, 1), 2.5);
-      return arcMapLineStyle(strokeColor, { width: lineWidth });
+      return arcMapLineStyle(strokeColor, { width });
     }
     if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
       const markerColor = typeof feature.get === 'function' ? feature.get('markerColor') as string | undefined : undefined;

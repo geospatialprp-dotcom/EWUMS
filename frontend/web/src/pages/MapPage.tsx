@@ -98,9 +98,14 @@ const DISTRICT_STROKE_COLORS = [
 
 function layerStyle(layer: CatalogLayer) {
   if (layer.sourceConfig.geometryType === 'Polygon') {
-    return { ...layer.defaultStyle, stroke: '#E53935', width: 3 };
+    return { ...layer.defaultStyle, stroke: '#E53935', width: 1 };
   }
-  return layer.defaultStyle;
+  const base = layer.defaultStyle ?? {};
+  return {
+    ...base,
+    width: Math.min(Number(base.width ?? base.strokeWidth ?? 1) || 1, 1.5),
+    radius: Math.min(Number(base.radius ?? base.pointRadius ?? 3.5) || 3.5, 5),
+  };
 }
 
 const IDENTIFY_META_KEYS = new Set(['layerId', 'featureClassName', 'geometryType', 'featureId']);
@@ -1062,7 +1067,7 @@ export default function MapPage() {
         name: 'Analysis results',
         visible: true,
         geometryType: undefined,
-        style: { stroke: '#00897B', fill: '#00897B', width: 4, radius: 10 },
+        style: { stroke: '#00897B', fill: '#00897B', width: 1.25, radius: 4 },
         features: toGeoFeatureCollection(analysisResults),
       });
     }
