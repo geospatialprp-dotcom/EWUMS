@@ -16,7 +16,7 @@ export const APP_BRAND = {
   /** Browser tab title */
   pageTitle: 'S2T2R — Enterprises Water Utility Management System',
   /** Sidebar brand eyebrow */
-  sidebarEyebrow: 'Water Utility Management',
+  sidebarEyebrow: 'Water Utility',
   /** Short company label for sidebar link */
   sidebarCompanyShort: 'PRP Geospatial',
   /** HTML meta description */
