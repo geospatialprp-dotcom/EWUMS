@@ -140,8 +140,9 @@ export function arcMapContentFrameSx(): SxProps<Theme> {
 
 export function arcMapPanelHeaderSx(): SxProps<Theme> {
   return {
-    px: 1.25,
-    py: 0.65,
+    px: 1,
+    py: 0.35,
+    minHeight: 36,
     background: ARCMAP.panelHeaderBg,
     borderBottom: `1px solid ${ARCMAP.panelHeaderBorder}`,
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9)',
@@ -177,9 +178,10 @@ export function arcMapListRowSx(selected = false): SxProps<Theme> {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: 1,
-    px: 1.25,
-    py: 0.75,
+    gap: 0.75,
+    px: 1,
+    py: 0.4,
+    minHeight: 28,
     cursor: 'pointer',
     borderBottom: `1px solid #e8e8e8`,
     bgcolor: selected ? ARCMAP.selectionBg : 'transparent',

@@ -509,17 +509,30 @@ export default function ProjectFeatureClassesPage() {
   const renderDetailPanel = () => {
     if (!selection || selection.type === 'project') {
       return (
-        <Box p={2}>
+        <Box>
           <Box sx={arcMapPanelHeaderSx()}>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ color: ARCMAP.text }}>
+            <Typography
+              variant="subtitle2"
+              fontWeight={700}
+              noWrap
+              sx={{ color: ARCMAP.text, fontSize: '0.8125rem', lineHeight: 1.2 }}
+            >
               Catalog — {projectName}
             </Typography>
-            <Typography variant="caption" sx={{ color: ARCMAP.textMuted }}>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{ color: ARCMAP.textMuted, fontSize: '0.65rem', lineHeight: 1.2, display: 'block' }}
+            >
               Select a geometry group to import survey data or create an empty feature class for digitizing.
             </Typography>
           </Box>
-          <Box p={2}>
-            <Typography variant="caption" fontWeight={700} sx={{ color: ARCMAP.textMuted, mb: 0.75, display: 'block' }}>
+          <Box px={1.25} py={1}>
+            <Typography
+              variant="caption"
+              fontWeight={700}
+              sx={{ color: ARCMAP.textMuted, mb: 0.5, display: 'block', fontSize: '0.65rem' }}
+            >
               Feature class types
             </Typography>
             <Box sx={arcMapListBoxSx()}>
@@ -538,8 +551,8 @@ export default function ProjectFeatureClassesPage() {
                       }));
                     }}
                   >
-                    <GroupIcon sx={{ fontSize: 18, color: ARCMAP.accent }} />
-                    <Typography variant="body2" fontWeight={600} fontSize="0.8125rem">
+                    <GroupIcon sx={{ fontSize: 16, color: ARCMAP.accent }} />
+                    <Typography variant="body2" fontWeight={600} fontSize="0.75rem">
                       {group.label}
                     </Typography>
                   </Box>
@@ -558,15 +571,21 @@ export default function ProjectFeatureClassesPage() {
       return (
         <Box>
           <Box sx={arcMapPanelHeaderSx()}>
-            <Box display="flex" alignItems="center" gap={1}>
-              {GroupIcon ? <GroupIcon sx={{ fontSize: 20, color: ARCMAP.accent }} /> : null}
-              <Typography variant="subtitle2" fontWeight={700}>{group?.label}</Typography>
+            <Box display="flex" alignItems="center" gap={0.75}>
+              {GroupIcon ? <GroupIcon sx={{ fontSize: 16, color: ARCMAP.accent }} /> : null}
+              <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: '0.8125rem', lineHeight: 1.2 }}>
+                {group?.label}
+              </Typography>
             </Box>
-            <Typography variant="caption" sx={{ color: ARCMAP.textMuted, mt: 0.5, display: 'block' }}>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{ color: ARCMAP.textMuted, mt: 0.15, display: 'block', fontSize: '0.65rem', lineHeight: 1.2 }}
+            >
               Import a survey file (CSV, KML, SHP) or create an empty layer for manual entry and map digitizing.
             </Typography>
           </Box>
-          <Box p={2}>
+          <Box px={1.25} py={1}>
             <Box sx={arcMapToolbarGroupSx()} display="inline-flex" mb={2}>
               <ArcMapToolbarButton
                 title="Import survey file"
@@ -627,10 +646,12 @@ export default function ProjectFeatureClassesPage() {
     return (
       <Box display="flex" flexDirection="column" height="100%">
         <Box sx={arcMapPanelHeaderSx()}>
-          <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={1} flexWrap="wrap">
-            <Box>
-              <Typography variant="subtitle2" fontWeight={700}>{selectedClass.name}</Typography>
-              <Typography variant="caption" sx={{ color: ARCMAP.textMuted }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center" gap={1} flexWrap="nowrap">
+            <Box minWidth={0}>
+              <Typography variant="subtitle2" fontWeight={700} noWrap sx={{ fontSize: '0.8125rem', lineHeight: 1.2 }}>
+                {selectedClass.name}
+              </Typography>
+              <Typography variant="caption" noWrap sx={{ color: ARCMAP.textMuted, fontSize: '0.65rem', lineHeight: 1.2, display: 'block' }}>
                 {selectedClass.geometryType === 'Any' ? 'Mixed (Point / Line / Polygon)' : selectedClass.geometryType}
                 {' · '}
                 {selectedClass.featureCount ?? 0} feature(s)
