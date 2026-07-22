@@ -208,6 +208,7 @@ export default function MapAttributePanel({
                   ...headerCellSx,
                   width: ATTRIBUTE_TABLE_INDEX_WIDTH,
                   maxWidth: ATTRIBUTE_TABLE_INDEX_WIDTH,
+                  minWidth: ATTRIBUTE_TABLE_INDEX_WIDTH,
                 }}
                 >
                   #
@@ -218,7 +219,13 @@ export default function MapAttributePanel({
                     align={isIconAttributeField(field) ? 'center' : 'left'}
                     sx={{
                       ...headerCellSx,
-                      ...attributeHeaderCellWidth(field, coordFieldNames, flexibleFieldName),
+                      textAlign: 'left',
+                      ...attributeHeaderCellWidth(
+                        field,
+                        coordFieldNames,
+                        flexibleFieldName,
+                        featureClass.attributeSchema.length,
+                      ),
                     }}
                   >
                     {field.label}
@@ -281,6 +288,8 @@ export default function MapAttributePanel({
                       { name: '_index', label: '#', type: 'integer', required: false },
                       coordFieldNames,
                       { color: 'text.secondary', fontSize: '0.8125rem' },
+                      null,
+                      featureClass.attributeSchema.length,
                     ),
                     width: ATTRIBUTE_TABLE_INDEX_WIDTH,
                     maxWidth: ATTRIBUTE_TABLE_INDEX_WIDTH,
@@ -305,6 +314,7 @@ export default function MapAttributePanel({
                           coordFieldNames,
                           isIconAttributeField(field) ? attributeIconCellSx : {},
                           flexibleFieldName,
+                          featureClass.attributeSchema.length,
                         )}
                       >
                         {readOnly ? (

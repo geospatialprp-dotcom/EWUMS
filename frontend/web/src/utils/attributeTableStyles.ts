@@ -26,6 +26,7 @@ export function attributeColumnWidth(
   }
   if (name.includes('chainage') || label.includes('chainage')) return 96;
   if (name === 'source' || label === 'source') return 100;
+  if (name.includes('admin') || label.includes('admin')) return 100;
   if (label.length <= 5 || name.length <= 5) return 80;
   return 110;
 }
@@ -63,6 +64,30 @@ export const attributeTableSx = {
   tableLayout: 'fixed' as const,
   width: '100%',
 };
+
+/** Shared width for header + body — must stay identical to avoid column mismatch. */
+export function attributeColumnSx(
+  _field: AttributeField,
+  _coordFieldNames?: Set<string>,
+  _flexibleFieldName?: string | null,
+  attributeColumnCount = 1,
+) {
+  const count = Math.max(attributeColumnCount, 1);
+  // Equal shares keep headers aligned with cells under table-layout: fixed.
+  return {
+    width: `${(100 / count).toFixed(4)}%`,
+    minWidth: 0,
+  };
+}
+
+export function attributeHeaderCellWidth(
+  field: AttributeField,
+  coordFieldNames?: Set<string>,
+  flexibleFieldName?: string | null,
+  attributeColumnCount = 1,
+) {
+  return attributeColumnSx(field, coordFieldNames, flexibleFieldName, attributeColumnCount);
+}
 
 export type LayerGeometryTheme = {
   headerBg: string;
@@ -145,18 +170,6 @@ export function attributePanelHeaderSx(geometryType?: string) {
   };
 }
 
-export function attributeHeaderCellWidth(
-  field: AttributeField,
-  coordFieldNames?: Set<string>,
-  flexibleFieldName?: string | null,
-) {
-  const width = attributeColumnWidth(field, coordFieldNames);
-  if (flexibleFieldName && field.name === flexibleFieldName) {
-    return { width: 'auto', minWidth: width };
-  }
-  return { width, maxWidth: width, minWidth: Math.min(width, 96) };
-}
-
 export const attributeHeaderCellSx = {
   fontWeight: 600,
   fontSize: '0.7rem',
@@ -194,9 +207,8 @@ export function attributeBodyCellSx(
   coordFieldNames?: Set<string>,
   extra?: Record<string, unknown>,
   flexibleFieldName?: string | null,
+  attributeColumnCount = 1,
 ) {
-  const width = attributeColumnWidth(field, coordFieldNames);
-  const isFlexible = Boolean(flexibleFieldName && field.name === flexibleFieldName);
   return {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -204,9 +216,8 @@ export function attributeBodyCellSx(
     px: 1,
     py: 0.5,
     verticalAlign: 'middle' as const,
-    ...(isFlexible
-      ? { width: 'auto', minWidth: width }
-      : { width, maxWidth: width, minWidth: Math.min(width, 96) }),
+    textAlign: 'left' as const,
+    ...attributeColumnSx(field, coordFieldNames, flexibleFieldName, attributeColumnCount),
     ...extra,
   };
 }
