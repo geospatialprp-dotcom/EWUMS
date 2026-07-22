@@ -486,17 +486,9 @@ export class GisService {
 
 
 
-      const baseWhere = `pf.tenant_id = $1
+      const areaCoverSuppressorSql = featureClass.geometryType === 'Polygon'
 
-           AND pf.project_id = $2
-
-           AND pf.feature_class_id = $3
-
-           AND pf.geometry IS NOT NULL
-
-           ${pointDedupeSql}
-
-           AND NOT EXISTS (
+        ? `AND NOT EXISTS (
 
              SELECT 1
 
@@ -514,7 +506,23 @@ export class GisService {
 
                AND ST_Covers(larger.geometry, pf.geometry)
 
-           )`;
+           )`
+
+        : '';
+
+
+
+      const baseWhere = `pf.tenant_id = $1
+
+           AND pf.project_id = $2
+
+           AND pf.feature_class_id = $3
+
+           AND pf.geometry IS NOT NULL
+
+           ${pointDedupeSql}
+
+           ${areaCoverSuppressorSql}`;
 
 
 
@@ -564,7 +572,7 @@ export class GisService {
 
 
 
-      const rows = await this.projectFeaturesRepo.query(
+      let rows = await this.projectFeaturesRepo.query(
 
         `SELECT pf.id,
 
@@ -590,23 +598,87 @@ export class GisService {
 
 
 
-      const seen = new Set<string>();
+      const dedupeLayerRows = (source: LayerFeatureRow[]) => {
 
-      const filtered = rows
+        const seen = new Set<string>();
 
-        .filter((row) => row.geojson?.type && row.geojson.coordinates != null)
+        return source
 
-        .filter((row) => {
+          .filter((row) => row.geojson?.type && row.geojson.coordinates != null)
 
-          const key = JSON.stringify(row.geojson!.coordinates);
+          .filter((row) => {
 
-          if (seen.has(key)) return false;
+            const key = JSON.stringify(row.geojson!.coordinates);
 
-          seen.add(key);
+            if (seen.has(key)) return false;
 
-          return true;
+            seen.add(key);
 
-        });
+            return true;
+
+          });
+
+      };
+
+
+
+      let filtered = dedupeLayerRows(rows);
+
+      let alignmentOutsideDistrictShown = false;
+
+
+
+      const isAlignmentLine =
+
+        featureClass.geometryType === 'LineString'
+
+        || featureClass.code === 'la_alignment'
+
+        || /pipeline|alignment/i.test(featureClass.name ?? '')
+
+        || /pipeline|alignment/i.test(featureClass.code ?? '');
+
+
+
+      if (
+
+        isAlignmentLine
+
+        && districtNames?.length
+
+        && (totalBeforeClip ?? 0) > 0
+
+        && filtered.length === 0
+
+      ) {
+
+        rows = await this.projectFeaturesRepo.query(
+
+          `SELECT pf.id,
+
+                  pf.attributes,
+
+                  ST_AsGeoJSON(ST_Force2D(pf.geometry))::json AS geojson,
+
+                  ST_Area(pf.geometry::geography) AS area_sqm,
+
+                  ST_NPoints(pf.geometry) AS npoints
+
+           FROM project_features pf
+
+           WHERE ${baseWhere}
+
+           ORDER BY ST_Area(pf.geometry::geography) DESC, pf.created_at DESC`,
+
+          [tenantId, config.projectId, config.featureClassId],
+
+        ) as LayerFeatureRow[];
+
+        filtered = dedupeLayerRows(rows);
+
+        alignmentOutsideDistrictShown = filtered.length > 0;
+
+      }
 
 
 
@@ -664,11 +736,17 @@ export class GisService {
 
           featureCount: result.length,
 
-          hiddenOutsideBoundary: totalBeforeClip != null
+          hiddenOutsideBoundary: alignmentOutsideDistrictShown
 
-            ? Math.max(0, totalBeforeClip - result.length)
+            ? 0
 
-            : 0,
+            : totalBeforeClip != null
+
+              ? Math.max(0, totalBeforeClip - result.length)
+
+              : 0,
+
+          alignmentOutsideDistrictShown,
 
         },
 
@@ -677,10 +755,26 @@ export class GisService {
 
 
       const jurisdiction = this.divisionAccess.buildLayerJurisdictionMeta(
+
         districtNames,
-        totalBeforeClip ?? result.length,
+
+        alignmentOutsideDistrictShown ? result.length : (totalBeforeClip ?? result.length),
+
         result.length,
+
       );
+
+      if (alignmentOutsideDistrictShown) {
+
+        jurisdiction.message =
+
+          'Pipeline alignment features outside your authorized district are shown for alignment review.';
+
+        jurisdiction.blockedOutsideDistrict = false;
+
+        jurisdiction.hiddenOutsideBoundary = 0;
+
+      }
 
       return {
         features: result,
