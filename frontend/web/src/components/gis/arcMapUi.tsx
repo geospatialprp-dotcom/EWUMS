@@ -75,13 +75,16 @@ export function arcMapToolbarSx(): SxProps<Theme> {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: 0.5,
-    px: 0.75,
-    py: 0.5,
+    gap: 0.35,
+    px: 0.5,
+    py: 0.2,
+    minHeight: 30,
+    height: 30,
     bgcolor: ARCMAP.toolbarBg,
     borderBottom: `1px solid ${ARCMAP.toolbarBorder}`,
     flexShrink: 0,
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
+    overflow: 'hidden',
   };
 }
 
@@ -89,9 +92,11 @@ export function arcMapToolbarGroupSx(): SxProps<Theme> {
   return {
     display: 'flex',
     alignItems: 'center',
-    gap: 0.25,
-    px: 0.5,
-    py: 0.25,
+    gap: 0.15,
+    px: 0.25,
+    py: 0,
+    minHeight: 24,
+    height: 24,
     border: `1px solid ${ARCMAP.toolbarBorder}`,
     borderRadius: 0.5,
     bgcolor: ARCMAP.toolbarGroupBg,
@@ -224,11 +229,14 @@ export function ArcMapToolbarButton({
           onClick={onClick}
           startIcon={icon}
           sx={{
-            minWidth: label ? 72 : 32,
-            px: label ? 1 : 0.75,
-            py: 0.35,
-            fontSize: '0.75rem',
+            minWidth: label ? 64 : 24,
+            minHeight: 22,
+            height: 22,
+            px: label ? 0.75 : 0.35,
+            py: 0,
+            fontSize: '0.6875rem',
             fontWeight: 600,
+            lineHeight: 1,
             textTransform: 'none',
             color: primary ? '#fff' : ARCMAP.text,
             bgcolor: primary ? ARCMAP.accent : 'transparent',
@@ -238,7 +246,11 @@ export function ArcMapToolbarButton({
               bgcolor: primary ? '#2858a8' : 'rgba(49,106,197,0.1)',
               borderColor: ARCMAP.toolbarBorder,
             },
-            '& .MuiButton-startIcon': { mr: label ? 0.5 : 0, ml: 0 },
+            '& .MuiButton-startIcon': {
+              mr: label ? 0.35 : 0,
+              ml: 0,
+              '& > *:nth-of-type(1)': { fontSize: '15px' },
+            },
           }}
         >
           {label}
