@@ -27,7 +27,7 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { isSecretariatScopedUser } from '../../utils/roleNavigation';
-import { isContractorUser } from '../../utils/operationalAccess';
+import { isContractorUser, isSuperAdmin } from '../../utils/operationalAccess';
 
 export const MOBILE_BOTTOM_NAV_HEIGHT = 64;
 
@@ -72,6 +72,7 @@ export default function MobileBottomNav() {
 
   const secretariatScoped = isSecretariatScopedUser(user?.roles);
   const contractorScoped = isContractorUser(user?.roles);
+  const superAdminScoped = isSuperAdmin(user?.roles);
 
   const value = resolveTab(location.pathname);
 
@@ -83,8 +84,11 @@ export default function MobileBottomNav() {
     if (contractorScoped) {
       items = items.filter((item) => ['/om', '/platform', '/assets'].includes(item.path));
     }
+    if (superAdminScoped) {
+      items = items.filter((item) => item.path !== '/assets');
+    }
     return items;
-  }, [hasPermission, secretariatScoped, contractorScoped]);
+  }, [hasPermission, secretariatScoped, contractorScoped, superAdminScoped]);
 
   const go = (path: string) => {
     setMoreOpen(false);
