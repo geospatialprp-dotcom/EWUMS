@@ -39,7 +39,7 @@ import { dashboardApi } from '../services/api';
 import { formatApiError } from '../utils/apiError';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
 import { useAuth } from '../context/AuthContext';
-import { isContractorUser } from '../utils/operationalAccess';
+import { isContractorUser, isSuperAdmin } from '../utils/operationalAccess';
 import { useTranslation } from '../context/LanguageContext';
 import { divisionScopeSubtitle } from '../utils/divisionAccess';
 import PageShell from '../components/layout/PageShell';
@@ -273,6 +273,8 @@ function CommandCenterHero({
 
 function DivisionSummaryCard({ division }: { division: DivisionSummary }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const hideComplaintLinks = isSuperAdmin(user?.roles) || isContractorUser(user?.roles);
   return (
     <Box
       sx={{
@@ -313,18 +315,30 @@ function DivisionSummaryCard({ division }: { division: DivisionSummary }) {
         </Grid>
       </Grid>
       {division.open_complaints > 0 && (
-        <Chip
-          component={RouterLink}
-          to="/complaints"
-          clickable
-          label={t(
-            division.open_complaints > 1 ? 'commandCenter.openComplaintsMany' : 'commandCenter.openComplaintsOne',
-            { count: division.open_complaints },
-          )}
-          size="small"
-          color="warning"
-          sx={{ mt: 1.5, fontSize: '0.65rem' }}
-        />
+        hideComplaintLinks ? (
+          <Chip
+            label={t(
+              division.open_complaints > 1 ? 'commandCenter.openComplaintsMany' : 'commandCenter.openComplaintsOne',
+              { count: division.open_complaints },
+            )}
+            size="small"
+            color="warning"
+            sx={{ mt: 1.5, fontSize: '0.65rem' }}
+          />
+        ) : (
+          <Chip
+            component={RouterLink}
+            to="/complaints"
+            clickable
+            label={t(
+              division.open_complaints > 1 ? 'commandCenter.openComplaintsMany' : 'commandCenter.openComplaintsOne',
+              { count: division.open_complaints },
+            )}
+            size="small"
+            color="warning"
+            sx={{ mt: 1.5, fontSize: '0.65rem' }}
+          />
+        )
       )}
     </Box>
   );
@@ -460,9 +474,11 @@ export default function DashboardPage() {
           </Box>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 3, display: { xs: 'none', md: 'flex' } }}>
-            {QUICK_ACTION_KEYS.filter((action) =>
-              !(isContractorUser(user?.roles) && action.to === '/billing'),
-            ).map((action) => (
+            {QUICK_ACTION_KEYS.filter((action) => {
+              if (isContractorUser(user?.roles) && action.to === '/billing') return false;
+              if (isSuperAdmin(user?.roles) && (action.to === '/billing' || action.to === '/projects')) return false;
+              return true;
+            }).map((action) => (
               <Button
                 key={action.to}
                 component={RouterLink}
@@ -500,7 +516,7 @@ export default function DashboardPage() {
               );
               return (
                 <Grid item xs={12} sm={6} md={2.4} key={kpi.id}>
-                  {kpi.id === 'open_complaints' ? (
+                  {kpi.id === 'open_complaints' && !isSuperAdmin(user?.roles) && !isContractorUser(user?.roles) ? (
                     <Box
                       component={RouterLink}
                       to="/complaints"

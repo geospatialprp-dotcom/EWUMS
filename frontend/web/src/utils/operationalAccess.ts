@@ -45,3 +45,22 @@ export function hasOperationalRole(
 export function isContractorUser(roles?: string[] | null): boolean {
   return roles?.includes('contractor') ?? false;
 }
+
+/**
+ * Operational workspaces Super Admin should not drive from chrome.
+ * They monitor activity via Dashboard, Workflows, and Admin → Audit.
+ */
+export const SUPER_ADMIN_HIDDEN_NAV_PATHS = [
+  '/assets',
+  '/projects',
+  '/om',
+  '/complaints',
+  '/billing',
+  '/mobile-billing',
+] as const;
+
+export function isSuperAdminHiddenNavPath(path: string): boolean {
+  return (SUPER_ADMIN_HIDDEN_NAV_PATHS as readonly string[]).some(
+    (hidden) => path === hidden || path.startsWith(`${hidden}/`),
+  );
+}

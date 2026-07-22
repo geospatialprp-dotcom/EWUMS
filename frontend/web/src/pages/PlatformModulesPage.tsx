@@ -13,7 +13,7 @@ import PageHeader from '../components/layout/PageHeader';
 import KpiStatCard from '../components/layout/KpiStatCard';
 import { useAuth } from '../context/AuthContext';
 import { useDivisionScope } from '../context/DivisionContext';
-import { isContractorUser } from '../utils/operationalAccess';
+import { isContractorUser, isSuperAdmin, isSuperAdminHiddenNavPath } from '../utils/operationalAccess';
 import { buildMapExplorerUrl, divisionScopeSubtitle } from '../utils/divisionAccess';
 import {
   PLATFORM_MODULE_GROUPS,
@@ -36,6 +36,7 @@ export default function PlatformModulesPage() {
   const navigate = useNavigate();
   const { hasPermission, user } = useAuth();
   const contractorScoped = isContractorUser(user?.roles);
+  const superAdminScoped = isSuperAdmin(user?.roles);
   const { activeDivisionId, activeDivision } = useDivisionScope();
   const canViewAllDivisions = user?.canViewAllDivisions ?? false;
   const scopeSubtitle = divisionScopeSubtitle(canViewAllDivisions, activeDivision);
@@ -52,9 +53,12 @@ export default function PlatformModulesPage() {
         ) {
           return false;
         }
+        if (superAdminScoped && m.route && isSuperAdminHiddenNavPath(m.route)) {
+          return false;
+        }
         return true;
       }),
-    [hasPermission, contractorScoped],
+    [hasPermission, contractorScoped, superAdminScoped],
   );
 
   const groupCounts = useMemo(() => {
@@ -136,21 +140,30 @@ export default function PlatformModulesPage() {
         <PlatformQuickAccessCard title="Core workspaces">
           <PlatformChipRow>
             <Chip component={RouterLink} to="/dpr-planning" clickable icon={<FactCheckOutlinedIcon />} label="DPR & Planning" color="primary" variant="outlined" />
-            <Chip component={RouterLink} to="/projects" clickable icon={<EngineeringOutlinedIcon />} label="Projects" color="primary" variant="outlined" />
+            {!superAdminScoped && (
+              <Chip component={RouterLink} to="/projects" clickable icon={<EngineeringOutlinedIcon />} label="Projects" color="primary" variant="outlined" />
+            )}
             <Chip component={RouterLink} to={buildMapExplorerUrl(activeDivisionId ?? '')} clickable icon={<MapOutlinedIcon />} label="GIS Map" color="primary" variant="outlined" />
-            <Chip component={RouterLink} to="/om" clickable icon={<BuildCircleOutlinedIcon />} label="O&M" color="primary" variant="outlined" />
+            {!superAdminScoped && (
+              <Chip component={RouterLink} to="/om" clickable icon={<BuildCircleOutlinedIcon />} label="O&M" color="primary" variant="outlined" />
+            )}
           </PlatformChipRow>
         </PlatformQuickAccessCard>
         <PlatformQuickAccessCard title="Revenue & field">
           <PlatformChipRow>
-            {!contractorScoped && (
+            {!contractorScoped && !superAdminScoped && (
               <>
                 <Chip component={RouterLink} to="/billing" clickable icon={<ReceiptLongOutlinedIcon />} label="Billing & Revenue" color="primary" variant="outlined" />
                 <Chip component={RouterLink} to="/mobile-billing" clickable icon={<PhoneAndroidOutlinedIcon />} label="Mobile Billing" color="primary" variant="outlined" />
               </>
             )}
             <Chip component={RouterLink} to="/dashboard" clickable label="Executive Dashboard" color="primary" variant="outlined" />
-            <Chip label="Construction modules open per project" size="small" variant="outlined" />
+            {!superAdminScoped && (
+              <Chip label="Construction modules open per project" size="small" variant="outlined" />
+            )}
+            {superAdminScoped && (
+              <Chip component={RouterLink} to="/admin/audit" clickable label="Audit Trail" color="primary" variant="outlined" />
+            )}
           </PlatformChipRow>
         </PlatformQuickAccessCard>
       </Box>
