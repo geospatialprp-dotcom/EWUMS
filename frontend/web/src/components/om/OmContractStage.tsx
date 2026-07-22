@@ -23,6 +23,8 @@ import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx }
 import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { parseBilingualText, serializeBilingualText } from '../../utils/bilingualText';
 import { useCanViewAllDivisions } from '../../utils/divisionAccess';
+import { useAuth } from '../../context/AuthContext';
+import { isSuperAdmin } from '../../utils/operationalAccess';
 
 type ContractRow = {
   id: string;
@@ -106,6 +108,8 @@ function MetricCard({ label, metric }: { label: string; metric?: MetricResult })
 
 export default function OmContractStage() {
   const canViewAll = useCanViewAllDivisions();
+  const { user } = useAuth();
+  const canCreateContract = !isSuperAdmin(user?.roles);
   const [tab, setTab] = useState(0);
   const [contracts, setContracts] = useState<ContractRow[]>([]);
   const [selectedContract, setSelectedContract] = useState<ContractRow | null>(null);
@@ -358,9 +362,11 @@ export default function OmContractStage() {
                   ))}
                 </Select>
               </FormControl>
-              <Button variant="contained" size="small" startIcon={<AddOutlinedIcon />} onClick={() => setCreateOpen(true)}>
-                New Contract
-              </Button>
+              {canCreateContract && (
+                <Button variant="contained" size="small" startIcon={<AddOutlinedIcon />} onClick={() => setCreateOpen(true)}>
+                  New Contract
+                </Button>
+              )}
             </Box>
           </Box>
         )}
