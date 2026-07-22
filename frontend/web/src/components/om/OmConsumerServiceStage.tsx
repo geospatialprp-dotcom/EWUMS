@@ -22,6 +22,8 @@ import BilingualRemarkField from '../forms/BilingualRemarkField';
 import { parseBilingualText, serializeBilingualText } from '../../utils/bilingualText';
 import { formatCoordinatePair } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions } from '../../utils/divisionAccess';
+import { useAuth } from '../../context/AuthContext';
+import { isSuperAdmin } from '../../utils/operationalAccess';
 
 type ConsumerRow = {
   id: string;
@@ -68,6 +70,8 @@ function getApiError(err: unknown, fallback: string): string {
 
 export default function OmConsumerServiceStage() {
   const canViewAll = useCanViewAllDivisions();
+  const { user } = useAuth();
+  const canRegisterConsumer = !isSuperAdmin(user?.roles);
   const [rows, setRows] = useState<ConsumerRow[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
@@ -330,9 +334,11 @@ export default function OmConsumerServiceStage() {
                   <MenuItem value="pending">Pending</MenuItem>
                 </Select>
               </FormControl>
-              <Button variant="contained" size="small" startIcon={<AddOutlinedIcon />} onClick={() => setRegisterOpen(true)}>
-                Register Consumer
-              </Button>
+              {canRegisterConsumer && (
+                <Button variant="contained" size="small" startIcon={<AddOutlinedIcon />} onClick={() => setRegisterOpen(true)}>
+                  Register Consumer
+                </Button>
+              )}
             </Box>
           </Box>
         )}
