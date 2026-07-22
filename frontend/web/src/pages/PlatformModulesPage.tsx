@@ -13,6 +13,7 @@ import PageHeader from '../components/layout/PageHeader';
 import KpiStatCard from '../components/layout/KpiStatCard';
 import { useAuth } from '../context/AuthContext';
 import { useDivisionScope } from '../context/DivisionContext';
+import { isContractorUser } from '../utils/operationalAccess';
 import { buildMapExplorerUrl, divisionScopeSubtitle } from '../utils/divisionAccess';
 import {
   PLATFORM_MODULE_GROUPS,
@@ -34,6 +35,7 @@ import {
 export default function PlatformModulesPage() {
   const navigate = useNavigate();
   const { hasPermission, user } = useAuth();
+  const contractorScoped = isContractorUser(user?.roles);
   const { activeDivisionId, activeDivision } = useDivisionScope();
   const canViewAllDivisions = user?.canViewAllDivisions ?? false;
   const scopeSubtitle = divisionScopeSubtitle(canViewAllDivisions, activeDivision);
@@ -131,8 +133,12 @@ export default function PlatformModulesPage() {
         </PlatformQuickAccessCard>
         <PlatformQuickAccessCard title="Revenue & field">
           <PlatformChipRow>
-            <Chip component={RouterLink} to="/billing" clickable icon={<ReceiptLongOutlinedIcon />} label="Billing & Revenue" color="primary" variant="outlined" />
-            <Chip component={RouterLink} to="/mobile-billing" clickable icon={<PhoneAndroidOutlinedIcon />} label="Mobile Billing" color="primary" variant="outlined" />
+            {!contractorScoped && (
+              <>
+                <Chip component={RouterLink} to="/billing" clickable icon={<ReceiptLongOutlinedIcon />} label="Billing & Revenue" color="primary" variant="outlined" />
+                <Chip component={RouterLink} to="/mobile-billing" clickable icon={<PhoneAndroidOutlinedIcon />} label="Mobile Billing" color="primary" variant="outlined" />
+              </>
+            )}
             <Chip component={RouterLink} to="/dashboard" clickable label="Executive Dashboard" color="primary" variant="outlined" />
             <Chip label="Construction modules open per project" size="small" variant="outlined" />
           </PlatformChipRow>

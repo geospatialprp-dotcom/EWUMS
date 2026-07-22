@@ -18,6 +18,7 @@ import TravelExploreOutlinedIcon from '@mui/icons-material/TravelExploreOutlined
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import { useAuth } from '../../context/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { isContractorUser } from '../../utils/operationalAccess';
 
 type QuickAction = {
   id: string;
@@ -93,12 +94,16 @@ const FIELD_ACTIONS: QuickAction[] = [
  */
 export function MobileQuickActionStrip({ compact = false }: { compact?: boolean }) {
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const { isMobile } = useBreakpoint();
 
   if (!isMobile) return null;
 
-  const actions = FIELD_ACTIONS.filter((a) => !a.permission || hasPermission(a.permission));
+  const actions = FIELD_ACTIONS.filter((a) => {
+    if (a.permission && !hasPermission(a.permission)) return false;
+    if (isContractorUser(user?.roles) && a.path === '/complaints') return false;
+    return true;
+  });
 
   return (
     <Box
@@ -168,7 +173,7 @@ export function MobileQuickActionStrip({ compact = false }: { compact?: boolean 
 export default function MobileFieldSpeedDial() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const { isMobile } = useBreakpoint();
   const [open, setOpen] = useState(false);
 
@@ -178,7 +183,11 @@ export default function MobileFieldSpeedDial() {
 
   if (!isMobile || onDashboard) return null;
 
-  const actions = FIELD_ACTIONS.filter((a) => !a.permission || hasPermission(a.permission));
+  const actions = FIELD_ACTIONS.filter((a) => {
+    if (a.permission && !hasPermission(a.permission)) return false;
+    if (isContractorUser(user?.roles) && a.path === '/complaints') return false;
+    return true;
+  });
 
   return (
     <SpeedDial

@@ -39,6 +39,7 @@ import { dashboardApi } from '../services/api';
 import { formatApiError } from '../utils/apiError';
 import { useDivisionScope, useDivisionScopeKey } from '../context/DivisionContext';
 import { useAuth } from '../context/AuthContext';
+import { isContractorUser } from '../utils/operationalAccess';
 import { useTranslation } from '../context/LanguageContext';
 import { divisionScopeSubtitle } from '../utils/divisionAccess';
 import PageShell from '../components/layout/PageShell';
@@ -459,7 +460,9 @@ export default function DashboardPage() {
           </Box>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 3, display: { xs: 'none', md: 'flex' } }}>
-            {QUICK_ACTION_KEYS.map((action) => (
+            {QUICK_ACTION_KEYS.filter((action) =>
+              !(isContractorUser(user?.roles) && action.to === '/billing'),
+            ).map((action) => (
               <Button
                 key={action.to}
                 component={RouterLink}
