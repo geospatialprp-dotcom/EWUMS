@@ -546,7 +546,7 @@ function buildOverlayLayers(
       visible: true,
       geometryType: 'LineString',
       features: { type: 'FeatureCollection', features: normalizedAlignments },
-      style: { stroke: PIPELINE_CENTERLINE_COLOR, strokeWidth: 5 },
+      style: { stroke: PIPELINE_CENTERLINE_COLOR, strokeWidth: 5, width: 5 },
       zIndex: 28,
     });
   }

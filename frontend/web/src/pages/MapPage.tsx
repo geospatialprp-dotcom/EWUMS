@@ -97,13 +97,26 @@ const DISTRICT_STROKE_COLORS = [
 ];
 
 function layerStyle(layer: CatalogLayer) {
+  const name = `${layer.name} ${layer.sourceConfig.featureClassCode ?? ''}`.toLowerCase();
+  const isPipelineAlignment = name.includes('pipeline') || name.includes('alignment') || name.includes('la_alignment');
+
   if (layer.sourceConfig.geometryType === 'Polygon') {
-    return { ...layer.defaultStyle, stroke: '#E53935', width: 1 };
+    return { ...layer.defaultStyle, stroke: '#E53935', width: 1.25 };
   }
+
+  if (isPipelineAlignment) {
+    return {
+      ...layer.defaultStyle,
+      stroke: '#1e40af',
+      width: 3.5,
+      strokeWidth: 3.5,
+    };
+  }
+
   const base = layer.defaultStyle ?? {};
   return {
     ...base,
-    width: Math.min(Number(base.width ?? base.strokeWidth ?? 1) || 1, 1.5),
+    width: Math.min(Number(base.width ?? base.strokeWidth ?? 1.25) || 1.25, 4),
     radius: Math.min(Number(base.radius ?? base.pointRadius ?? 3.5) || 3.5, 5),
   };
 }

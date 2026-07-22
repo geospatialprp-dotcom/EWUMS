@@ -197,9 +197,11 @@ export function createOverlayStyle(
   return (feature: FeatureLike) => {
     const geom = feature.getGeometry();
     if (!geom) return undefined;
-    if (viewExtent && !featureNearExtent(geom, viewExtent)) return undefined;
-
+    // Line layers (e.g. pipeline alignment) must stay visible after fit/zoom —
+    // extent culling was dropping them when the view was mid-transition.
     const geomType = geom.getType();
+    const isLine = geomType === 'LineString' || geomType === 'MultiLineString';
+    if (viewExtent && !isLine && !featureNearExtent(geom, viewExtent)) return undefined;
 
     if (geomType === 'Point' || geomType === 'MultiPoint') {
       const markerColor = typeof feature.get === 'function' ? feature.get('markerColor') as string | undefined : undefined;

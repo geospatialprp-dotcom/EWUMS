@@ -18,18 +18,18 @@ export const ARCMAP_SYM = {
   defaultPointOutline: '#000000',
   defaultLine: '#E53935',
   searchMarker: '#C62828',
-  /** Screen pixels — thin ArcMap simple symbols */
+  /** Screen pixels — ArcMap simple symbols; allow thicker for pipelines */
   pointRadius: 3.5,
   pointOutlineWidth: 1,
-  lineWidth: 1,
-  maxLineWidth: 1.5,
+  lineWidth: 1.25,
+  maxLineWidth: 4,
   selectPointRadius: 4.5,
-  selectLineWidth: 1.5,
+  selectLineWidth: 2,
   sketchPointRadius: 3,
-  sketchLineWidth: 1,
+  sketchLineWidth: 1.25,
   dimPointRadius: 3,
-  dimLineWidth: 0.75,
-  polygonOutlineWidth: 0.75,
+  dimLineWidth: 1,
+  polygonOutlineWidth: 1,
   polygonFillOpacity: 0.18,
 } as const;
 
@@ -135,7 +135,7 @@ export function arcMapSearchMarkerStyle(): Style {
   });
 }
 
-/** Clamp any layer/config stroke width into ArcMap thin range. */
+/** Clamp any layer/config stroke width into ArcMap range (pipelines may use thicker). */
 export function clampArcMapLineWidth(width: number | undefined | null): number {
   const n = Number(width);
   if (!Number.isFinite(n) || n <= 0) return ARCMAP_SYM.lineWidth;
