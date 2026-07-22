@@ -29,12 +29,12 @@ export function appDrawerPaperSx(width: number = DRAWER_WIDTH) {
 
 export function appDrawerBrandSx(collapsed = false, isMobile = false) {
   return {
-    px: collapsed ? 0.75 : isMobile ? 1.5 : 1.25,
+    px: collapsed ? 0.5 : isMobile ? 1.5 : 1,
     display: 'flex',
     flexDirection: collapsed ? 'column' : isMobile ? 'column' : 'row',
     alignItems: collapsed ? 'center' : isMobile ? 'flex-start' : 'center',
     justifyContent: collapsed ? 'center' : isMobile ? 'flex-start' : 'space-between',
-    gap: collapsed ? 0 : isMobile ? 0 : 0.25,
+    gap: collapsed ? 0 : isMobile ? 0 : 0.15,
     borderBottom: '1px solid rgba(148, 163, 184, 0.18)',
     background: 'linear-gradient(160deg, #0A3559 0%, #0F172A 52%, #0B1220 100%)',
     boxShadow: 'inset 0 -1px 0 rgba(255, 255, 255, 0.04)',
@@ -138,11 +138,11 @@ export function appToolbarSx() {
 export function appDrawerEyebrowSx() {
   return {
     color: '#94a3b8',
-    letterSpacing: '0.1em',
+    letterSpacing: '0.08em',
     fontWeight: 600,
     display: 'block',
-    lineHeight: 1.15,
-    fontSize: { xs: '0.5625rem', md: '0.5rem' },
+    lineHeight: 1.1,
+    fontSize: { xs: '0.5625rem', md: '0.4375rem' },
     textTransform: 'uppercase' as const,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
@@ -155,8 +155,8 @@ export function appDrawerNameSx() {
     color: '#f8fafc',
     fontWeight: 800,
     letterSpacing: '-0.03em',
-    fontSize: { xs: '1.125rem', md: '0.9375rem' },
-    lineHeight: 1.15,
+    fontSize: { xs: '1.125rem', md: '0.875rem' },
+    lineHeight: 1.1,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -167,12 +167,16 @@ export function appDrawerCompanyLinkSx() {
   return {
     display: 'inline-block',
     color: '#94a3b8',
-    fontSize: { xs: '0.625rem', md: '0.5625rem' },
+    fontSize: { xs: '0.625rem', md: '0.5rem' },
     fontWeight: 600,
-    lineHeight: 1.2,
-    letterSpacing: '0.02em',
+    lineHeight: 1.15,
+    letterSpacing: '0.01em',
     textDecoration: 'none',
-    mt: { xs: 0.25, md: 0.125 },
+    mt: { xs: 0.25, md: 0.05 },
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '100%',
     transition: 'color 0.15s ease',
     '&:hover': {
       color: '#cbd5e1',
@@ -189,16 +193,16 @@ export function appDrawerCompanyLinkSx() {
 
 export function appNavItemSx(selected: boolean, collapsed = false) {
   return {
-    mx: collapsed ? 0.35 : 0.5,
-    mb: 0.2,
-    minHeight: 36,
+    mx: collapsed ? 0.25 : 0.35,
+    mb: 0.15,
+    minHeight: 34,
     borderRadius: 1,
     color: selected ? '#f8fafc' : '#cbd5e1',
     bgcolor: selected ? 'rgba(15, 118, 110, 0.28)' : 'transparent',
-    borderLeft: selected ? '3px solid #2DD4BF' : '3px solid transparent',
+    borderLeft: selected ? '2px solid #2DD4BF' : '2px solid transparent',
     transition: 'background-color 0.15s ease, color 0.15s ease',
     justifyContent: collapsed ? 'center' : undefined,
-    px: collapsed ? 0.5 : 0.75,
+    px: collapsed ? 0.35 : 0.5,
     '&.Mui-selected': {
       bgcolor: 'rgba(15, 118, 110, 0.28)',
       color: '#f8fafc',
@@ -210,27 +214,27 @@ export function appNavItemSx(selected: boolean, collapsed = false) {
     },
     '& .MuiListItemIcon-root': {
       color: selected ? '#5EEAD4' : '#94a3b8',
-      minWidth: collapsed ? 0 : 32,
+      minWidth: collapsed ? 0 : 28,
       justifyContent: 'center',
-      '& .MuiSvgIcon-root': { fontSize: 18 },
+      '& .MuiSvgIcon-root': { fontSize: 17 },
     },
     '& .MuiListItemText-root': collapsed ? { display: 'none' } : undefined,
     '& .MuiListItemText-primary': {
-      fontSize: '0.75rem',
+      fontSize: '0.6875rem',
       fontWeight: selected ? 700 : 500,
-      letterSpacing: '0.01em',
+      letterSpacing: '0.005em',
     },
   };
 }
 
 export function appNavSectionLabelSx(collapsed = false) {
   return {
-    px: collapsed ? 0 : 1.75,
-    pt: 1.25,
-    pb: 0.5,
-    fontSize: '0.5625rem',
+    px: collapsed ? 0 : 1.25,
+    pt: 1,
+    pb: 0.35,
+    fontSize: '0.5rem',
     fontWeight: 700,
-    letterSpacing: '0.12em',
+    letterSpacing: '0.1em',
     textTransform: 'uppercase' as const,
     color: '#64748b',
     display: collapsed ? 'none' : 'block',

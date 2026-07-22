@@ -8,7 +8,7 @@
 
 export const TOUCH_TARGET_MIN = 44;
 
-export const DRAWER_WIDTH = 180;
+export const DRAWER_WIDTH = 156;
 export const DRAWER_WIDTH_MINI = 56;
 
 export const APP_TOOLBAR_MIN_HEIGHT = {

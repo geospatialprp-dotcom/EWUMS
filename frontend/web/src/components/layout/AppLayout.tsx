@@ -224,10 +224,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             size="small"
             aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             sx={{
-              ...appTouchIconButtonSx(),
               color: '#94a3b8',
-              alignSelf: drawerCollapsed ? 'center' : 'flex-end',
-              mt: drawerCollapsed ? 0 : -0.5,
+              flexShrink: 0,
+              width: drawerCollapsed ? 36 : 28,
+              height: drawerCollapsed ? 36 : 28,
+              minWidth: drawerCollapsed ? 36 : 28,
+              minHeight: drawerCollapsed ? 36 : 28,
+              p: 0.25,
+              alignSelf: drawerCollapsed ? 'center' : 'center',
+              '& .MuiSvgIcon-root': { fontSize: 18 },
             }}
           >
             {sidebarCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
@@ -235,9 +240,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         )}
       </Box>
 
-      <Box sx={{ flex: 1, py: 1, overflowY: 'auto' }}>
+      <Box sx={{ flex: 1, py: 0.75, overflowY: 'auto' }}>
         {visibleMainNav.length > 0 && (
-          <List disablePadding sx={{ px: drawerCollapsed ? 0.25 : 0.5 }}>
+          <List disablePadding sx={{ px: drawerCollapsed ? 0.2 : 0.35 }}>
             {renderNavItems(visibleMainNav)}
           </List>
         )}
@@ -247,7 +252,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             {!secretariatScoped && (
               <Typography sx={appNavSectionLabelSx(drawerCollapsed)}>{t('nav.sectionManagement')}</Typography>
             )}
-            <List disablePadding sx={{ px: drawerCollapsed ? 0.25 : 0.5 }}>
+            <List disablePadding sx={{ px: drawerCollapsed ? 0.2 : 0.35 }}>
               {renderNavItems(visibleManagementNav)}
             </List>
           </>
@@ -256,7 +261,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         {visibleAdminNav.length > 0 && (
           <>
             <Typography sx={appNavSectionLabelSx(drawerCollapsed)}>{t('nav.sectionAdministration')}</Typography>
-            <List disablePadding sx={{ px: drawerCollapsed ? 0.25 : 0.5 }}>
+            <List disablePadding sx={{ px: drawerCollapsed ? 0.2 : 0.35 }}>
               {renderNavItems(visibleAdminNav)}
             </List>
           </>

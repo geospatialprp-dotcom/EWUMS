@@ -16,9 +16,9 @@ export const APP_BRAND = {
   /** Browser tab title */
   pageTitle: 'S2T2R — Enterprises Water Utility Management System',
   /** Sidebar brand eyebrow */
-  sidebarEyebrow: 'Water Utility',
+  sidebarEyebrow: 'Utility',
   /** Short company label for sidebar link */
-  sidebarCompanyShort: 'PRP Geospatial',
+  sidebarCompanyShort: 'PRP Geo',
   /** HTML meta description */
   description:
     'S2T2R — Enterprises Water Utility Management System — 20 integrated modules for planning, construction, GIS, O&M, billing, finance, and analytics.',
