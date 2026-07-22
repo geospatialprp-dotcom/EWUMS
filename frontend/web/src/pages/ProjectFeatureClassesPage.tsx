@@ -695,7 +695,12 @@ export default function ProjectFeatureClassesPage() {
                     key={field.name}
                     sx={{
                       ...arcMapAttributeHeaderSx(),
-                      ...attributeHeaderCellWidth(field, coordFieldNames, flexibleFieldName),
+                      ...attributeHeaderCellWidth(
+                        field,
+                        coordFieldNames,
+                        flexibleFieldName,
+                        selectedClass.attributeSchema.length,
+                      ),
                     }}
                   >
                     {field.label}
@@ -755,6 +760,7 @@ export default function ProjectFeatureClassesPage() {
                           coordFieldNames,
                           field.type === 'image' ? { p: 0.5 } : {},
                           flexibleFieldName,
+                          selectedClass.attributeSchema.length,
                         )}
                       >
                         {field.type === 'boolean' ? (

@@ -178,18 +178,18 @@ export function appDrawerNameSx() {
 
 export function appDrawerCompanyLinkSx() {
   return {
-    display: 'inline-block',
+    display: 'block',
     color: '#94a3b8',
-    fontSize: { xs: '0.625rem', md: '0.5rem' },
+    fontSize: { xs: '0.625rem', md: '0.5625rem' },
     fontWeight: 600,
-    lineHeight: 1.15,
+    lineHeight: 1.2,
     letterSpacing: '0.01em',
     textDecoration: 'none',
     mt: { xs: 0.25, md: 0.05 },
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
+    whiteSpace: 'normal',
+    overflow: 'visible',
     maxWidth: '100%',
+    wordBreak: 'keep-all' as const,
     transition: 'color 0.15s ease',
     '&:hover': {
       color: '#cbd5e1',
