@@ -217,9 +217,14 @@ function formatAuditResource(row: AuditPdfRow): string {
   return row.resourceId ? `${type} · ${row.resourceId}` : type;
 }
 
-function formatAuditDetails(details: Record<string, unknown>): string {
-  const text = JSON.stringify(details);
-  return text === '{}' ? '—' : text;
+function formatAuditDetails(details: Record<string, unknown> | null | undefined): string {
+  if (!details || typeof details !== 'object') return '—';
+  const entries = Object.entries(details).filter(([, v]) => v !== undefined && v !== null && v !== '');
+  if (!entries.length) return '—';
+  return entries
+    .slice(0, 6)
+    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+    .join(' · ');
 }
 
 export function exportAuditTrailPdf(

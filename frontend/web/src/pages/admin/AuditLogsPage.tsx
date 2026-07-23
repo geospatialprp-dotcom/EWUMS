@@ -57,8 +57,37 @@ function formatUser(entry: AuditEntry): string {
   return entry.userId ?? '—';
 }
 
-function formatDetails(details: Record<string, unknown>): string {
-  const text = JSON.stringify(details);
+function formatDetails(details: Record<string, unknown> | null | undefined): string {
+  if (!details || typeof details !== 'object') return '—';
+  const entries = Object.entries(details).filter(([, v]) => v !== undefined && v !== null && v !== '');
+  if (!entries.length) return '—';
+
+  const preferred = ['email', 'divisionName', 'roles', 'changes', 'title', 'status', 'action', 'comments'];
+  const parts: string[] = [];
+  for (const key of preferred) {
+    if (!(key in details) || details[key] === undefined || details[key] === null || details[key] === '') continue;
+    const value = details[key];
+    if (Array.isArray(value)) {
+      parts.push(`${key}: ${value.join(', ')}`);
+    } else if (typeof value === 'object') {
+      parts.push(`${key}: ${JSON.stringify(value)}`);
+    } else {
+      parts.push(`${key}: ${String(value)}`);
+    }
+  }
+
+  if (!parts.length) {
+    return entries
+      .slice(0, 4)
+      .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+      .join(' · ');
+  }
+  return parts.join(' · ');
+}
+
+function formatDetailsFull(details: Record<string, unknown> | null | undefined): string {
+  if (!details || typeof details !== 'object') return '—';
+  const text = JSON.stringify(details, null, 2);
   return text === '{}' ? '—' : text;
 }
 
@@ -80,6 +109,7 @@ function AuditField({ label, children }: { label: string; children: ReactNode })
 
 function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor: (action: string) => string }) {
   const detailsText = formatDetails(log.details);
+  const detailsFull = formatDetailsFull(log.details);
 
   return (
     <Box
@@ -112,9 +142,11 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
         <Typography variant="body2">{log.location ?? '—'}</Typography>
       </AuditField>
       <AuditField label="Details">
-        <Typography variant="caption" sx={{ wordBreak: 'break-word', fontFamily: 'monospace', display: 'block' }}>
-          {detailsText}
-        </Typography>
+        <Tooltip title={detailsFull !== '—' ? detailsFull : ''} arrow enterTouchDelay={0}>
+          <Typography variant="caption" sx={{ wordBreak: 'break-word', display: 'block' }}>
+            {detailsText}
+          </Typography>
+        </Tooltip>
       </AuditField>
     </Box>
   );
@@ -172,6 +204,13 @@ export default function AuditLogsPage() {
         cardSx={{ overflow: 'visible' }}
         contentSx={{ overflow: 'visible', minWidth: 0, p: 0, '&:last-child': { pb: 0 } }}
       >
+        {!loading && logs.length === 0 && (
+          <Alert severity="info" sx={{ m: 2 }}>
+            No activity recorded for {activeDivision?.name ?? 'this scope'} yet.
+            Logins, user changes, and project actions in this division will appear here.
+          </Alert>
+        )}
+
         <Stack
           spacing={1.25}
           sx={{ display: { xs: 'flex', md: 'none' }, px: 1.5, py: 1.5 }}
@@ -213,13 +252,14 @@ export default function AuditLogsPage() {
                   <TableCell sx={{ minWidth: 120 }}>Resource</TableCell>
                   <TableCell sx={{ minWidth: 120 }}>IP Address</TableCell>
                   <TableCell sx={{ minWidth: 100 }}>Location</TableCell>
-                  <TableCell sx={{ minWidth: 200 }}>Details</TableCell>
+                  <TableCell sx={{ minWidth: 220 }}>Details</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {logs.map((log) => {
                   const detailsText = formatDetails(log.details);
-                  const detailsPreview = detailsText.length > 80 ? `${detailsText.slice(0, 80)}…` : detailsText;
+                  const detailsFull = formatDetailsFull(log.details);
+                  const detailsPreview = detailsText.length > 90 ? `${detailsText.slice(0, 90)}…` : detailsText;
 
                   return (
                     <TableRow key={log.id} hover>
@@ -239,11 +279,11 @@ export default function AuditLogsPage() {
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ minWidth: 100 }}>{log.location ?? '—'}</TableCell>
-                      <TableCell sx={{ minWidth: 200, maxWidth: 280 }}>
+                      <TableCell sx={{ minWidth: 220, maxWidth: 320 }}>
                         <Tooltip
                           title={
                             <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                              {detailsText}
+                              {detailsFull}
                             </Typography>
                           }
                           arrow
@@ -257,8 +297,7 @@ export default function AuditLogsPage() {
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
-                              cursor: detailsText.length > 80 ? 'help' : 'default',
-                              fontFamily: 'monospace',
+                              cursor: detailsFull !== '—' ? 'help' : 'default',
                             }}
                           >
                             {detailsPreview}

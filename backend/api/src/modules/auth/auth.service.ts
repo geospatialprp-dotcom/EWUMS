@@ -108,7 +108,15 @@ export class AuthService {
       'auth.login',
       'user',
       user.id,
-      { email: user.email },
+      {
+        email: user.email,
+        ...(divisionMeta.divisionId
+          ? {
+              divisionId: divisionMeta.divisionId,
+              divisionName: divisionMeta.divisionName ?? undefined,
+            }
+          : {}),
+      },
       auditContext,
     );
 

@@ -18,10 +18,11 @@ export class AuditController {
   @RequirePermissions('audit:read')
   @ApiOperation({ summary: 'List audit log entries (filtered by active division when set)' })
   logs(@CurrentUser() user: JwtPayload, @Query('limit') limit?: string) {
+    const divisionScope = user.activeDivisionId ?? user.divisionId ?? null;
     return this.auditService.findAll(
       user.tenantId,
       limit ? parseInt(limit, 10) : 100,
-      user.activeDivisionId ?? null,
+      divisionScope,
     );
   }
 }

@@ -122,6 +122,9 @@ export class UsersService {
 
     await this.auditService.log(tenantId, actor.sub, 'user.create', 'user', saved.id, {
       email: dto.email,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      roles: roles.map((r) => r.code),
       divisionId,
     }, auditContext);
 
@@ -185,7 +188,10 @@ export class UsersService {
     }
 
     await this.auditService.log(tenantId, actor.sub, 'user.update', 'user', id, {
+      email: user.email,
       changes: Object.keys(dto),
+      divisionId: user.divisionId,
+      ...(dto.roleIds ? { roles: (user.roles ?? []).map((r) => r.code) } : {}),
     }, auditContext);
 
     return this.findOne(actor, id);
@@ -203,7 +209,10 @@ export class UsersService {
     user.status = 'inactive';
     await this.usersRepo.save(user);
 
-    await this.auditService.log(actor.tenantId, actor.sub, 'user.deactivate', 'user', id, undefined, auditContext);
+    await this.auditService.log(actor.tenantId, actor.sub, 'user.deactivate', 'user', id, {
+      email: user.email,
+      divisionId: user.divisionId,
+    }, auditContext);
     return { success: true };
   }
 

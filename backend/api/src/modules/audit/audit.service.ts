@@ -10,9 +10,10 @@ export class AuditLogsService {
   ) {}
 
   async findAll(tenantId: string, limit = 100, activeDivisionId?: string | null) {
+    // Alias must not be "user" — USER is reserved in PostgreSQL and breaks division filters.
     const qb = this.auditRepo
       .createQueryBuilder('l')
-      .leftJoinAndSelect('l.user', 'user')
+      .leftJoinAndSelect('l.user', 'actor')
       .where('l.tenant_id = :tenantId', { tenantId })
       .orderBy('l.created_at', 'DESC')
       .take(limit);
@@ -20,12 +21,31 @@ export class AuditLogsService {
     if (activeDivisionId) {
       qb.andWhere(
         `(
-          user.division_id = :divisionId
+          actor.division_id = :divisionId
           OR EXISTS (
             SELECT 1 FROM user_division_assignments uda
             WHERE uda.user_id = l.user_id AND uda.division_id = :divisionId
           )
           OR l.details->>'divisionId' = :divisionId
+          OR (
+            NULLIF(l.details->>'projectId', '') IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM projects p
+              WHERE p.tenant_id = l.tenant_id
+                AND p.id::text = l.details->>'projectId'
+                AND p.division_id = :divisionId
+            )
+          )
+          OR (
+            l.resource_type = 'project'
+            AND l.resource_id IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM projects p
+              WHERE p.tenant_id = l.tenant_id
+                AND p.id = l.resource_id
+                AND p.division_id = :divisionId
+            )
+          )
         )`,
         { divisionId: activeDivisionId },
       );
@@ -45,7 +65,7 @@ export class AuditLogsService {
         resourceId: l.resourceId,
         ipAddress: l.ipAddress ?? null,
         location: l.location ?? null,
-        details: l.details,
+        details: l.details ?? {},
         createdAt: l.createdAt,
       };
     });
