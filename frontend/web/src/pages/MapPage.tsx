@@ -30,7 +30,6 @@ import {
 import { buildOrthoBasemap, hasOrthomosaicBasemap, projectOrthoBasemapId } from '../utils/orthomosaicBasemap';
 import type { GeocodeResult } from '../utils/geocoding';
 import { normalizeMapFeature, toGeoFeatureCollection } from '../utils/mapGeoJson';
-import { resolveFeatureImageFieldName } from '../utils/featureImage';
 import { formatApiError } from '../utils/apiError';
 import { isSuperAdmin, canPerformOperational } from '../utils/operationalAccess';
 import {
@@ -234,14 +233,12 @@ export default function MapPage() {
   const [focusFeature, setFocusFeature] = useState<{ featureId: string; revision: number } | null>(null);
   const [infoSelectedFeatureId, setInfoSelectedFeatureId] = useState<string | null>(null);
   const [infoSelectedLayerId, setInfoSelectedLayerId] = useState('');
-  const [infoSnapshot, setInfoSnapshot] = useState<string | null>(null);
   const [infoClickProperties, setInfoClickProperties] = useState<Record<string, unknown> | null>(null);
   const [snapshotRequest, setSnapshotRequest] = useState(0);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [mapLayoutRevision, setMapLayoutRevision] = useState(0);
   const pendingExportRef = useRef<MapExportAction | null>(null);
   const jurisdictionFlyRevisionRef = useRef(0);
-  const [imageSaving, setImageSaving] = useState(false);
   const [spatialOperation, setSpatialOperation] = useState<SpatialOperation>('intersect');
   const [spatialSelectionMethod, setSpatialSelectionMethod] = useState<SpatialSelectionMethod>('create_new');
   const [analysisTargetLayerId, setAnalysisTargetLayerId] = useState('');
@@ -1360,15 +1357,10 @@ export default function MapPage() {
     }));
   }, []);
 
-  const requestMapSnapshot = useCallback(() => {
-    setSnapshotRequest((revision) => revision + 1);
-  }, []);
-
   const clearIdentify = useCallback(() => {
     setInfoSelectedFeatureId(null);
     setInfoSelectedLayerId('');
     setInfoClickProperties(null);
-    setInfoSnapshot(null);
   }, []);
 
   const handleFeatureIdentify = useCallback((pick: {
@@ -1386,46 +1378,7 @@ export default function MapPage() {
     if (pick.layerId !== activeEditLayerId) {
       setActiveEditLayerId(pick.layerId);
     }
-    requestMapSnapshot();
-  }, [activeEditLayerId, layerVisibility, requestMapSnapshot]);
-
-  const saveIdentifyImage = useCallback(async (imageValue: string) => {
-    if (!editFeatureClass || !infoSelectedFeatureId || !activeEditLayer) return;
-
-    const fromTable = tableFeatures.find((item) => item.id === infoSelectedFeatureId);
-    const currentAttributes = fromTable
-      ? fromTable.properties.attributes
-      : mapClickPropertiesToAttributes(infoClickProperties ?? {});
-
-    const fieldName = resolveFeatureImageFieldName(editFeatureClass.attributeSchema);
-    setImageSaving(true);
-    setMapError('');
-    try {
-      await featureClassesApi.updateFeature(editFeatureClass.projectId, infoSelectedFeatureId, {
-        attributes: { ...currentAttributes, [fieldName]: imageValue },
-      });
-      await Promise.all([
-        refreshMapLayerFeatures(activeEditLayer.id),
-        refreshEditLayerData(activeEditLayer),
-      ]);
-    } catch (err) {
-      setMapError(formatApiError(err, 'Failed to save feature image.'));
-    } finally {
-      setImageSaving(false);
-    }
-  }, [
-    editFeatureClass,
-    infoSelectedFeatureId,
-    activeEditLayer,
-    tableFeatures,
-    infoClickProperties,
-    refreshMapLayerFeatures,
-    refreshEditLayerData,
-  ]);
-
-  const clearIdentifyImage = useCallback(async () => {
-    await saveIdentifyImage('');
-  }, [saveIdentifyImage]);
+  }, [activeEditLayerId, layerVisibility]);
 
   const handleLocationSelect = (result: GeocodeResult) => {
     if (mapAccess && !mapAccess.canViewAllDivisions && mapAccess.bbox) {
@@ -1697,7 +1650,6 @@ export default function MapPage() {
   }, [mapAccess?.jurisdictionLabel, mapAccess?.activeDivisionId, effectiveDivisionId]);
 
   const handleMapSnapshot = useCallback((result: MapSnapshotResult) => {
-    setInfoSnapshot(result.dataUrl);
     const action = pendingExportRef.current;
     if (!action) return;
 
@@ -2006,28 +1958,13 @@ export default function MapPage() {
               >
                 <MapIdentifySidePanel
                   loading={Boolean(infoSelectedFeatureId) && !identifiedFeature && tableLoading}
-                  savingImage={imageSaving}
                   layerName={editFeatureClass?.name}
                   featureClass={editFeatureClass}
                   feature={identifiedFeature}
-                  mapSnapshot={infoSnapshot}
-                  layers={visibleFeatureClassLayers.map((layer) => ({
-                    id: layer.id,
-                    name: layer.name,
-                    geometryType: layer.sourceConfig.geometryType,
-                  }))}
-                  activeLayerId={infoSelectedLayerId || activeEditLayerId || visibleFeatureClassLayers[0]?.id}
-                  onSelectLayer={(layerId) => {
-                    selectEditLayer(layerId);
-                    clearIdentify();
-                    setInfoSelectedLayerId(layerId);
-                  }}
                   onClose={() => {
                     clearIdentify();
                     setActiveTool('');
                   }}
-                  onImageChange={(value) => { void saveIdentifyImage(value); }}
-                  onImageClear={() => { void clearIdentifyImage(); }}
                 />
               </Box>
             )}

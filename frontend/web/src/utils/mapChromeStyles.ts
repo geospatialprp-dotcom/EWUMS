@@ -448,10 +448,10 @@ export function mapSpatialAnalysisPanelSx(active = false) {
   };
 }
 
-/** Right-side Identify / Attribute Table dock — same rail as Select By Location. */
+/** Right-side Identify attribute dock — narrow Field | Value panel. */
 export function mapRightAttributePanelSx(active = false) {
   return {
-    width: { xs: 280, md: 360 },
+    width: { xs: 220, md: 260 },
     flexShrink: 0,
     display: { xs: 'none', md: 'flex' },
     flexDirection: 'column',
@@ -462,7 +462,7 @@ export function mapRightAttributePanelSx(active = false) {
     bgcolor: '#ffffff',
     height: '100%',
     fontFamily: '"Segoe UI", Tahoma, sans-serif',
-    fontSize: '0.8125rem',
+    fontSize: '0.75rem',
     boxShadow: active ? 'inset 3px 0 0 rgba(49,106,197,0.18)' : 'none',
     overflow: 'hidden',
   };
