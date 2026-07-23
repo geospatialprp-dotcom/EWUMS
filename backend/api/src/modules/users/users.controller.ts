@@ -30,9 +30,9 @@ export class UsersController {
 
   @Get()
   @RequirePermissions('user:read')
-  @ApiOperation({ summary: 'List all users in tenant' })
+  @ApiOperation({ summary: 'List users (optionally filtered by active division)' })
   findAll(@CurrentUser() user: JwtPayload) {
-    return this.usersService.findAll(user.tenantId);
+    return this.usersService.findAll(user.tenantId, user.activeDivisionId ?? null);
   }
 
   @Get(':id')
@@ -44,9 +44,15 @@ export class UsersController {
 
   @Post()
   @RequirePermissions('user:create')
-  @ApiOperation({ summary: 'Create new user' })
+  @ApiOperation({ summary: 'Create new user (assigns selected / active division)' })
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateUserDto, @Req() req: Request) {
-    return this.usersService.create(user.tenantId, user.sub, dto, extractAuditContext(req));
+    return this.usersService.create(
+      user.tenantId,
+      user.sub,
+      dto,
+      extractAuditContext(req),
+      user.activeDivisionId ?? null,
+    );
   }
 
   @Patch(':id')

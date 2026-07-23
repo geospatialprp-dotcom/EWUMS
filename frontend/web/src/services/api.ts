@@ -63,6 +63,9 @@ export interface UserRecord {
   lastName: string;
   department: string;
   status: string;
+  divisionId?: string | null;
+  divisionCode?: string | null;
+  divisionName?: string | null;
   roles: Array<{ id: string; code: string; name: string }>;
   createdAt: string;
 }

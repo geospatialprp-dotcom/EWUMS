@@ -3,7 +3,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableRow,
   Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   MenuItem, Chip, IconButton, Tooltip, Alert, FormControl,
-  InputLabel, Select, OutlinedInput, Checkbox, ListItemText,
+  InputLabel, Select, OutlinedInput, Checkbox, ListItemText, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -15,6 +15,7 @@ import PageShell from '../../components/layout/PageShell';
 import PageHeader from '../../components/layout/PageHeader';
 import SurfaceCard from '../../components/layout/SurfaceCard';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
+import { useDivisionScope } from '../../context/DivisionContext';
 
 function getErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -30,6 +31,13 @@ function getErrorMessage(err: unknown): string {
 }
 
 export default function UsersPage() {
+  const {
+    divisions,
+    activeDivisionId,
+    activeDivision,
+    canSwitchDivision,
+    scopeKey,
+  } = useDivisionScope();
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +45,13 @@ export default function UsersPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<UserRecord | null>(null);
   const [form, setForm] = useState({
-    email: '', password: '', firstName: '', lastName: '', department: '', roleIds: [] as string[],
+    email: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+    department: '',
+    roleIds: [] as string[],
+    divisionId: '' as string,
     status: 'active' as 'active' | 'inactive',
   });
   const [error, setError] = useState('');
@@ -56,11 +70,20 @@ export default function UsersPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, [scopeKey]);
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ email: '', password: '', firstName: '', lastName: '', department: '', roleIds: [], status: 'active' });
+    setForm({
+      email: '',
+      password: '',
+      firstName: '',
+      lastName: '',
+      department: '',
+      roleIds: [],
+      divisionId: activeDivisionId ?? '',
+      status: 'active',
+    });
     setError('');
     setDialogOpen(true);
   };
@@ -74,6 +97,7 @@ export default function UsersPage() {
       lastName: user.lastName,
       department: user.department ?? '',
       roleIds: user.roles.map((r) => r.id),
+      divisionId: user.divisionId ?? activeDivisionId ?? '',
       status: user.status === 'inactive' ? 'inactive' : 'active',
     });
     setError('');
@@ -93,8 +117,18 @@ export default function UsersPage() {
       setError('Select at least one role.');
       return;
     }
+    if (!form.divisionId && (canSwitchDivision ? !activeDivisionId : true)) {
+      // Field staff need a division; allow empty only when "All Overview" and HQ-style roles.
+      const selectedRoles = roles.filter((r) => form.roleIds.includes(r.id));
+      const fieldCodes = new Set(['je', 'ae', 'ee', 'contractor', 'accounts', 'om_operator', 'scada_operator']);
+      if (selectedRoles.some((r) => fieldCodes.has(r.code))) {
+        setError('Select a division for JE / AE / EE / contractor users (header switcher or Division field).');
+        return;
+      }
+    }
 
     try {
+      const divisionId = form.divisionId || activeDivisionId || undefined;
       if (editing) {
         const payload: Record<string, unknown> = {
           email: form.email,
@@ -102,15 +136,19 @@ export default function UsersPage() {
           lastName: form.lastName,
           department: form.department,
           roleIds: form.roleIds,
+          divisionId: divisionId ?? null,
         };
         if (form.password) payload.password = form.password;
         if (form.status) payload.status = form.status;
         await usersApi.update(editing.id, payload);
       } else {
-        await usersApi.create(form);
+        await usersApi.create({
+          ...form,
+          divisionId,
+        });
       }
       setDialogOpen(false);
-      load();
+      void load();
     } catch (err) {
       setError(getErrorMessage(err));
     }
@@ -120,7 +158,7 @@ export default function UsersPage() {
     if (!confirm('Deactivate this user? They will not be able to sign in.')) return;
     try {
       await usersApi.remove(id);
-      load();
+      void load();
     } catch (err) {
       setLoadError(getErrorMessage(err));
     }
@@ -130,7 +168,7 @@ export default function UsersPage() {
     if (!confirm('Reactivate this user? They will be able to sign in again.')) return;
     try {
       await usersApi.update(id, { status: 'active' });
-      load();
+      void load();
     } catch (err) {
       setLoadError(getErrorMessage(err));
     }
@@ -145,6 +183,13 @@ export default function UsersPage() {
       <PageHeader
         eyebrow="Administration"
         title="User Management"
+        subtitle={
+          activeDivision
+            ? `Showing users for ${activeDivision.name}`
+            : canSwitchDivision
+              ? 'All divisions — select a division in the header to filter and assign staff'
+              : undefined
+        }
         accent="slate"
         actions={(
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate} sx={{ boxShadow: 2 }}>
@@ -155,12 +200,22 @@ export default function UsersPage() {
 
       {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
 
-      <SurfaceCard title="Organization Users" flush>
+      {canSwitchDivision && !activeDivisionId && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Select a division in the header to manage users division-wise. New field staff must be assigned to a division.
+        </Alert>
+      )}
+
+      <SurfaceCard
+        title={activeDivision ? `Users — ${activeDivision.name}` : 'Organization Users'}
+        flush
+      >
         <Table sx={dataTableSx()}>
           <TableHead>
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Email</TableCell>
+              <TableCell>Division</TableCell>
               <TableCell>Department</TableCell>
               <TableCell>Roles</TableCell>
               <TableCell>Status</TableCell>
@@ -168,10 +223,22 @@ export default function UsersPage() {
             </TableRow>
           </TableHead>
           <TableBody>
+            {users.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7}>
+                  <Typography variant="body2" color="text.secondary">
+                    {activeDivision
+                      ? `No users assigned to ${activeDivision.name} yet. Click Add User.`
+                      : 'No users found.'}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
             {users.map((u) => (
               <TableRow key={u.id} hover>
                 <TableCell>{u.firstName} {u.lastName}</TableCell>
                 <TableCell>{u.email}</TableCell>
+                <TableCell>{u.divisionName ?? u.divisionCode ?? '—'}</TableCell>
                 <TableCell>{u.department ?? '—'}</TableCell>
                 <TableCell>
                   {u.roles.map((r) => (
@@ -221,6 +288,25 @@ export default function UsersPage() {
             onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
           <TextField fullWidth label="Department" margin="dense" value={form.department}
             onChange={(e) => setForm({ ...form, department: e.target.value })} />
+
+          {(canSwitchDivision || divisions.length > 0) && (
+            <FormControl fullWidth margin="dense">
+              <InputLabel>Division</InputLabel>
+              <Select
+                label="Division"
+                value={form.divisionId}
+                onChange={(e) => setForm({ ...form, divisionId: String(e.target.value) })}
+              >
+                <MenuItem value="">
+                  <em>{activeDivision ? `Use header selection (${activeDivision.name})` : 'No division (HQ only)'}</em>
+                </MenuItem>
+                {divisions.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
           {!editing && (
             <TextField fullWidth label="Password" type="password" margin="dense" value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })} />
@@ -273,7 +359,7 @@ export default function UsersPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave}>Save</Button>
+          <Button variant="contained" onClick={() => { void handleSave(); }}>Save</Button>
         </DialogActions>
       </Dialog>
     </PageShell>

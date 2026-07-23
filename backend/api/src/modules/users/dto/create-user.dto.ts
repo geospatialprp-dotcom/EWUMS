@@ -1,4 +1,4 @@
-import { IsArray, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsOptional, IsString, IsUUID, MinLength, ValidateIf } from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail({ require_tld: false })
@@ -21,6 +21,11 @@ export class CreateUserDto {
   @IsArray()
   @IsString({ each: true })
   roleIds: string[];
+
+  /** Field division assignment (required for division-scoped staff). */
+  @IsOptional()
+  @IsUUID()
+  divisionId?: string;
 }
 
 export class UpdateUserDto {
@@ -53,4 +58,9 @@ export class UpdateUserDto {
   @IsString()
   @MinLength(8)
   password?: string;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined && value !== '')
+  @IsOptional()
+  @IsUUID()
+  divisionId?: string | null;
 }

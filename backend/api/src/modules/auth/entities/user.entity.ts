@@ -35,6 +35,9 @@ export class User {
   @Column({ length: 20, default: 'active' })
   status: string;
 
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
   @ManyToMany(() => Role)
   @JoinTable({
     name: 'user_roles',
