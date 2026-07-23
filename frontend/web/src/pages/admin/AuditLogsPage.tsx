@@ -4,6 +4,7 @@ import {
   Alert, Box, Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Tooltip, Typography,
 } from '@mui/material';
+import axios from 'axios';
 
 import { auditApi } from '../../services/api';
 
@@ -163,9 +164,21 @@ export default function AuditLogsPage() {
     setLoadError('');
     auditApi.logs(200)
       .then((r) => setLogs(Array.isArray(r.data) ? r.data : []))
-      .catch(() => {
+      .catch((err: unknown) => {
         setLogs([]);
-        setLoadError('Failed to load audit trail. Check API permissions and try again.');
+        const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+        const msg = axios.isAxiosError(err)
+          ? (Array.isArray(err.response?.data?.message)
+              ? err.response?.data?.message.join(', ')
+              : err.response?.data?.message)
+          : undefined;
+        if (status === 403) {
+          setLoadError('You do not have permission to view the audit trail.');
+        } else if (typeof msg === 'string' && msg.trim()) {
+          setLoadError(msg);
+        } else {
+          setLoadError('Failed to load audit trail. If a division is selected, try All divisions, then refresh.');
+        }
       })
       .finally(() => setLoading(false));
   }, [scopeKey]);
