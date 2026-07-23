@@ -11,18 +11,26 @@ export class LoginDto {
   @MinLength(6)
   password: string;
 
-  /** Optional browser geolocation captured at sign-in for Audit Trail. */
-  @ApiPropertyOptional({ example: 30.3165 })
+  /** Browser geolocation at sign-in (Audit Trail Location). */
+  @ApiPropertyOptional({ example: 30.321794 })
   @IsOptional()
   @IsNumber()
   @Min(-90)
   @Max(90)
   latitude?: number;
 
-  @ApiPropertyOptional({ example: 78.0322 })
+  @ApiPropertyOptional({ example: 78.003398 })
   @IsOptional()
   @IsNumber()
   @Min(-180)
   @Max(180)
   longitude?: number;
+
+  /** GPS accuracy radius in metres from browser Geolocation API. */
+  @ApiPropertyOptional({ example: 94 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(50000)
+  accuracyMeters?: number;
 }

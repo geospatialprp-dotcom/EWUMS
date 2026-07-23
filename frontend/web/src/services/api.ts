@@ -100,13 +100,19 @@ export const authApi = {
   login: (
     email: string,
     password: string,
-    location?: { latitude?: number; longitude?: number },
+    location?: { latitude?: number; longitude?: number; accuracyMeters?: number },
   ) =>
     api.post<LoginResponse>('/auth/login', {
       email,
       password,
       ...(typeof location?.latitude === 'number' && typeof location?.longitude === 'number'
-        ? { latitude: location.latitude, longitude: location.longitude }
+        ? {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            ...(typeof location.accuracyMeters === 'number'
+              ? { accuracyMeters: location.accuracyMeters }
+              : {}),
+          }
         : {}),
     }),
   profile: () => api.get('/auth/profile'),

@@ -6,6 +6,7 @@ import {
   AuditContext,
   formatAuditLocation,
   resolveIpGeo,
+  reverseGeocodeAddress,
 } from '../utils/request-context.util';
 
 @Injectable()
@@ -31,19 +32,39 @@ export class AuditService {
     let latitude = context?.latitude;
     let longitude = context?.longitude;
     let place = context?.location;
+    let accuracyMeters = context?.accuracyMeters;
+    let source: 'gps' | 'ip' | null = null;
 
-    // Prefer browser coords; otherwise resolve from public IP (includes lat/lon).
     if (
-      (latitude == null || longitude == null || !place)
-      && ipAddress
+      typeof latitude === 'number'
+      && Number.isFinite(latitude)
+      && typeof longitude === 'number'
+      && Number.isFinite(longitude)
     ) {
-      const geo = await resolveIpGeo(ipAddress);
-      if (latitude == null && geo.latitude != null) latitude = geo.latitude;
-      if (longitude == null && geo.longitude != null) longitude = geo.longitude;
-      if (!place && geo.place) place = geo.place;
+      source = 'gps';
+      // Full postal-style address from GPS (e.g. Bhurgaon, Dehradun, Uttarakhand, 248001, India)
+      const reverse = await reverseGeocodeAddress(latitude, longitude);
+      if (reverse) place = reverse;
     }
 
-    const location = formatAuditLocation({ place, latitude, longitude });
+    if ((latitude == null || longitude == null || !place) && ipAddress) {
+      const geo = await resolveIpGeo(ipAddress);
+      if (latitude == null && geo.latitude != null) {
+        latitude = geo.latitude;
+        longitude = geo.longitude;
+        if (!source) source = 'ip';
+      }
+      if (!place && geo.place) place = geo.place;
+      if (!source && geo.latitude != null) source = 'ip';
+    }
+
+    const location = formatAuditLocation({
+      place,
+      latitude,
+      longitude,
+      accuracyMeters,
+      source,
+    });
 
     const mergedDetails: Record<string, unknown> = {
       ...(details ?? {}),
@@ -52,9 +73,11 @@ export class AuditService {
       mergedDetails.latitude = Number(latitude.toFixed(6));
       mergedDetails.longitude = Number(longitude.toFixed(6));
     }
-    if (place && !mergedDetails.place) {
-      mergedDetails.place = place;
+    if (place) mergedDetails.address = place;
+    if (typeof accuracyMeters === 'number' && Number.isFinite(accuracyMeters)) {
+      mergedDetails.accuracyMeters = Math.round(accuracyMeters);
     }
+    if (source) mergedDetails.locationSource = source;
 
     const base = {
       tenantId,

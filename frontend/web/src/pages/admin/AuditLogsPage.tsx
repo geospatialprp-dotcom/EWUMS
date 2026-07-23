@@ -60,13 +60,18 @@ function formatUser(entry: AuditEntry): string {
 
 function formatDetails(details: Record<string, unknown> | null | undefined): string {
   if (!details || typeof details !== 'object') return '—';
-  const entries = Object.entries(details).filter(([, v]) => v !== undefined && v !== null && v !== '');
+  // Location fields are shown in the Location column — keep Details focused on action meta.
+  const skip = new Set(['latitude', 'longitude', 'address', 'accuracyMeters', 'locationSource', 'place']);
+  const entries = Object.entries(details).filter(
+    ([k, v]) => !skip.has(k) && v !== undefined && v !== null && v !== '',
+  );
   if (!entries.length) return '—';
 
-  const preferred = ['email', 'divisionName', 'place', 'latitude', 'longitude', 'roles', 'changes', 'title', 'status', 'action', 'comments'];
+  const preferred = ['email', 'divisionName', 'roles', 'changes', 'title', 'status', 'action', 'comments'];
   const parts: string[] = [];
   for (const key of preferred) {
     if (!(key in details) || details[key] === undefined || details[key] === null || details[key] === '') continue;
+    if (skip.has(key)) continue;
     const value = details[key];
     if (Array.isArray(value)) {
       parts.push(`${key}: ${value.join(', ')}`);
@@ -84,6 +89,42 @@ function formatDetails(details: Record<string, unknown> | null | undefined): str
       .join(' · ');
   }
   return parts.join(' · ');
+}
+
+/** Location cell: address on line 1, coords + GPS accuracy on line 2 (ops format). */
+function formatLocationDisplay(log: AuditEntry): string {
+  if (log.location?.includes('\n')) return log.location;
+
+  const details = log.details ?? {};
+  const address =
+    (typeof details.address === 'string' && details.address)
+    || (typeof details.place === 'string' && details.place)
+    || '';
+  const lat = typeof details.latitude === 'number' ? details.latitude : Number(details.latitude);
+  const lon = typeof details.longitude === 'number' ? details.longitude : Number(details.longitude);
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
+  const accuracy = typeof details.accuracyMeters === 'number'
+    ? details.accuracyMeters
+    : Number(details.accuracyMeters);
+  const source = details.locationSource === 'gps' || details.locationSource === 'ip'
+    ? details.locationSource
+    : (hasCoords ? 'gps' : null);
+
+  if (hasCoords) {
+    const coords = `${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}`;
+    let suffix = '';
+    if (source === 'gps' && Number.isFinite(accuracy) && accuracy > 0) {
+      suffix = ` (±${Math.round(accuracy)} m GPS)`;
+    } else if (source === 'gps') {
+      suffix = ' (GPS)';
+    } else if (source === 'ip') {
+      suffix = ' (IP approx)';
+    }
+    const place = address || (log.location?.split('\n')[0] ?? '');
+    return place ? `${place}\n${coords}${suffix}` : `${coords}${suffix}`;
+  }
+
+  return log.location?.trim() || '—';
 }
 
 function formatDetailsFull(details: Record<string, unknown> | null | undefined): string {
@@ -140,7 +181,9 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
         <Typography variant="body2" fontFamily="monospace">{log.ipAddress ?? '—'}</Typography>
       </AuditField>
       <AuditField label="Location">
-        <Typography variant="body2">{log.location ?? '—'}</Typography>
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+          {formatLocationDisplay(log)}
+        </Typography>
       </AuditField>
       <AuditField label="Details">
         <Tooltip title={detailsFull !== '—' ? detailsFull : ''} arrow enterTouchDelay={0}>
@@ -288,8 +331,8 @@ export default function AuditLogsPage() {
                   <TableCell sx={{ minWidth: 120 }}>Action</TableCell>
                   <TableCell sx={{ minWidth: 120 }}>Resource</TableCell>
                   <TableCell sx={{ minWidth: 120 }}>IP Address</TableCell>
-                  <TableCell sx={{ minWidth: 100 }}>Location</TableCell>
-                  <TableCell sx={{ minWidth: 220 }}>Details</TableCell>
+                  <TableCell sx={{ minWidth: 220 }}>Location</TableCell>
+                  <TableCell sx={{ minWidth: 200 }}>Details</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>

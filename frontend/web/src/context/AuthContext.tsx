@@ -32,25 +32,32 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /** Best-effort browser GPS for Audit Trail Location (does not block login on deny/timeout). */
-function captureLoginCoordinates(): Promise<{ latitude?: number; longitude?: number }> {
+function captureLoginCoordinates(): Promise<{
+  latitude?: number;
+  longitude?: number;
+  accuracyMeters?: number;
+}> {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return Promise.resolve({});
   }
   return new Promise((resolve) => {
-    const timer = window.setTimeout(() => resolve({}), 2500);
+    const timer = window.setTimeout(() => resolve({}), 3000);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         window.clearTimeout(timer);
         resolve({
           latitude: Number(pos.coords.latitude.toFixed(6)),
           longitude: Number(pos.coords.longitude.toFixed(6)),
+          accuracyMeters: Number.isFinite(pos.coords.accuracy)
+            ? Math.round(pos.coords.accuracy)
+            : undefined,
         });
       },
       () => {
         window.clearTimeout(timer);
         resolve({});
       },
-      { enableHighAccuracy: false, timeout: 2200, maximumAge: 300000 },
+      { enableHighAccuracy: true, timeout: 2800, maximumAge: 60000 },
     );
   });
 }
