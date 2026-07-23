@@ -16,6 +16,8 @@ export type SendAlertInput = {
   mobile?: string | null;
   channels?: AlertChannel[];
   payload?: Record<string, unknown>;
+  /** When set, stored on the alert log for division-scoped Admin Alerts. */
+  divisionId?: string | null;
 };
 
 @Injectable()
@@ -32,25 +34,61 @@ export class AlertNotificationService {
     return this.billingNotify.getConfigStatus();
   }
 
-  async listRecent(tenantId: string, limit = 50) {
+  async listRecent(tenantId: string, limit = 50, activeDivisionId?: string | null) {
     try {
-      const rows = await this.alertRepo.find({
-        where: { tenantId },
-        order: { createdAt: 'DESC' },
-        take: limit,
-      });
+      if (!activeDivisionId) {
+        const rows = await this.alertRepo.find({
+          where: { tenantId },
+          order: { createdAt: 'DESC' },
+          take: limit,
+        });
+        return rows.map((r) => this.toAlertRecord(r));
+      }
+
+      const rows = await this.alertRepo.query(
+        `SELECT a.id, a.tenant_id, a.event_type, a.channel, a.status, a.recipient,
+                a.subject, a.message, a.payload, a.provider, a.error_reason, a.created_at
+         FROM om_alert_notifications a
+         WHERE a.tenant_id = $1
+           AND (
+             a.payload->>'divisionId' = $2
+             OR (
+               NULLIF(a.payload->>'projectId', '') IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM projects p
+                 WHERE p.tenant_id = a.tenant_id
+                   AND p.id::text = a.payload->>'projectId'
+                   AND p.division_id::text = $2
+               )
+             )
+             OR (
+               a.recipient IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM users u
+                 LEFT JOIN user_division_assignments uda ON uda.user_id = u.id
+                 WHERE u.tenant_id = a.tenant_id
+                   AND lower(u.email) = lower(a.recipient)
+                   AND (u.division_id::text = $2 OR uda.division_id::text = $2)
+               )
+             )
+           )
+         ORDER BY a.created_at DESC
+         LIMIT $3`,
+        [tenantId, activeDivisionId, limit],
+      ) as Array<Record<string, unknown>>;
+
       return rows.map((r) => ({
-        id: r.id,
-        eventType: r.eventType,
-        channel: r.channel,
-        status: r.status,
-        recipient: r.recipient,
-        subject: r.subject,
-        message: r.message,
-        provider: r.provider,
-        errorReason: r.errorReason,
-        payload: r.payload,
-        createdAt: r.createdAt,
+        id: String(r.id),
+        eventType: String(r.event_type),
+        channel: String(r.channel),
+        status: String(r.status),
+        recipient: (r.recipient as string | null) ?? null,
+        subject: (r.subject as string | null) ?? null,
+        message: String(r.message ?? ''),
+        provider: (r.provider as string | null) ?? null,
+        errorReason: (r.error_reason as string | null) ?? null,
+        payload: (r.payload as Record<string, unknown>) ?? {},
+        createdAt: r.created_at,
       }));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -60,6 +98,22 @@ export class AlertNotificationService {
       }
       throw err;
     }
+  }
+
+  private toAlertRecord(r: OmAlertNotification) {
+    return {
+      id: r.id,
+      eventType: r.eventType,
+      channel: r.channel,
+      status: r.status,
+      recipient: r.recipient,
+      subject: r.subject,
+      message: r.message,
+      provider: r.provider,
+      errorReason: r.errorReason,
+      payload: r.payload,
+      createdAt: r.createdAt,
+    };
   }
 
   async sendAlert(input: SendAlertInput): Promise<Record<string, NotificationSendResult>> {
@@ -193,10 +247,12 @@ export class AlertNotificationService {
         message,
         email: user.email,
         channels: ['email'],
+        divisionId,
         payload: {
           complaintId: data.complaintId,
           complaintNo: data.complaintNo,
           projectId: data.projectId,
+          divisionId,
         },
       });
       notified += 1;
@@ -333,6 +389,10 @@ export class AlertNotificationService {
     result: NotificationSendResult,
   ) {
     try {
+      const payload: Record<string, unknown> = { ...(input.payload ?? {}) };
+      if (input.divisionId && !payload.divisionId) {
+        payload.divisionId = input.divisionId;
+      }
       await this.alertRepo.save(this.alertRepo.create({
         tenantId: input.tenantId,
         eventType: input.eventType,
@@ -341,7 +401,7 @@ export class AlertNotificationService {
         recipient,
         subject: input.subject,
         message: input.message,
-        payload: input.payload ?? {},
+        payload,
         provider: result.provider,
         errorReason: result.reason ?? null,
       }));

@@ -9,13 +9,29 @@ export class AuditLogsService {
     @InjectRepository(AuditLog) private auditRepo: Repository<AuditLog>,
   ) {}
 
-  async findAll(tenantId: string, limit = 100) {
-    const logs = await this.auditRepo.find({
-      where: { tenantId },
-      relations: ['user'],
-      order: { createdAt: 'DESC' },
-      take: limit,
-    });
+  async findAll(tenantId: string, limit = 100, activeDivisionId?: string | null) {
+    const qb = this.auditRepo
+      .createQueryBuilder('l')
+      .leftJoinAndSelect('l.user', 'user')
+      .where('l.tenant_id = :tenantId', { tenantId })
+      .orderBy('l.created_at', 'DESC')
+      .take(limit);
+
+    if (activeDivisionId) {
+      qb.andWhere(
+        `(
+          user.division_id = :divisionId
+          OR EXISTS (
+            SELECT 1 FROM user_division_assignments uda
+            WHERE uda.user_id = l.user_id AND uda.division_id = :divisionId
+          )
+          OR l.details->>'divisionId' = :divisionId
+        )`,
+        { divisionId: activeDivisionId },
+      );
+    }
+
+    const logs = await qb.getMany();
 
     return logs.map((l) => {
       const userName = [l.user?.firstName, l.user?.lastName].filter(Boolean).join(' ').trim();

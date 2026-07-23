@@ -1308,10 +1308,14 @@ export class OmController {
 
   @Get('notifications/alert-log')
   @RequirePermissions('om:read')
-  @ApiOperation({ summary: 'Recent staff/system alert notifications sent' })
+  @ApiOperation({ summary: 'Recent staff/system alert notifications (division-scoped when header set)' })
   getAlertLog(@CurrentUser() user: JwtPayload, @Query('limit') limit?: string) {
     const parsed = limit ? Number(limit) : 50;
-    return this.alertNotificationService.listRecent(user.tenantId, Number.isFinite(parsed) ? parsed : 50);
+    return this.alertNotificationService.listRecent(
+      user.tenantId,
+      Number.isFinite(parsed) ? parsed : 50,
+      user.activeDivisionId ?? null,
+    );
   }
 
   @Get('billing/gis-revenue')

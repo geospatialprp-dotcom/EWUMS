@@ -15,12 +15,12 @@ import {
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import SmsOutlinedIcon from '@mui/icons-material/SmsOutlined';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
-import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import { omApi } from '../../services/api';
 import PageShell from '../../components/layout/PageShell';
 import PageHeader from '../../components/layout/PageHeader';
 import SurfaceCard from '../../components/layout/SurfaceCard';
 import { useTranslation } from '../../context/LanguageContext';
+import { useDivisionScope } from '../../context/DivisionContext';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 
 type ChannelStatus = { configured: boolean; provider: string | null };
@@ -97,6 +97,12 @@ function ChannelCard({
 
 export default function NotificationSettingsPage() {
   const { t } = useTranslation();
+  const {
+    activeDivision,
+    activeDivisionId,
+    canSwitchDivision,
+    scopeKey,
+  } = useDivisionScope();
   const [config, setConfig] = useState<NotificationConfig | null>(null);
   const [log, setLog] = useState<AlertLogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,15 +134,27 @@ export default function NotificationSettingsPage() {
       }
     })();
     return () => { active = false; };
-  }, [t]);
+  }, [t, scopeKey]);
 
   return (
     <PageShell>
       <PageHeader
         title={t('notificationSettings.title')}
-        subtitle={t('notificationSettings.subtitle')}
-        icon={<NotificationsActiveOutlinedIcon />}
+        subtitle={
+          activeDivision
+            ? `Alert log for ${activeDivision.name}`
+            : canSwitchDivision
+              ? `${t('notificationSettings.subtitle')} Select a division to filter the alert log.`
+              : t('notificationSettings.subtitle')
+        }
+        accent="slate"
       />
+
+      {canSwitchDivision && !activeDivisionId && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Select a division in the header to view division-wise notification alerts.
+        </Alert>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
@@ -220,7 +238,9 @@ export default function NotificationSettingsPage() {
 
           <SurfaceCard>
             <Typography variant="subtitle1" fontWeight={800} px={2} pt={2}>
-              {t('notificationSettings.recentLog')}
+              {activeDivision
+                ? `${t('notificationSettings.recentLog')} — ${activeDivision.name}`
+                : t('notificationSettings.recentLog')}
             </Typography>
             {logError && (
               <Alert severity="warning" sx={{ mx: 2, mt: 1.5 }}>

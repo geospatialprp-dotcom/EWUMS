@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 
 import {
-  Box, Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Alert, Box, Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Tooltip, Typography,
 } from '@mui/material';
 
@@ -121,15 +121,16 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
 }
 
 export default function AuditLogsPage() {
-  const { activeDivision } = useDivisionScope();
+  const { activeDivision, activeDivisionId, canSwitchDivision, scopeKey } = useDivisionScope();
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     auditApi.logs(200)
       .then((r) => setLogs(r.data))
       .finally(() => setLoading(false));
-  }, []);
+  }, [scopeKey]);
 
   const actionColor = (action: string) => {
     if (action.includes('delete') || action.includes('reject')) return 'error';
@@ -143,6 +144,13 @@ export default function AuditLogsPage() {
       <PageHeader
         eyebrow="Compliance"
         title="Audit Trail"
+        subtitle={
+          activeDivision
+            ? `Showing activity for ${activeDivision.name}`
+            : canSwitchDivision
+              ? 'All divisions — select a division in the header to filter'
+              : undefined
+        }
         accent="slate"
         actions={(
           <ExportPdfButton
@@ -152,8 +160,14 @@ export default function AuditLogsPage() {
         )}
       />
 
+      {canSwitchDivision && !activeDivisionId && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Select a division in the header to view a division-wise audit trail.
+        </Alert>
+      )}
+
       <SurfaceCard
-        title="Activity Log"
+        title={activeDivision ? `Activity Log — ${activeDivision.name}` : 'Activity Log'}
         flush
         cardSx={{ overflow: 'visible' }}
         contentSx={{ overflow: 'visible', minWidth: 0, p: 0, '&:last-child': { pb: 0 } }}
