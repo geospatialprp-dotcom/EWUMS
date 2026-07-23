@@ -197,10 +197,10 @@ export default function AuditLogsPage() {
         title="Audit Trail"
         subtitle={
           activeDivision
-            ? `Showing activity for ${activeDivision.name}`
+            ? `Same division activity log for Admin and EE — ${activeDivision.name}`
             : canSwitchDivision
-              ? 'All divisions — select a division in the header to filter'
-              : undefined
+              ? 'All divisions — select Karanprayag (or any division) in the header to match the EE panel view'
+              : 'Division activity log (same view as Admin when filtered to your division)'
         }
         accent="slate"
         actions={(
@@ -223,7 +223,14 @@ export default function AuditLogsPage() {
 
       {canSwitchDivision && activeDivisionId && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Filtered to {activeDivision?.name}. Switch the header to <strong>All divisions</strong> to see the full HQ audit trail.
+          Showing the same Audit Trail an EE sees for {activeDivision?.name}.
+          Switch header to <strong>All divisions</strong> for the statewide HQ trail.
+        </Alert>
+      )}
+
+      {!canSwitchDivision && activeDivision && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Division Audit Trail for {activeDivision.name} — same records HQ Admin sees when this division is selected.
         </Alert>
       )}
 

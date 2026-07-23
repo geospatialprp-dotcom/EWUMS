@@ -31,17 +31,25 @@ export class AuditLogsService {
     const safeLimit = Math.min(Math.max(limit || 100, 1), 500);
 
     try {
-      return await this.loadViaRawSql(tenantId, safeLimit, activeDivisionId);
+      return await this.loadViaRawSql(tenantId, safeLimit, activeDivisionId, 'full');
     } catch (err) {
-      this.logger.error(
-        `Audit raw query failed: ${err instanceof Error ? err.message : String(err)}`,
+      this.logger.warn(
+        `Audit full query failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-      // Last resort: minimal query with no optional columns / division filter
+      if (activeDivisionId) {
+        try {
+          return await this.loadViaRawSql(tenantId, safeLimit, activeDivisionId, 'simple');
+        } catch (err2) {
+          this.logger.error(
+            `Audit simple division query failed: ${err2 instanceof Error ? err2.message : String(err2)}`,
+          );
+        }
+      }
       try {
-        return await this.loadMinimal(tenantId, safeLimit);
-      } catch (err2) {
+        return await this.loadViaRawSql(tenantId, safeLimit, null, 'simple');
+      } catch (err3) {
         this.logger.error(
-          `Audit minimal query failed: ${err2 instanceof Error ? err2.message : String(err2)}`,
+          `Audit unfiltered query failed: ${err3 instanceof Error ? err3.message : String(err3)}`,
         );
         throw err;
       }
@@ -69,38 +77,60 @@ export class AuditLogsService {
   private async loadViaRawSql(
     tenantId: string,
     limit: number,
-    activeDivisionId?: string | null,
+    activeDivisionId: string | null | undefined,
+    mode: 'full' | 'simple',
   ) {
     const includeLocation = await this.hasLocationColumn();
     const locationSelect = includeLocation ? 'l.location' : 'NULL::varchar AS location';
 
     const params: unknown[] = [tenantId];
     let divisionSql = '';
+
     if (activeDivisionId) {
       params.push(activeDivisionId);
-      const divisionParam = `$${params.length}`;
-      divisionSql = `
-        AND (
-          u.division_id = ${divisionParam}::uuid
-          OR EXISTS (
-            SELECT 1 FROM user_division_assignments uda
-            WHERE uda.user_id = l.user_id AND uda.division_id = ${divisionParam}::uuid
-          )
-          OR l.details->>'divisionId' = ${divisionParam}
+      const d = `$${params.length}`;
+      const resourceMatch = mode === 'full'
+        ? `
           OR EXISTS (
             SELECT 1 FROM projects p
             WHERE p.tenant_id = l.tenant_id
-              AND p.division_id = ${divisionParam}::uuid
+              AND p.division_id = ${d}::uuid
               AND (
-                (l.resource_type = 'project' AND p.id = l.resource_id)
+                (l.resource_type IN ('project', 'om_complaint', 'om_consumer') AND p.id = l.resource_id)
                 OR (
                   NULLIF(l.details->>'projectId', '') IS NOT NULL
                   AND p.id::text = l.details->>'projectId'
                 )
               )
           )
+          OR EXISTS (
+            SELECT 1
+            FROM om_consumer_complaints c
+            JOIN projects p ON p.id = c.project_id
+            WHERE c.id = l.resource_id
+              AND p.division_id = ${d}::uuid
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM om_consumers c
+            JOIN projects p ON p.id = c.project_id
+            WHERE c.id = l.resource_id
+              AND p.division_id = ${d}::uuid
+          )`
+        : '';
+
+      divisionSql = `
+        AND (
+          u.division_id = ${d}::uuid
+          OR EXISTS (
+            SELECT 1 FROM user_division_assignments uda
+            WHERE uda.user_id = l.user_id AND uda.division_id = ${d}::uuid
+          )
+          OR l.details->>'divisionId' = ${d}
+          ${resourceMatch}
         )`;
     }
+
     params.push(limit);
     const limitParam = `$${params.length}`;
 
@@ -114,7 +144,7 @@ export class AuditLogsService {
         l.action,
         l.resource_type,
         l.resource_id,
-        l.ip_address::text AS ip_address,
+        CASE WHEN l.ip_address IS NULL THEN NULL ELSE host(l.ip_address) END AS ip_address,
         ${locationSelect},
         COALESCE(l.details, '{}'::jsonb) AS details,
         l.created_at
@@ -127,31 +157,6 @@ export class AuditLogsService {
     `;
 
     const rows = await this.auditRepo.query(sql, params) as AuditRow[];
-    return rows.map((row) => this.mapRow(row));
-  }
-
-  private async loadMinimal(tenantId: string, limit: number) {
-    const rows = await this.auditRepo.query(
-      `SELECT
-         l.id,
-         l.user_id,
-         u.email AS user_email,
-         u.first_name,
-         u.last_name,
-         l.action,
-         l.resource_type,
-         l.resource_id,
-         NULLIF(l.ip_address::text, '') AS ip_address,
-         NULL::varchar AS location,
-         COALESCE(l.details, '{}'::jsonb) AS details,
-         l.created_at
-       FROM audit_logs l
-       LEFT JOIN users u ON u.id = l.user_id
-       WHERE l.tenant_id = $1
-       ORDER BY l.created_at DESC
-       LIMIT $2`,
-      [tenantId, limit],
-    ) as AuditRow[];
     return rows.map((row) => this.mapRow(row));
   }
 
