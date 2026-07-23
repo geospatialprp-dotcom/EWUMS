@@ -121,7 +121,7 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
 }
 
 export default function AuditLogsPage() {
-  const { activeDivision, activeDivisionId, canSwitchDivision, scopeKey } = useDivisionScope();
+  const { activeDivision, scopeKey } = useDivisionScope();
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -144,7 +144,7 @@ export default function AuditLogsPage() {
         } else if (typeof msg === 'string' && msg.trim()) {
           setLoadError(msg);
         } else {
-          setLoadError('Failed to load audit trail. If a division is selected, try All divisions, then refresh.');
+          setLoadError('Failed to load audit trail. Please try again.');
         }
       })
       .finally(() => setLoading(false));
@@ -162,13 +162,7 @@ export default function AuditLogsPage() {
       <PageHeader
         eyebrow="Compliance"
         title="Audit Trail"
-        subtitle={
-          activeDivision
-            ? `Same division activity log for Admin and EE — ${activeDivision.name}`
-            : canSwitchDivision
-              ? 'All divisions — select Karanprayag (or any division) in the header to match the EE panel view'
-              : 'Division activity log (same view as Admin when filtered to your division)'
-        }
+        subtitle={activeDivision ? activeDivision.name : undefined}
         accent="slate"
         actions={(
           <ExportPdfButton
@@ -182,37 +176,16 @@ export default function AuditLogsPage() {
         <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>
       )}
 
-      {canSwitchDivision && !activeDivisionId && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Showing activity for all divisions. Select a division in the header to narrow the trail.
-        </Alert>
-      )}
-
-      {canSwitchDivision && activeDivisionId && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Showing the same Audit Trail an EE sees for {activeDivision?.name}.
-          Switch header to <strong>All divisions</strong> for the statewide HQ trail.
-        </Alert>
-      )}
-
-      {!canSwitchDivision && activeDivision && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Division Audit Trail for {activeDivision.name} — same records HQ Admin sees when this division is selected.
-        </Alert>
-      )}
-
       <SurfaceCard
-        title={activeDivision ? `Activity Log — ${activeDivision.name}` : 'Activity Log — All Divisions'}
+        title={activeDivision ? `Activity Log — ${activeDivision.name}` : 'Activity Log'}
         flush
         cardSx={{ overflow: 'visible' }}
         contentSx={{ overflow: 'visible', minWidth: 0, p: 0, '&:last-child': { pb: 0 } }}
       >
         {!loading && !loadError && logs.length === 0 && (
-          <Alert severity="info" sx={{ m: 2 }}>
-            {activeDivision
-              ? `No audit activity for ${activeDivision.name} yet. Other divisions’ records (including Karanprayag demo) stay hidden when this filter is on.`
-              : 'No audit activity found yet. New logins and admin actions will appear here.'}
-          </Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ m: 2 }}>
+            No activity recorded.
+          </Typography>
         )}
 
         <Stack

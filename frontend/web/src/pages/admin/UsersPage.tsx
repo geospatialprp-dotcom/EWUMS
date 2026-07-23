@@ -203,12 +203,10 @@ export default function UsersPage() {
         title="User Management"
         subtitle={
           isDivisionAdmin
-            ? `Division staff for ${authUser?.divisionName ?? activeDivision?.name ?? 'your division'} — add or deactivate JE, AE, contractor & field users`
+            ? (authUser?.divisionName ?? activeDivision?.name ?? undefined)
             : activeDivision
-              ? `Showing users for ${activeDivision.name}`
-              : canSwitchDivision
-                ? 'All divisions — select a division in the header to filter and assign staff'
-                : undefined
+              ? activeDivision.name
+              : undefined
         }
         accent="slate"
         actions={(
@@ -221,19 +219,6 @@ export default function UsersPage() {
       />
 
       {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
-
-      {isDivisionAdmin && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          As Executive Engineer you can add or remove users only within your division.
-          Roles are limited to field roles (JE, AE, contractor, accounts, etc.).
-        </Alert>
-      )}
-
-      {canSwitchDivision && !activeDivisionId && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Select a division in the header to manage users division-wise. New field staff must be assigned to a division.
-        </Alert>
-      )}
 
       <SurfaceCard
         title={
@@ -345,9 +330,9 @@ export default function UsersPage() {
             </FormControl>
           )}
           {isDivisionAdmin && (
-            <Alert severity="info" sx={{ mt: 1, mb: 1 }}>
-              New users are assigned to <strong>{authUser?.divisionName ?? 'your division'}</strong>.
-            </Alert>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 1 }}>
+              Assigned to {authUser?.divisionName ?? 'your division'}
+            </Typography>
           )}
 
           {!editing && (

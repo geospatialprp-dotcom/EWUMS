@@ -150,12 +150,6 @@ export default function NotificationSettingsPage() {
         accent="slate"
       />
 
-      {canSwitchDivision && !activeDivisionId && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Select a division in the header to view division-wise notification alerts.
-        </Alert>
-      )}
-
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {loading ? (
