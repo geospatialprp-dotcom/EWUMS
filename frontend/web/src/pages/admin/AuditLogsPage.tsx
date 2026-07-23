@@ -243,7 +243,7 @@ export default function AuditLogsPage() {
         {!loading && !loadError && logs.length === 0 && (
           <Alert severity="info" sx={{ m: 2 }}>
             {activeDivision
-              ? `No division-linked activity for ${activeDivision.name} yet. Switch header to All divisions to see HQ-wide logins and actions.`
+              ? `No audit activity for ${activeDivision.name} yet. Other divisions’ records (including Karanprayag demo) stay hidden when this filter is on.`
               : 'No audit activity found yet. New logins and admin actions will appear here.'}
           </Alert>
         )}

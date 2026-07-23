@@ -29,30 +29,19 @@ export class AuditLogsService {
 
   async findAll(tenantId: string, limit = 100, activeDivisionId?: string | null) {
     const safeLimit = Math.min(Math.max(limit || 100, 1), 500);
+    const divisionId = activeDivisionId?.trim() || null;
 
     try {
-      return await this.loadViaRawSql(tenantId, safeLimit, activeDivisionId, 'full');
+      return await this.loadViaRawSql(tenantId, safeLimit, divisionId, true);
     } catch (err) {
       this.logger.warn(
-        `Audit full query failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Audit query (with project join) failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-      if (activeDivisionId) {
-        try {
-          return await this.loadViaRawSql(tenantId, safeLimit, activeDivisionId, 'simple');
-        } catch (err2) {
-          this.logger.error(
-            `Audit simple division query failed: ${err2 instanceof Error ? err2.message : String(err2)}`,
-          );
-        }
+      // Keep division scope — never fall back to statewide/KPG-all when a division was requested.
+      if (divisionId) {
+        return this.loadViaRawSql(tenantId, safeLimit, divisionId, false);
       }
-      try {
-        return await this.loadViaRawSql(tenantId, safeLimit, null, 'simple');
-      } catch (err3) {
-        this.logger.error(
-          `Audit unfiltered query failed: ${err3 instanceof Error ? err3.message : String(err3)}`,
-        );
-        throw err;
-      }
+      return this.loadViaRawSql(tenantId, safeLimit, null, false);
     }
   }
 
@@ -77,8 +66,8 @@ export class AuditLogsService {
   private async loadViaRawSql(
     tenantId: string,
     limit: number,
-    activeDivisionId: string | null | undefined,
-    mode: 'full' | 'simple',
+    divisionId: string | null,
+    includeProjectJoin: boolean,
   ) {
     const includeLocation = await this.hasLocationColumn();
     const locationSelect = includeLocation ? 'l.location' : 'NULL::varchar AS location';
@@ -86,48 +75,43 @@ export class AuditLogsService {
     const params: unknown[] = [tenantId];
     let divisionSql = '';
 
-    if (activeDivisionId) {
-      params.push(activeDivisionId);
+    if (divisionId) {
+      params.push(divisionId);
       const d = `$${params.length}`;
-      const resourceMatch = mode === 'full'
+      const projectJoin = includeProjectJoin
         ? `
-          OR EXISTS (
-            SELECT 1 FROM projects p
-            WHERE p.tenant_id = l.tenant_id
-              AND p.division_id = ${d}::uuid
-              AND (
-                (l.resource_type IN ('project', 'om_complaint', 'om_consumer') AND p.id = l.resource_id)
-                OR (
-                  NULLIF(l.details->>'projectId', '') IS NOT NULL
-                  AND p.id::text = l.details->>'projectId'
-                )
-              )
+          OR (
+            NULLIF(l.details->>'projectId', '') IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM projects p
+              WHERE p.tenant_id = l.tenant_id
+                AND p.id::text = l.details->>'projectId'
+                AND p.division_id::text = ${d}
+            )
           )
-          OR EXISTS (
-            SELECT 1
-            FROM om_consumer_complaints c
-            JOIN projects p ON p.id = c.project_id
-            WHERE c.id = l.resource_id
-              AND p.division_id = ${d}::uuid
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM om_consumers c
-            JOIN projects p ON p.id = c.project_id
-            WHERE c.id = l.resource_id
-              AND p.division_id = ${d}::uuid
+          OR (
+            l.resource_type = 'project'
+            AND l.resource_id IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM projects p
+              WHERE p.tenant_id = l.tenant_id
+                AND p.id = l.resource_id
+                AND p.division_id::text = ${d}
+            )
           )`
         : '';
 
+      // Strict division match only — actor in division, assignment, or details.divisionId.
       divisionSql = `
         AND (
-          u.division_id = ${d}::uuid
+          u.division_id::text = ${d}
           OR EXISTS (
             SELECT 1 FROM user_division_assignments uda
-            WHERE uda.user_id = l.user_id AND uda.division_id = ${d}::uuid
+            WHERE uda.user_id = l.user_id
+              AND uda.division_id::text = ${d}
           )
           OR l.details->>'divisionId' = ${d}
-          ${resourceMatch}
+          ${projectJoin}
         )`;
     }
 
@@ -144,20 +128,39 @@ export class AuditLogsService {
         l.action,
         l.resource_type,
         l.resource_id,
-        CASE WHEN l.ip_address IS NULL THEN NULL ELSE host(l.ip_address) END AS ip_address,
+        CASE WHEN l.ip_address IS NULL THEN NULL ELSE l.ip_address::text END AS ip_address,
         ${locationSelect},
         COALESCE(l.details, '{}'::jsonb) AS details,
         l.created_at
       FROM audit_logs l
       LEFT JOIN users u ON u.id = l.user_id
-      WHERE l.tenant_id = $1
+      WHERE l.tenant_id = $1::uuid
       ${divisionSql}
       ORDER BY l.created_at DESC
       LIMIT ${limitParam}
     `;
 
     const rows = await this.auditRepo.query(sql, params) as AuditRow[];
-    return rows.map((row) => this.mapRow(row));
+    const mapped = rows.map((row) => this.mapRow(row));
+
+    // Belt-and-suspenders: drop rows that clearly belong to another division.
+    if (!divisionId) return mapped;
+    return mapped.filter((row) => this.rowMatchesDivision(row, divisionId));
+  }
+
+  private rowMatchesDivision(
+    row: {
+      details: Record<string, unknown>;
+      userId: string | null;
+    },
+    divisionId: string,
+  ): boolean {
+    const detailDiv = row.details?.divisionId;
+    if (typeof detailDiv === 'string' && detailDiv.trim()) {
+      return detailDiv.trim() === divisionId;
+    }
+    // Actor-only / project-only matches already constrained in SQL; keep them.
+    return true;
   }
 
   private mapRow(row: AuditRow) {
