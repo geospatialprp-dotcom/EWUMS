@@ -35,8 +35,10 @@ import { formatApiError } from '../utils/apiError';
 import { isSuperAdmin, canPerformOperational } from '../utils/operationalAccess';
 import {
   SPATIAL_OPERATIONS,
+  applySpatialSelectionMethod,
   type SpatialOperation,
   type SpatialQueryMeta,
+  type SpatialSelectionMethod,
 } from '../utils/spatialAnalysis';
 import { runClientSpatialQuery } from '../utils/clientSpatialQuery';
 import {
@@ -242,6 +244,7 @@ export default function MapPage() {
   const jurisdictionFlyRevisionRef = useRef(0);
   const [imageSaving, setImageSaving] = useState(false);
   const [spatialOperation, setSpatialOperation] = useState<SpatialOperation>('intersect');
+  const [spatialSelectionMethod, setSpatialSelectionMethod] = useState<SpatialSelectionMethod>('create_new');
   const [analysisTargetLayerId, setAnalysisTargetLayerId] = useState('');
   const [bufferMeters, setBufferMeters] = useState(500);
   const [queryGeometry, setQueryGeometry] = useState<object | null>(null);
@@ -1194,6 +1197,18 @@ export default function MapPage() {
     setClearQueryRevision((value) => value + 1);
   }, []);
 
+  const commitAnalysisSelection = useCallback((
+    queried: GeoFeature[],
+    meta: SpatialQueryMeta | null,
+  ) => {
+    setAnalysisResults((previous) => {
+      const merged = applySpatialSelectionMethod(spatialSelectionMethod, previous, queried);
+      setAnalysisMeta(meta ? { ...meta, count: merged.length } : null);
+      setAnalysisSelectedFeatureId(merged.length === 1 ? String(merged[0].id ?? '') : null);
+      return merged;
+    });
+  }, [spatialSelectionMethod]);
+
   const runSpatialAnalysis = useCallback(async (geometryOverride?: object) => {
     const geometry = geometryOverride ?? queryGeometry;
     if (!geometry || !analysisTargetLayerId) return;
@@ -1217,13 +1232,7 @@ export default function MapPage() {
       const normalized = (response.data.features ?? [])
         .map(normalizeMapFeature)
         .filter((feature): feature is GeoFeature => feature !== null);
-      setAnalysisResults(normalized);
-      setAnalysisMeta(response.data.meta);
-      if (normalized.length === 1) {
-        setAnalysisSelectedFeatureId(String(normalized[0].id ?? ''));
-      } else {
-        setAnalysisSelectedFeatureId(null);
-      }
+      commitAnalysisSelection(normalized, response.data.meta);
     } catch (err) {
       const routeMissing = axios.isAxiosError(err) && (
         err.response?.status === 404
@@ -1252,17 +1261,13 @@ export default function MapPage() {
         const normalized = local.features
           .map(normalizeMapFeature)
           .filter((feature): feature is GeoFeature => feature !== null);
-        setAnalysisResults(normalized);
-        setAnalysisMeta(local.meta);
-        if (normalized.length === 1) {
-          setAnalysisSelectedFeatureId(String(normalized[0].id ?? ''));
-        } else {
-          setAnalysisSelectedFeatureId(null);
-        }
+        commitAnalysisSelection(normalized, local.meta);
       } else {
-        setMapError(formatApiError(err, 'Spatial analysis failed.'));
-        setAnalysisResults([]);
-        setAnalysisMeta(null);
+        setMapError(formatApiError(err, 'Select By Location failed.'));
+        if (spatialSelectionMethod === 'create_new') {
+          setAnalysisResults([]);
+          setAnalysisMeta(null);
+        }
       }
     } finally {
       setAnalysisLoading(false);
@@ -1274,11 +1279,13 @@ export default function MapPage() {
     analysisTargetLayerId,
     assertGeometryInJurisdiction,
     bufferMeters,
+    commitAnalysisSelection,
     featureClassLayers,
     layerFeatures,
     layerVisibility,
     queryGeometry,
     spatialOperation,
+    spatialSelectionMethod,
   ]);
 
   const handleAnalyzeDrawComplete = useCallback((geometry: GeoFeature['geometry']) => {
@@ -1287,10 +1294,8 @@ export default function MapPage() {
       setMapError(OUTSIDE_JURISDICTION_MESSAGE);
       return;
     }
-    const nextGeometry = geometry as object;
-    setQueryGeometry(nextGeometry);
-    void runSpatialAnalysis(nextGeometry);
-  }, [assertGeometryInJurisdiction, runSpatialAnalysis]);
+    setQueryGeometry(geometry as object);
+  }, [assertGeometryInJurisdiction]);
 
   useEffect(() => {
     if (analysisTargetLayerId) return;
@@ -1336,11 +1341,11 @@ export default function MapPage() {
 
   const analysisPanelSubtitle = useMemo(() => {
     if (!analysisFeatureClass) return undefined;
-    const opLabel = SPATIAL_OPERATIONS.find((item) => item.value === spatialOperation)?.label ?? 'Analysis';
+    const opLabel = SPATIAL_OPERATIONS.find((item) => item.value === spatialOperation)?.label ?? 'intersect';
     if (analysisMeta) {
-      return `${opLabel} on ${analysisMeta.layerName} · ${analysisMeta.count} result${analysisMeta.count === 1 ? '' : 's'}`;
+      return `Select By Location · ${analysisMeta.count} selected · ${opLabel}`;
     }
-    return `${analysisFeatureClass.geometryType} layer · ${opLabel} · draw on map and run analysis`;
+    return `${analysisFeatureClass.geometryType} · draw source geometry, then Apply`;
   }, [analysisFeatureClass, analysisMeta, spatialOperation]);
 
   const handleAnalysisFeatureSelect = useCallback((featureId: string) => {
@@ -1958,17 +1963,21 @@ export default function MapPage() {
               }))}
               targetLayerId={analysisTargetLayerId}
               operation={spatialOperation}
+              selectionMethod={spatialSelectionMethod}
               bufferMeters={bufferMeters}
               loading={analysisLoading}
               meta={analysisMeta}
               hasQueryGeometry={Boolean(queryGeometry)}
+              selectionCount={analysisResults.length}
               onTargetLayerChange={setAnalysisTargetLayerId}
               onOperationChange={(operation) => {
                 setSpatialOperation(operation);
-                clearAnalysis();
+                setQueryGeometry(null);
+                setClearQueryRevision((value) => value + 1);
               }}
+              onSelectionMethodChange={setSpatialSelectionMethod}
               onBufferMetersChange={setBufferMeters}
-              onRun={() => { void runSpatialAnalysis(); }}
+              onApply={() => { void runSpatialAnalysis(); }}
               onClear={clearAnalysis}
               onClose={() => setActiveTool('info')}
             />

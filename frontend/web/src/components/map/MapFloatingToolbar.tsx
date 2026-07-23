@@ -206,9 +206,9 @@ export default function MapFloatingToolbar({
           <ArcDesktopToolButton
             tool="analyze"
             activeTool={activeTool}
-            title={canAnalyze ? 'Spatial query analysis' : 'Enable a feature layer to analyze'}
+            title={canAnalyze ? 'Select By Location' : 'Enable a feature layer to select by location'}
             disabled={!canAnalyze}
-            ariaLabel="Spatial analysis"
+            ariaLabel="Select By Location"
             onToolChange={onToolChange}
           >
             <AnalyticsOutlinedIcon sx={arcIconSx} />
@@ -365,9 +365,9 @@ export default function MapFloatingToolbar({
         </ToolButton>
         <ToolButton
           value="analyze"
-          title={canAnalyze ? 'Spatial query analysis' : 'Enable a feature layer to analyze'}
+          title={canAnalyze ? 'Select By Location' : 'Enable a feature layer to select by location'}
           disabled={!canAnalyze}
-          ariaLabel="Spatial analysis"
+          ariaLabel="Select By Location"
         >
           <AnalyticsOutlinedIcon sx={mapToolbarIconSx(placement)} />
         </ToolButton>

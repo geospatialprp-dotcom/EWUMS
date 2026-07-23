@@ -429,17 +429,17 @@ export function mapCompassCardSx() {
   };
 }
 
-/** Right-side spatial analysis panel — mirrors TOC panel chrome on the opposite edge. */
+/** Right-side Select By Location panel — ArcMap dialog chrome on the map edge. */
 export function mapSpatialAnalysisPanelSx(active = false) {
   return {
-    width: { xs: 200, md: 216 },
+    width: { xs: 220, md: 268 },
     flexShrink: 0,
     display: { xs: 'none', md: 'flex' },
     flexDirection: 'column',
     borderLeft: active
       ? `2px solid ${ARCMAP.selectionBorder}`
       : `1px solid ${ARCMAP.toolbarBorder}`,
-    bgcolor: active ? ARCMAP.selectionBg : ARCMAP.tocBg,
+    bgcolor: active ? ARCMAP.toolbarBg : ARCMAP.tocBg,
     height: '100%',
     fontFamily: '"Segoe UI", Tahoma, sans-serif',
     fontSize: '0.8125rem',
