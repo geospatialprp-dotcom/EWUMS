@@ -340,6 +340,7 @@ export default function AuditLogsPage() {
                   const detailsText = formatDetails(log.details);
                   const detailsFull = formatDetailsFull(log.details);
                   const detailsPreview = detailsText.length > 90 ? `${detailsText.slice(0, 90)}…` : detailsText;
+                  const locationText = formatLocationDisplay(log);
 
                   return (
                     <TableRow key={log.id} hover>
@@ -358,8 +359,12 @@ export default function AuditLogsPage() {
                           {log.ipAddress ?? '—'}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 100 }}>{log.location ?? '—'}</TableCell>
-                      <TableCell sx={{ minWidth: 220, maxWidth: 320 }}>
+                      <TableCell sx={{ minWidth: 220, maxWidth: 340 }}>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-line', lineHeight: 1.35 }}>
+                          {locationText}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 200, maxWidth: 320 }}>
                         <Tooltip
                           title={
                             <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
