@@ -1961,10 +1961,6 @@ export default function MapPage() {
                   layerName={editFeatureClass?.name}
                   featureClass={editFeatureClass}
                   feature={identifiedFeature}
-                  onClose={() => {
-                    clearIdentify();
-                    setActiveTool('');
-                  }}
                 />
               </Box>
             )}

@@ -451,7 +451,7 @@ export function mapSpatialAnalysisPanelSx(active = false) {
 /** Right-side Identify attribute dock — narrow Field | Value panel. */
 export function mapRightAttributePanelSx(active = false) {
   return {
-    width: { xs: 220, md: 260 },
+    width: { xs: 200, md: 236 },
     flexShrink: 0,
     display: { xs: 'none', md: 'flex' },
     flexDirection: 'column',

@@ -1,31 +1,39 @@
 import {
-  Box, CircularProgress, IconButton, Table, TableBody, TableCell, TableHead, TableRow,
+  Box, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow,
   Typography,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import type { AttributeField, FeatureClassRecord, ProjectFeatureRecord } from '../../services/api';
-import { arcMapPanelHeaderSx, ARCMAP } from '../gis/arcMapUi';
+import { ARCMAP } from '../gis/arcMapUi';
 
 interface MapIdentifySidePanelProps {
   loading?: boolean;
   layerName?: string;
   featureClass?: FeatureClassRecord | null;
   feature?: ProjectFeatureRecord | null;
-  onClose?: () => void;
 }
 
 const fieldHeaderSx = {
   fontWeight: 700,
-  fontSize: '0.65rem',
+  fontSize: '0.625rem',
   textTransform: 'uppercase' as const,
-  letterSpacing: '0.04em',
+  letterSpacing: '0.05em',
   color: ARCMAP.textMuted,
-  bgcolor: ARCMAP.panelHeaderBg,
+  bgcolor: '#f3f5f8',
   borderBottom: `1px solid ${ARCMAP.toolbarBorder}`,
-  py: 0.4,
-  px: 0.75,
+  py: 0.45,
+  px: 1,
   whiteSpace: 'nowrap' as const,
+  lineHeight: 1.2,
+};
+
+const cellSx = {
+  fontSize: '0.72rem',
+  borderColor: 'divider',
+  py: 0.55,
+  px: 1,
+  verticalAlign: 'top' as const,
+  wordBreak: 'break-word' as const,
+  lineHeight: 1.35,
 };
 
 function formatValue(field: AttributeField, value: unknown) {
@@ -35,88 +43,78 @@ function formatValue(field: AttributeField, value: unknown) {
   return String(value);
 }
 
-/** Narrow right-rail Identify panel: layer name + Field | Value rows after selection. */
+/** Narrow Identify rail: layer name + Field | Value after map selection. */
 export default function MapIdentifySidePanel({
   loading,
   layerName,
   featureClass,
   feature,
-  onClose,
 }: MapIdentifySidePanelProps) {
   const title = layerName ?? featureClass?.name ?? 'Identify';
 
   return (
     <Box display="flex" flexDirection="column" height="100%" minHeight={0} bgcolor="#fff">
-      <Box sx={{ ...arcMapPanelHeaderSx(), px: 0.75, py: 0.4, minHeight: 28, gap: 0.5 }}>
-        <InfoOutlinedIcon sx={{ fontSize: 15, color: ARCMAP.accent, flexShrink: 0 }} />
+      <Box
+        sx={{
+          px: 1,
+          py: 0.75,
+          borderBottom: `1px solid ${ARCMAP.toolbarBorder}`,
+          bgcolor: '#f7f8fa',
+        }}
+      >
         <Typography
-          variant="body2"
-          fontWeight={700}
           noWrap
-          sx={{ flex: 1, minWidth: 0, fontSize: '0.75rem', lineHeight: 1.2 }}
+          title={title}
+          sx={{
+            fontWeight: 700,
+            fontSize: '0.78rem',
+            lineHeight: 1.25,
+            color: ARCMAP.text,
+            letterSpacing: '0.01em',
+          }}
         >
           {title}
         </Typography>
-        {onClose && (
-          <IconButton size="small" onClick={onClose} aria-label="Close identify panel" sx={{ p: 0.2 }}>
-            <CloseIcon sx={{ fontSize: 15 }} />
-          </IconButton>
-        )}
       </Box>
 
       <Box flex={1} minHeight={0} overflow="auto">
         {loading ? (
-          <Box display="flex" justifyContent="center" alignItems="center" minHeight={120}>
-            <CircularProgress size={24} />
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight={96}>
+            <CircularProgress size={22} thickness={4} />
           </Box>
         ) : !feature ? (
-          <Box p={1.5}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+          <Box px={1.25} py={1.5}>
+            <Typography sx={{ fontSize: '0.72rem', color: 'text.secondary', lineHeight: 1.4 }}>
               Click a feature on the map to view attributes.
             </Typography>
           </Box>
         ) : !featureClass || featureClass.attributeSchema.length === 0 ? (
-          <Box p={1.5}>
-            <Typography color="text.secondary" variant="body2" sx={{ fontSize: '0.75rem' }}>
-              No attribute fields defined for this layer.
+          <Box px={1.25} py={1.5}>
+            <Typography sx={{ fontSize: '0.72rem', color: 'text.secondary' }}>
+              No attribute fields on this layer.
             </Typography>
           </Box>
         ) : (
           <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ ...fieldHeaderSx, width: '42%' }}>Field</TableCell>
-                <TableCell sx={{ ...fieldHeaderSx, width: '58%' }}>Value</TableCell>
+                <TableCell sx={{ ...fieldHeaderSx, width: '44%' }}>Field</TableCell>
+                <TableCell sx={{ ...fieldHeaderSx, width: '56%' }}>Value</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {featureClass.attributeSchema
                 .filter((field) => field.type !== 'image')
                 .map((field) => (
-                  <TableRow key={field.name} hover>
-                    <TableCell
-                      sx={{
-                        fontWeight: 600,
-                        fontSize: '0.7rem',
-                        borderColor: 'divider',
-                        py: 0.5,
-                        px: 0.75,
-                        verticalAlign: 'top',
-                        wordBreak: 'break-word',
-                      }}
-                    >
+                  <TableRow
+                    key={field.name}
+                    hover
+                    sx={{ '&:last-child td': { borderBottom: 0 } }}
+                  >
+                    <TableCell sx={{ ...cellSx, fontWeight: 600, color: ARCMAP.text }}>
                       {field.label}
                     </TableCell>
-                    <TableCell
-                      sx={{
-                        fontSize: '0.7rem',
-                        borderColor: 'divider',
-                        py: 0.5,
-                        px: 0.75,
-                        verticalAlign: 'top',
-                        wordBreak: 'break-word',
-                      }}
-                    >
+                    <TableCell sx={{ ...cellSx, color: 'text.primary' }}>
                       {formatValue(field, feature.properties.attributes[field.name])}
                     </TableCell>
                   </TableRow>
