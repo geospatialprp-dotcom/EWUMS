@@ -16,6 +16,11 @@ import PageHeader from '../../components/layout/PageHeader';
 import SurfaceCard from '../../components/layout/SurfaceCard';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { useDivisionScope } from '../../context/DivisionContext';
+import { useAuth } from '../../context/AuthContext';
+
+const EE_ASSIGNABLE_ROLE_CODES = new Set([
+  'je', 'ae', 'ee', 'contractor', 'accounts', 'om_operator', 'scada_operator', 'gis_operator', 'billing_officer',
+]);
 
 function getErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -31,6 +36,7 @@ function getErrorMessage(err: unknown): string {
 }
 
 export default function UsersPage() {
+  const { user: authUser, hasPermission } = useAuth();
   const {
     divisions,
     activeDivisionId,
@@ -38,6 +44,10 @@ export default function UsersPage() {
     canSwitchDivision,
     scopeKey,
   } = useDivisionScope();
+  const isDivisionAdmin = !canSwitchDivision && Boolean(authUser?.divisionId || authUser?.divisionName);
+  const canCreate = hasPermission('user:create');
+  const canUpdate = hasPermission('user:update');
+  const canDelete = hasPermission('user:delete');
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,6 +65,14 @@ export default function UsersPage() {
     status: 'active' as 'active' | 'inactive',
   });
   const [error, setError] = useState('');
+
+  const assignableRoles = isDivisionAdmin
+    ? roles.filter((r) => EE_ASSIGNABLE_ROLE_CODES.has(r.code))
+    : roles;
+
+  const lockedDivisionId = isDivisionAdmin
+    ? (authUser?.divisionId ?? activeDivisionId ?? '')
+    : '';
 
   const load = async () => {
     setLoading(true);
@@ -81,7 +99,7 @@ export default function UsersPage() {
       lastName: '',
       department: '',
       roleIds: [],
-      divisionId: activeDivisionId ?? '',
+      divisionId: lockedDivisionId || activeDivisionId || '',
       status: 'active',
     });
     setError('');
@@ -97,7 +115,7 @@ export default function UsersPage() {
       lastName: user.lastName,
       department: user.department ?? '',
       roleIds: user.roles.map((r) => r.id),
-      divisionId: user.divisionId ?? activeDivisionId ?? '',
+      divisionId: lockedDivisionId || user.divisionId || activeDivisionId || '',
       status: user.status === 'inactive' ? 'inactive' : 'active',
     });
     setError('');
@@ -128,7 +146,7 @@ export default function UsersPage() {
     }
 
     try {
-      const divisionId = form.divisionId || activeDivisionId || undefined;
+      const divisionId = lockedDivisionId || form.divisionId || activeDivisionId || undefined;
       if (editing) {
         const payload: Record<string, unknown> = {
           email: form.email,
@@ -184,21 +202,32 @@ export default function UsersPage() {
         eyebrow="Administration"
         title="User Management"
         subtitle={
-          activeDivision
-            ? `Showing users for ${activeDivision.name}`
-            : canSwitchDivision
-              ? 'All divisions — select a division in the header to filter and assign staff'
-              : undefined
+          isDivisionAdmin
+            ? `Division staff for ${authUser?.divisionName ?? activeDivision?.name ?? 'your division'} — add or deactivate JE, AE, contractor & field users`
+            : activeDivision
+              ? `Showing users for ${activeDivision.name}`
+              : canSwitchDivision
+                ? 'All divisions — select a division in the header to filter and assign staff'
+                : undefined
         }
         accent="slate"
         actions={(
-          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate} sx={{ boxShadow: 2 }}>
-            Add User
-          </Button>
+          canCreate ? (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate} sx={{ boxShadow: 2 }}>
+              Add User
+            </Button>
+          ) : undefined
         )}
       />
 
       {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
+
+      {isDivisionAdmin && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          As Executive Engineer you can add or remove users only within your division.
+          Roles are limited to field roles (JE, AE, contractor, accounts, etc.).
+        </Alert>
+      )}
 
       {canSwitchDivision && !activeDivisionId && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -207,7 +236,13 @@ export default function UsersPage() {
       )}
 
       <SurfaceCard
-        title={activeDivision ? `Users — ${activeDivision.name}` : 'Organization Users'}
+        title={
+          isDivisionAdmin
+            ? `Division Users — ${authUser?.divisionName ?? 'My Division'}`
+            : activeDivision
+              ? `Users — ${activeDivision.name}`
+              : 'Organization Users'
+        }
         flush
       >
         <Table sx={dataTableSx()}>
@@ -253,17 +288,20 @@ export default function UsersPage() {
                   />
                 </TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Edit user & roles">
-                    <IconButton size="small" onClick={() => openEdit(u)}><EditIcon /></IconButton>
-                  </Tooltip>
-                  {u.status === 'inactive' ? (
+                  {canUpdate && (
+                    <Tooltip title="Edit user & roles">
+                      <IconButton size="small" onClick={() => openEdit(u)}><EditIcon /></IconButton>
+                    </Tooltip>
+                  )}
+                  {canUpdate && u.status === 'inactive' && (
                     <Tooltip title="Activate user">
                       <IconButton size="small" color="success" onClick={() => handleActivate(u.id)}>
                         <PersonIcon />
                       </IconButton>
                     </Tooltip>
-                  ) : (
-                    <Tooltip title="Deactivate user">
+                  )}
+                  {canDelete && u.status !== 'inactive' && (
+                    <Tooltip title="Deactivate / remove from division access">
                       <IconButton size="small" color="error" onClick={() => handleDeactivate(u.id)}>
                         <PersonOffIcon />
                       </IconButton>
@@ -289,7 +327,7 @@ export default function UsersPage() {
           <TextField fullWidth label="Department" margin="dense" value={form.department}
             onChange={(e) => setForm({ ...form, department: e.target.value })} />
 
-          {(canSwitchDivision || divisions.length > 0) && (
+          {(canSwitchDivision || divisions.length > 0) && !isDivisionAdmin && (
             <FormControl fullWidth margin="dense">
               <InputLabel>Division</InputLabel>
               <Select
@@ -305,6 +343,11 @@ export default function UsersPage() {
                 ))}
               </Select>
             </FormControl>
+          )}
+          {isDivisionAdmin && (
+            <Alert severity="info" sx={{ mt: 1, mb: 1 }}>
+              New users are assigned to <strong>{authUser?.divisionName ?? 'your division'}</strong>.
+            </Alert>
           )}
 
           {!editing && (
@@ -342,13 +385,13 @@ export default function UsersPage() {
               }}
               input={<OutlinedInput label="Roles" />}
               renderValue={(selected) =>
-                roles
+                assignableRoles
                   .filter((r) => selected.includes(r.id))
                   .map((r) => r.name)
                   .join(', ')
               }
             >
-              {roles.map((r) => (
+              {assignableRoles.map((r) => (
                 <MenuItem key={r.id} value={r.id}>
                   <Checkbox checked={form.roleIds.includes(r.id)} />
                   <ListItemText primary={r.name} secondary={r.code} />

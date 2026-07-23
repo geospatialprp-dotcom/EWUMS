@@ -7,13 +7,20 @@ interface PermissionRouteProps {
   children: ReactNode;
   permission?: string;
   permissions?: string[];
+  /** When true, only HQ / super-admin (canViewAllDivisions) may open the route. */
+  hqOnly?: boolean;
 }
 
 function isSuperAdmin(user: { roles?: string[] } | null) {
   return Boolean(user?.roles?.includes('super_admin'));
 }
 
-export default function PermissionRoute({ children, permission, permissions }: PermissionRouteProps) {
+export default function PermissionRoute({
+  children,
+  permission,
+  permissions,
+  hqOnly = false,
+}: PermissionRouteProps) {
   const { user, loading, hasPermission } = useAuth();
   const { t } = useTranslation();
 
@@ -26,7 +33,9 @@ export default function PermissionRoute({ children, permission, permissions }: P
   }
 
   const required = permission ? [permission] : permissions ?? [];
-  const allowed = isSuperAdmin(user) || required.length === 0 || required.some((p) => hasPermission(p));
+  const hasPerm = isSuperAdmin(user) || required.length === 0 || required.some((p) => hasPermission(p));
+  const hqOk = !hqOnly || isSuperAdmin(user) || Boolean(user?.canViewAllDivisions);
+  const allowed = hasPerm && hqOk;
 
   if (!allowed) {
     return (

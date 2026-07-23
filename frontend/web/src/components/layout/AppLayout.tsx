@@ -75,6 +75,8 @@ interface NavItem {
   icon: ReactNode;
   permission?: string;
   badge?: number;
+  /** HQ / statewide admins only (hide for division EE panel). */
+  hqOnly?: boolean;
 }
 
 const mainNav: NavItem[] = [
@@ -97,7 +99,7 @@ const managementNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { path: '/admin/users', labelKey: 'nav.userManagement', icon: <PeopleIcon />, permission: 'user:read' },
-  { path: '/admin/roles', labelKey: 'nav.rolesPermissions', icon: <SecurityIcon />, permission: 'user:read' },
+  { path: '/admin/roles', labelKey: 'nav.rolesPermissions', icon: <SecurityIcon />, permission: 'user:read', hqOnly: true },
   { path: '/admin/audit', labelKey: 'nav.auditTrail', icon: <HistoryIcon />, permission: 'audit:read' },
   { path: '/admin/notifications', labelKey: 'nav.notificationSettings', icon: <NotificationsActiveOutlinedIcon />, permission: 'om:read' },
 ];
@@ -146,6 +148,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const secretariatScoped = isSecretariatScopedUser(user?.roles);
   const contractorScoped = isContractorUser(user?.roles);
+  const canViewAllDivisions = Boolean(user?.canViewAllDivisions);
 
   /** Consumer O&M billing/complaints are not part of the contractor workspace. */
   const CONTRACTOR_HIDDEN_PATHS = new Set(['/complaints', '/billing', '/mobile-billing']);
@@ -153,6 +156,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const filterNav = (items: NavItem[]) =>
     items.filter((item) => {
       if (item.permission && !hasPermission(item.permission)) return false;
+      if (item.hqOnly && !canViewAllDivisions) return false;
       if (contractorScoped && CONTRACTOR_HIDDEN_PATHS.has(item.path)) return false;
       return true;
     });

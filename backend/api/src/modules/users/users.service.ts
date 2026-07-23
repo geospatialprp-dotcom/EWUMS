@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,12 +10,27 @@ import * as bcrypt from 'bcrypt';
 import { Repository, In } from 'typeorm';
 import { AuditService } from '../../common/services/audit.service';
 import { AuditContext } from '../../common/utils/request-context.util';
+import { isSuperAdmin } from '../../common/utils/operational-access.util';
+import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { Role } from '../auth/entities/role.entity';
 import { User } from '../auth/entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 type DivisionMeta = { id: string; code: string; name: string };
+
+/** Roles an EE may assign inside their division (not HQ / org admin roles). */
+const EE_ASSIGNABLE_ROLE_CODES = new Set([
+  'je',
+  'ae',
+  'ee',
+  'contractor',
+  'accounts',
+  'om_operator',
+  'scada_operator',
+  'gis_operator',
+  'billing_officer',
+]);
 
 @Injectable()
 export class UsersService {
@@ -24,21 +40,26 @@ export class UsersService {
     private auditService: AuditService,
   ) {}
 
-  async findAll(tenantId: string, activeDivisionId?: string | null) {
+  async findAll(actor: JwtPayload) {
+    const tenantId = actor.tenantId;
+    const divisionFilter = this.resolveListDivisionFilter(actor);
+
     const qb = this.usersRepo
       .createQueryBuilder('u')
       .leftJoinAndSelect('u.roles', 'roles')
       .where('u.tenant_id = :tenantId', { tenantId })
       .orderBy('u.created_at', 'DESC');
 
-    if (activeDivisionId) {
+    if (divisionFilter) {
       qb.andWhere(
         `(u.division_id = :divisionId OR EXISTS (
           SELECT 1 FROM user_division_assignments uda
           WHERE uda.user_id = u.id AND uda.division_id = :divisionId
         ))`,
-        { divisionId: activeDivisionId },
+        { divisionId: divisionFilter },
       );
+    } else if (!actor.canViewAllDivisions && !isSuperAdmin(actor.roles)) {
+      throw new ForbiddenException('Your account has no division assignment. Contact HQ IT.');
     }
 
     const users = await qb.getMany();
@@ -46,23 +67,19 @@ export class UsersService {
     return users.map((u) => this.toResponse(u, divisionMap.get(u.divisionId ?? '')));
   }
 
-  async findOne(tenantId: string, id: string) {
+  async findOne(actor: JwtPayload, id: string) {
     const user = await this.usersRepo.findOne({
-      where: { id, tenantId },
+      where: { id, tenantId: actor.tenantId },
       relations: ['roles'],
     });
     if (!user) throw new NotFoundException('User not found');
-    const divisionMap = await this.loadDivisionMeta(tenantId, [user.divisionId]);
+    await this.assertCanManageUser(actor, user);
+    const divisionMap = await this.loadDivisionMeta(actor.tenantId, [user.divisionId]);
     return this.toResponse(user, divisionMap.get(user.divisionId ?? ''));
   }
 
-  async create(
-    tenantId: string,
-    actorId: string,
-    dto: CreateUserDto,
-    auditContext?: AuditContext,
-    activeDivisionId?: string | null,
-  ) {
+  async create(actor: JwtPayload, dto: CreateUserDto, auditContext?: AuditContext) {
+    const tenantId = actor.tenantId;
     const existing = await this.usersRepo.findOne({
       where: { tenantId, email: dto.email },
     });
@@ -72,13 +89,21 @@ export class UsersService {
     if (roles.length !== dto.roleIds.length) {
       throw new BadRequestException('One or more roles not found');
     }
+    this.assertAssignableRoles(actor, roles);
 
+    const forcedDivision = this.resolveForcedDivisionId(actor);
     const divisionId = await this.resolveDivisionId(
       tenantId,
-      dto.divisionId ?? activeDivisionId ?? null,
+      forcedDivision ?? dto.divisionId ?? actor.activeDivisionId ?? null,
       roles,
       true,
     );
+    if (forcedDivision && divisionId !== forcedDivision) {
+      throw new ForbiddenException('You can only create users in your own division.');
+    }
+    if (forcedDivision && !divisionId) {
+      throw new BadRequestException('Division is required for division staff.');
+    }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = this.usersRepo.create({
@@ -95,26 +120,27 @@ export class UsersService {
     const saved = await this.usersRepo.save(user);
     await this.syncDivisionAssignment(saved.id, divisionId);
 
-    await this.auditService.log(tenantId, actorId, 'user.create', 'user', saved.id, {
+    await this.auditService.log(tenantId, actor.sub, 'user.create', 'user', saved.id, {
       email: dto.email,
       divisionId,
     }, auditContext);
 
-    return this.findOne(tenantId, saved.id);
+    return this.findOne(actor, saved.id);
   }
 
   async update(
-    tenantId: string,
-    actorId: string,
+    actor: JwtPayload,
     id: string,
     dto: UpdateUserDto,
     auditContext?: AuditContext,
   ) {
+    const tenantId = actor.tenantId;
     const user = await this.usersRepo.findOne({
       where: { id, tenantId },
       relations: ['roles'],
     });
     if (!user) throw new NotFoundException('User not found');
+    await this.assertCanManageUser(actor, user);
 
     if (dto.email && dto.email !== user.email) {
       const existing = await this.usersRepo.findOne({
@@ -132,40 +158,116 @@ export class UsersService {
 
     if (dto.roleIds) {
       const roles = await this.rolesRepo.findBy({ id: In(dto.roleIds), tenantId });
+      this.assertAssignableRoles(actor, roles);
       user.roles = roles;
     }
 
-    if (dto.divisionId !== undefined) {
+    const forcedDivision = this.resolveForcedDivisionId(actor);
+    if (forcedDivision) {
+      // EE cannot move users out of their division
+      if (dto.divisionId !== undefined && dto.divisionId !== forcedDivision) {
+        throw new ForbiddenException('You can only keep users in your own division.');
+      }
+      user.divisionId = forcedDivision;
+      await this.usersRepo.save(user);
+      await this.syncDivisionAssignment(user.id, forcedDivision);
+    } else if (dto.divisionId !== undefined) {
       user.divisionId = await this.resolveDivisionId(
         tenantId,
         dto.divisionId,
         user.roles,
         false,
       );
-    }
-
-    await this.usersRepo.save(user);
-    if (dto.divisionId !== undefined) {
+      await this.usersRepo.save(user);
       await this.syncDivisionAssignment(user.id, user.divisionId);
+    } else {
+      await this.usersRepo.save(user);
     }
 
-    await this.auditService.log(tenantId, actorId, 'user.update', 'user', id, {
+    await this.auditService.log(tenantId, actor.sub, 'user.update', 'user', id, {
       changes: Object.keys(dto),
     }, auditContext);
 
-    return this.findOne(tenantId, id);
+    return this.findOne(actor, id);
   }
 
-  async remove(tenantId: string, actorId: string, id: string, auditContext?: AuditContext) {
-    const user = await this.usersRepo.findOne({ where: { id, tenantId } });
+  async remove(actor: JwtPayload, id: string, auditContext?: AuditContext) {
+    const user = await this.usersRepo.findOne({
+      where: { id, tenantId: actor.tenantId },
+      relations: ['roles'],
+    });
     if (!user) throw new NotFoundException('User not found');
-    if (user.id === actorId) throw new BadRequestException('Cannot delete your own account');
+    if (user.id === actor.sub) throw new BadRequestException('Cannot delete your own account');
+    await this.assertCanManageUser(actor, user);
 
     user.status = 'inactive';
     await this.usersRepo.save(user);
 
-    await this.auditService.log(tenantId, actorId, 'user.deactivate', 'user', id, undefined, auditContext);
+    await this.auditService.log(actor.tenantId, actor.sub, 'user.deactivate', 'user', id, undefined, auditContext);
     return { success: true };
+  }
+
+  /** HQ / super admin may list all or filter by header; EE locked to own division. */
+  private resolveListDivisionFilter(actor: JwtPayload): string | null {
+    if (actor.canViewAllDivisions || isSuperAdmin(actor.roles)) {
+      return actor.activeDivisionId ?? null;
+    }
+    return actor.divisionId ?? null;
+  }
+
+  private resolveForcedDivisionId(actor: JwtPayload): string | null {
+    if (actor.canViewAllDivisions || isSuperAdmin(actor.roles)) return null;
+    return actor.divisionId ?? null;
+  }
+
+  private assertAssignableRoles(actor: JwtPayload, roles: Role[]) {
+    if (actor.canViewAllDivisions || isSuperAdmin(actor.roles)) return;
+    const invalid = roles.filter((r) => !EE_ASSIGNABLE_ROLE_CODES.has(r.code));
+    if (invalid.length) {
+      throw new ForbiddenException(
+        `You cannot assign role(s): ${invalid.map((r) => r.code).join(', ')}. `
+        + 'EE may assign JE, AE, contractor, accounts, and other division field roles only.',
+      );
+    }
+  }
+
+  private async assertCanManageUser(actor: JwtPayload, target: User) {
+    if (actor.canViewAllDivisions || isSuperAdmin(actor.roles)) return;
+
+    const divisionId = actor.divisionId;
+    if (!divisionId) {
+      throw new ForbiddenException('Your account has no division assignment.');
+    }
+
+    const inDivision = await this.userBelongsToDivision(target.id, target.divisionId, divisionId);
+    if (!inDivision) {
+      throw new ForbiddenException('You can only manage users in your own division.');
+    }
+
+    const roleCodes = (target.roles ?? []).map((r) => r.code);
+    if (roleCodes.includes('super_admin')) {
+      throw new ForbiddenException('You cannot manage Super Admin accounts.');
+    }
+    const hasHqOnlyRole = roleCodes.some((code) => !EE_ASSIGNABLE_ROLE_CODES.has(code));
+    if (hasHqOnlyRole) {
+      throw new ForbiddenException(
+        'You can only manage division field roles (JE, AE, contractor, accounts, etc.).',
+      );
+    }
+  }
+
+  private async userBelongsToDivision(
+    userId: string,
+    userDivisionId: string | null,
+    divisionId: string,
+  ): Promise<boolean> {
+    if (userDivisionId === divisionId) return true;
+    const rows = await this.usersRepo.query(
+      `SELECT 1 FROM user_division_assignments
+       WHERE user_id = $1 AND division_id = $2 LIMIT 1`,
+      [userId, divisionId],
+    ) as unknown[];
+    return rows.length > 0;
   }
 
   private async resolveDivisionId(

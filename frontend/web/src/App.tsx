@@ -148,7 +148,7 @@ export default function App() {
                   <PermissionRoute permission="user:read"><UsersPage /></PermissionRoute>
                 } />
                 <Route path="/admin/roles" element={
-                  <PermissionRoute permission="user:read"><RolesPage /></PermissionRoute>
+                  <PermissionRoute permission="user:read" hqOnly><RolesPage /></PermissionRoute>
                 } />
                 <Route path="/admin/audit" element={
                   <PermissionRoute permission="audit:read"><AuditLogsPage /></PermissionRoute>
