@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 
 import {
   Alert, Box, Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tooltip, Typography,
+  Typography,
 } from '@mui/material';
 import axios from 'axios';
 
@@ -16,6 +16,7 @@ import SurfaceCard from '../../components/layout/SurfaceCard';
 
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { exportAuditTrailPdf } from '../../utils/pdfExport';
+import { formatAuditDivisionDetail } from '../../utils/auditDisplay';
 import { useDivisionScope } from '../../context/DivisionContext';
 import ExportPdfButton from '../../components/common/ExportPdfButton';
 
@@ -59,36 +60,7 @@ function formatUser(entry: AuditEntry): string {
 }
 
 function formatDetails(details: Record<string, unknown> | null | undefined): string {
-  if (!details || typeof details !== 'object') return '—';
-  // Location fields are shown in the Location column — keep Details focused on action meta.
-  const skip = new Set(['latitude', 'longitude', 'address', 'accuracyMeters', 'locationSource', 'place']);
-  const entries = Object.entries(details).filter(
-    ([k, v]) => !skip.has(k) && v !== undefined && v !== null && v !== '',
-  );
-  if (!entries.length) return '—';
-
-  const preferred = ['email', 'divisionName', 'roles', 'changes', 'title', 'status', 'action', 'comments'];
-  const parts: string[] = [];
-  for (const key of preferred) {
-    if (!(key in details) || details[key] === undefined || details[key] === null || details[key] === '') continue;
-    if (skip.has(key)) continue;
-    const value = details[key];
-    if (Array.isArray(value)) {
-      parts.push(`${key}: ${value.join(', ')}`);
-    } else if (typeof value === 'object') {
-      parts.push(`${key}: ${JSON.stringify(value)}`);
-    } else {
-      parts.push(`${key}: ${String(value)}`);
-    }
-  }
-
-  if (!parts.length) {
-    return entries
-      .slice(0, 4)
-      .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-      .join(' · ');
-  }
-  return parts.join(' · ');
+  return formatAuditDivisionDetail(details);
 }
 
 /** Location cell: address on line 1, coords + GPS accuracy on line 2 (ops format). */
@@ -127,12 +99,6 @@ function formatLocationDisplay(log: AuditEntry): string {
   return log.location?.trim() || '—';
 }
 
-function formatDetailsFull(details: Record<string, unknown> | null | undefined): string {
-  if (!details || typeof details !== 'object') return '—';
-  const text = JSON.stringify(details, null, 2);
-  return text === '{}' ? '—' : text;
-}
-
 function AuditField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <Box sx={{ mb: 1.25, '&:last-child': { mb: 0 } }}>
@@ -151,7 +117,6 @@ function AuditField({ label, children }: { label: string; children: ReactNode })
 
 function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor: (action: string) => string }) {
   const detailsText = formatDetails(log.details);
-  const detailsFull = formatDetailsFull(log.details);
 
   return (
     <Box
@@ -185,12 +150,8 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
           {formatLocationDisplay(log)}
         </Typography>
       </AuditField>
-      <AuditField label="Details">
-        <Tooltip title={detailsFull !== '—' ? detailsFull : ''} arrow enterTouchDelay={0}>
-          <Typography variant="caption" sx={{ wordBreak: 'break-word', display: 'block' }}>
-            {detailsText}
-          </Typography>
-        </Tooltip>
+      <AuditField label="Division">
+        <Typography variant="body2">{detailsText}</Typography>
       </AuditField>
     </Box>
   );
@@ -332,14 +293,12 @@ export default function AuditLogsPage() {
                   <TableCell sx={{ minWidth: 120 }}>Resource</TableCell>
                   <TableCell sx={{ minWidth: 120 }}>IP Address</TableCell>
                   <TableCell sx={{ minWidth: 220 }}>Location</TableCell>
-                  <TableCell sx={{ minWidth: 200 }}>Details</TableCell>
+                  <TableCell sx={{ minWidth: 160 }}>Division</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {logs.map((log) => {
-                  const detailsText = formatDetails(log.details);
-                  const detailsFull = formatDetailsFull(log.details);
-                  const detailsPreview = detailsText.length > 90 ? `${detailsText.slice(0, 90)}…` : detailsText;
+                  const divisionText = formatDetails(log.details);
                   const locationText = formatLocationDisplay(log);
 
                   return (
@@ -364,30 +323,8 @@ export default function AuditLogsPage() {
                           {locationText}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={{ minWidth: 200, maxWidth: 320 }}>
-                        <Tooltip
-                          title={
-                            <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                              {detailsFull}
-                            </Typography>
-                          }
-                          arrow
-                          placement="top-start"
-                          enterTouchDelay={0}
-                        >
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              display: 'block',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              cursor: detailsFull !== '—' ? 'help' : 'default',
-                            }}
-                          >
-                            {detailsPreview}
-                          </Typography>
-                        </Tooltip>
+                      <TableCell sx={{ minWidth: 160 }}>
+                        <Typography variant="body2">{divisionText}</Typography>
                       </TableCell>
                     </TableRow>
                   );

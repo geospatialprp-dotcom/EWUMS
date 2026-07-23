@@ -1,3 +1,5 @@
+import { formatAuditDivisionDetail } from './auditDisplay';
+
 /** Client-side PDF export — UJS/EWUMS letterhead, PRP Geospatial footer, tabular reports. */
 
 import { jsPDF } from 'jspdf';
@@ -218,13 +220,7 @@ function formatAuditResource(row: AuditPdfRow): string {
 }
 
 function formatAuditDetails(details: Record<string, unknown> | null | undefined): string {
-  if (!details || typeof details !== 'object') return '—';
-  const entries = Object.entries(details).filter(([, v]) => v !== undefined && v !== null && v !== '');
-  if (!entries.length) return '—';
-  return entries
-    .slice(0, 6)
-    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-    .join(' · ');
+  return formatAuditDivisionDetail(details);
 }
 
 export function exportAuditTrailPdf(
@@ -239,7 +235,7 @@ export function exportAuditTrailPdf(
     orientation: 'landscape',
     sections: [{
       heading: 'Activity Log',
-      columns: ['Timestamp', 'User', 'Action', 'Resource', 'IP', 'Location', 'Details'],
+      columns: ['Timestamp', 'User', 'Action', 'Resource', 'IP', 'Location', 'Division'],
       rows: rows.map((log) => [
         new Date(log.createdAt).toLocaleString('en-IN'),
         formatAuditUser(log),
