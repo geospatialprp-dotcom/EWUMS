@@ -150,7 +150,7 @@ export default function OmHandoverDocuments({ handoverId, locked, onDocumentAppr
         <Box>
           <Typography variant="subtitle2" fontWeight={700}>Electronic Document Repository (e-DMS)</Typography>
           <Typography variant="caption" color="text.secondary">
-            Upload completion documents · Department verifies & approves · {approvedRequired}/{required.length} required docs approved
+            Contractor uploads completion documents · JE / AE / EE verify & approve · {approvedRequired}/{required.length} required docs approved
           </Typography>
         </Box>
       </Box>

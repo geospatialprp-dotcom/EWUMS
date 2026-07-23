@@ -8,6 +8,7 @@ import { ConstructionAsset } from '../construction/entities/construction-asset.e
 import { ProjectCompletion } from '../construction/entities/project-completion.entity';
 import { Project } from '../projects/entities/project.entity';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { assertContractorRole } from '../../common/utils/operational-access.util';
 import { OmDivisionScopeService } from './om-division-scope.service';
 import {
   HANDOVER_DOCUMENT_TYPES,
@@ -144,6 +145,7 @@ export class OmService {
     docType: string,
     file: { buffer: Buffer; originalname?: string },
   ) {
+    assertContractorRole(user.roles, 'upload handover documents');
     const handover = await this.requireHandover(user, tenantId, handoverId);
     if (!['draft', 'rejected'].includes(handover.status)) {
       throw new BadRequestException('Documents cannot be uploaded after submission');
@@ -265,6 +267,7 @@ export class OmService {
   }
 
   async createHandover(user: JwtPayload, tenantId: string, userId: string, dto: CreateHandoverDto) {
+    assertContractorRole(user.roles, 'initiate asset handover');
     const projectId = await this.scope.resolveProjectId(user, tenantId, dto.projectId, dto.projectCode);
     const record = this.handoverRepo.create({
       tenantId,
@@ -286,6 +289,7 @@ export class OmService {
   }
 
   async updateHandover(user: JwtPayload, tenantId: string, id: string, dto: UpdateHandoverDto) {
+    assertContractorRole(user.roles, 'edit asset handover');
     const record = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!record) throw new NotFoundException('Handover record not found');
     await this.scope.assertProjectAccess(user, record.projectId, tenantId);
@@ -303,6 +307,7 @@ export class OmService {
   }
 
   async generateHandoverOutputs(user: JwtPayload, tenantId: string, id: string) {
+    assertContractorRole(user.roles, 'generate handover outputs');
     const record = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!record) throw new NotFoundException('Handover record not found');
     await this.scope.assertProjectAccess(user, record.projectId, tenantId);
@@ -327,6 +332,7 @@ export class OmService {
   }
 
   async submitHandover(user: JwtPayload, tenantId: string, userId: string, id: string) {
+    assertContractorRole(user.roles, 'submit asset handover for JE → AE → EE review');
     const record = await this.handoverRepo.findOne({ where: { id, tenantId } });
     if (!record) throw new NotFoundException('Handover record not found');
     await this.scope.assertProjectAccess(user, record.projectId, tenantId);

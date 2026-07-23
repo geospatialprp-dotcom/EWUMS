@@ -218,12 +218,12 @@ export const en = {
       handover: {
         name: 'Asset Handover & O&M Init',
         summary:
-          'Post-commissioning handover, certificates, GIS asset register, and O&M agency assignment.',
+          'Contractor initiates post-commissioning handover; JE, AE, and EE review certificates, GIS assets, and O&M agency assignment.',
         steps: [
-          'Verify Completion & Commissioning Certificates',
-          'Verify As-Built Drawings & GIS Mapping',
-          'Verify Asset Register & FHTC Completion',
-          'Generate Handover Certificate & O&M Matrix',
+          'Contractor — Initiate handover & upload completion documents',
+          'JE — Verify documents and forward',
+          'AE — Review and approve',
+          'EE — Final handover approval',
         ],
       },
       'asset-registration': {

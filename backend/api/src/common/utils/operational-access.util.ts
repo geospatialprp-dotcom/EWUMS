@@ -38,6 +38,19 @@ export function isHqStateReviewer(roles?: string[] | null): boolean {
   return roles?.some((r) => (HQ_STATE_REVIEWER_ROLES as readonly string[]).includes(r)) ?? false;
 }
 
+/** Construction contractor — initiates O&M handover; JE/AE/EE review. */
+export function isContractorUser(roles?: string[] | null): boolean {
+  return roles?.includes('contractor') ?? false;
+}
+
+export function assertContractorRole(roles: string[] | null | undefined, action: string): void {
+  if (!isContractorUser(roles)) {
+    throw new ForbiddenException(
+      `Only the contractor can ${action}. JE, AE, and EE review submitted handovers.`,
+    );
+  }
+}
+
 /** Super Admin demo exceptions — initiation, state review (TAC/PDF), complaints, deletion requests. */
 const SUPER_ADMIN_DEMO_OPERATIONAL = new Set([
   'om:create',

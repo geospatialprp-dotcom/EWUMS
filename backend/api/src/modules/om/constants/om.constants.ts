@@ -44,7 +44,7 @@ export const HANDOVER_VERIFICATION_ITEMS = [
 export const HANDOVER_STATUS_BY_STEP: Record<number, string> = {
   1: 'je_review',
   2: 'ae_review',
-  3: 'handed_over',
+  3: 'ee_review',
 };
 
 export const OM_MATRIX_ACTIVITIES = [

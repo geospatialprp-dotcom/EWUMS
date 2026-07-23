@@ -20,8 +20,16 @@ export const HANDOVER_STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
   je_review: 'JE Review',
   ae_review: 'AE Review',
+  ee_review: 'EE Review',
   handed_over: 'Handed Over',
   rejected: 'Rejected',
+};
+
+/** Role expected to act on each review status (ArcMap-style JE → AE → EE chain). */
+export const HANDOVER_REVIEW_ROLE_BY_STATUS: Record<string, string> = {
+  je_review: 'je',
+  ae_review: 'ae',
+  ee_review: 'ee',
 };
 
 export type HandoverFormState = {

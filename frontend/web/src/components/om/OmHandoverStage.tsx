@@ -8,9 +8,10 @@ import {
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { omApi, projectsApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { isSuperAdmin } from '../../utils/operationalAccess';
+import { isContractorUser, isSuperAdmin } from '../../utils/operationalAccess';
 import SurfaceCard from '../layout/SurfaceCard';
 import {
+  HANDOVER_REVIEW_ROLE_BY_STATUS,
   HANDOVER_STATUS_LABELS,
   HANDOVER_VERIFICATIONS,
   OM_AGENCY_OPTIONS,
@@ -76,8 +77,10 @@ interface Props {
 }
 
 export default function OmHandoverStage({ handovers, onRefresh }: Props) {
-  const { user } = useAuth();
-  const canInitiateHandover = !isSuperAdmin(user?.roles);
+  const { user, hasPermission } = useAuth();
+  const roles = user?.roles ?? [];
+  const canInitiateHandover = isContractorUser(roles) && !isSuperAdmin(roles);
+  const canApproveHandover = hasPermission('om:approve') && !isSuperAdmin(roles);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -87,6 +90,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
   const [prefillHint, setPrefillHint] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reviewComments, setReviewComments] = useState('');
 
   useEffect(() => {
     projectsApi.list()
@@ -116,12 +120,14 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
     setSelectedProject(null);
     setDetail(null);
     setPrefillHint('');
+    setReviewComments('');
     setError('');
     setDialogOpen(true);
   };
 
   const openEdit = async (id: string) => {
     setError('');
+    setReviewComments('');
     setBusy(true);
     try {
       const { data } = await omApi.getHandover(id);
@@ -238,9 +244,38 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
     }
   };
 
+  const reviewHandover = async (action: 'approve' | 'reject') => {
+    if (!editingId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await omApi.actOnHandover(editingId, {
+        action,
+        comments: reviewComments.trim() || undefined,
+      });
+      setDialogOpen(false);
+      setReviewComments('');
+      onRefresh();
+    } catch (err: unknown) {
+      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? (action === 'approve' ? 'Approval failed' : 'Rejection failed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const outputs = detail?.outputs ?? (detail?.responsibilityMatrix as { outputs?: HandoverRecord['outputs'] })?.outputs;
 
   const isLocked = detail?.status && !['draft', 'rejected'].includes(String(detail.status));
+  const canEditDraft = canInitiateHandover && !isLocked;
+  const status = String(detail?.status ?? 'draft');
+  const reviewRole = HANDOVER_REVIEW_ROLE_BY_STATUS[status];
+  const canReviewNow = Boolean(
+    canApproveHandover
+    && editingId
+    && reviewRole
+    && roles.includes(reviewRole),
+  );
 
   return (
     <>
@@ -250,7 +285,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
             <Box>
               <Typography sx={{ fontWeight: 700, fontSize: '0.9375rem' }}>Asset Handover Register</Typography>
               <Typography variant="caption" color="text.secondary">
-                Post-commissioning verification, document generation & O&M agency assignment
+                Contractor initiates handover · JE → AE → EE review and approve
               </Typography>
             </Box>
             {canInitiateHandover && (
@@ -324,7 +359,9 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
             </Table>
           </TableContainer>
         ) : (
-          <Typography variant="body2" color="text.secondary">No handover records yet. Initiate handover after project commissioning.</Typography>
+          <Typography variant="body2" color="text.secondary">
+            No handover records yet. The contractor initiates handover after project commissioning; JE, AE, and EE then review.
+          </Typography>
         )}
       </SurfaceCard>
 
@@ -346,7 +383,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 <Select
                   value={form.projectId}
                   label="Project (optional)"
-                  disabled={Boolean(isLocked)}
+                  disabled={!canEditDraft}
                   onChange={(e) => {
                     const pid = String(e.target.value);
                     const proj = projects.find((p) => p.id === pid) ?? null;
@@ -367,7 +404,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
               <TextField
                 fullWidth size="small" label="Scheme Name" required
                 value={form.schemeName}
-                disabled={Boolean(isLocked)}
+                disabled={!canEditDraft}
                 onChange={(e) => setForm((f) => ({ ...f, schemeName: e.target.value }))}
               />
             </Grid>
@@ -381,7 +418,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
 
           <OmHandoverDocuments
             handoverId={editingId}
-            locked={Boolean(isLocked)}
+            locked={!canEditDraft}
             onDocumentApproved={async () => {
               if (!editingId) return;
               const { data } = await omApi.getHandover(editingId);
@@ -413,7 +450,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                   control={(
                     <Checkbox
                       checked={Boolean(form[v.key as keyof HandoverFormState])}
-                      disabled={Boolean(isLocked)}
+                      disabled={!canEditDraft}
                       onChange={(e) => setForm((f) => ({ ...f, [v.key]: e.target.checked }))}
                     />
                   )}
@@ -431,7 +468,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 <Select
                   value={form.omAgencyType}
                   label="Agency Type"
-                  disabled={Boolean(isLocked)}
+                  disabled={!canEditDraft}
                   onChange={(e) => setForm((f) => ({ ...f, omAgencyType: e.target.value }))}
                 >
                   {OM_AGENCY_OPTIONS.map((o) => (
@@ -445,7 +482,7 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
                 fullWidth size="small" label="Agency Name"
                 placeholder="e.g. Uttarakhand Jal Sansthan / VWSC Name"
                 value={form.omAgencyName}
-                disabled={Boolean(isLocked)}
+                disabled={!canEditDraft}
                 onChange={(e) => setForm((f) => ({ ...f, omAgencyName: e.target.value }))}
               />
             </Grid>
@@ -489,19 +526,48 @@ export default function OmHandoverStage({ handovers, onRefresh }: Props) {
               Complete all verifications and assign agency, then generate certificate, O&M responsibility matrix, and asset registers.
             </Typography>
           )}
+
+          {canReviewNow && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Pending {HANDOVER_STATUS_LABELS[status] ?? status}. Approve to forward, or reject back to the contractor.
+            </Alert>
+          )}
+          {isLocked && !canReviewNow && reviewRole && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Awaiting {HANDOVER_STATUS_LABELS[status] ?? status}
+              {roles.includes(reviewRole) ? '' : ` (${reviewRole.toUpperCase()} login required)`}.
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions sx={omDialogActionsSx}>
           <Button onClick={() => setDialogOpen(false)}>Close</Button>
-          {!isLocked && (
+          {canInitiateHandover && !isLocked && (
             <>
               <Button onClick={save} disabled={busy || !form.schemeName}>Save Draft</Button>
               <Button variant="outlined" onClick={generate} disabled={busy || verificationPct < 100 || !form.omAgencyName}>
                 Generate Outputs
               </Button>
               <Button variant="contained" onClick={submit} disabled={busy || !outputs || !editingId}>
-                Submit for Approval
+                Submit for JE → AE → EE Review
               </Button>
             </>
+          )}
+          {canReviewNow && (
+            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" justifyContent="flex-end" width="100%">
+              <TextField
+                size="small"
+                label="Review comments"
+                value={reviewComments}
+                onChange={(e) => setReviewComments(e.target.value)}
+                sx={{ minWidth: 200, flex: 1 }}
+              />
+              <Button color="error" variant="outlined" disabled={busy} onClick={() => { void reviewHandover('reject'); }}>
+                Reject
+              </Button>
+              <Button variant="contained" disabled={busy} onClick={() => { void reviewHandover('approve'); }}>
+                {status === 'ee_review' ? 'Approve Handover' : 'Approve & Forward'}
+              </Button>
+            </Box>
           )}
         </DialogActions>
       </Dialog>
