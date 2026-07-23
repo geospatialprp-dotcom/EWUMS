@@ -31,6 +31,30 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Best-effort browser GPS for Audit Trail Location (does not block login on deny/timeout). */
+function captureLoginCoordinates(): Promise<{ latitude?: number; longitude?: number }> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    return Promise.resolve({});
+  }
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve({}), 2500);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        window.clearTimeout(timer);
+        resolve({
+          latitude: Number(pos.coords.latitude.toFixed(6)),
+          longitude: Number(pos.coords.longitude.toFixed(6)),
+        });
+      },
+      () => {
+        window.clearTimeout(timer);
+        resolve({});
+      },
+      { enableHighAccuracy: false, timeout: 2200, maximumAge: 300000 },
+    );
+  });
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('egip_token'));
@@ -109,7 +133,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<User> => {
     clearSession();
-    const { data } = await authApi.login(email.trim().toLowerCase(), password);
+    const coords = await captureLoginCoordinates();
+    const { data } = await authApi.login(email.trim().toLowerCase(), password, coords);
     localStorage.setItem('egip_token', data.accessToken);
     localStorage.setItem('egip_user', JSON.stringify(data.user));
     setToken(data.accessToken);

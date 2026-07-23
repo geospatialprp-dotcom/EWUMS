@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { extractAuditContext } from '../../common/utils/request-context.util';
+import { extractAuditContext, formatAuditLocation } from '../../common/utils/request-context.util';
 import { AuthService } from './auth.service';
 import { PlatformStatsService } from './platform-stats.service';
 import { LoginDto } from './dto/login.dto';
@@ -27,7 +27,22 @@ export class AuthController {
   @Post('login')
   @ApiOperation({ summary: 'Authenticate user and receive JWT token' })
   login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.authService.login(dto, extractAuditContext(req));
+    const auditContext = extractAuditContext(req);
+    if (
+      typeof dto.latitude === 'number'
+      && Number.isFinite(dto.latitude)
+      && typeof dto.longitude === 'number'
+      && Number.isFinite(dto.longitude)
+    ) {
+      auditContext.latitude = dto.latitude;
+      auditContext.longitude = dto.longitude;
+      auditContext.location = formatAuditLocation({
+        place: auditContext.location,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      });
+    }
+    return this.authService.login(dto, auditContext);
   }
 
   @Post('forgot-password')

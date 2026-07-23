@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLog } from '../../modules/audit/entities/audit-log.entity';
-import { AuditContext, resolveIpLocation } from '../utils/request-context.util';
+import {
+  AuditContext,
+  formatAuditLocation,
+  resolveIpGeo,
+} from '../utils/request-context.util';
 
 @Injectable()
 export class AuditService {
@@ -24,9 +28,32 @@ export class AuditService {
     }
 
     const ipAddress = context?.ipAddress;
-    let location = context?.location;
-    if (!location && ipAddress) {
-      location = await resolveIpLocation(ipAddress);
+    let latitude = context?.latitude;
+    let longitude = context?.longitude;
+    let place = context?.location;
+
+    // Prefer browser coords; otherwise resolve from public IP (includes lat/lon).
+    if (
+      (latitude == null || longitude == null || !place)
+      && ipAddress
+    ) {
+      const geo = await resolveIpGeo(ipAddress);
+      if (latitude == null && geo.latitude != null) latitude = geo.latitude;
+      if (longitude == null && geo.longitude != null) longitude = geo.longitude;
+      if (!place && geo.place) place = geo.place;
+    }
+
+    const location = formatAuditLocation({ place, latitude, longitude });
+
+    const mergedDetails: Record<string, unknown> = {
+      ...(details ?? {}),
+    };
+    if (latitude != null && longitude != null) {
+      mergedDetails.latitude = Number(latitude.toFixed(6));
+      mergedDetails.longitude = Number(longitude.toFixed(6));
+    }
+    if (place && !mergedDetails.place) {
+      mergedDetails.place = place;
     }
 
     const base = {
@@ -35,7 +62,7 @@ export class AuditService {
       action,
       resourceType,
       resourceId,
-      details: (details ?? {}) as never,
+      details: mergedDetails as never,
       ipAddress: ipAddress ?? undefined,
     };
 
@@ -58,7 +85,7 @@ export class AuditService {
           action,
           resourceType ?? null,
           resourceId ?? null,
-          JSON.stringify(details ?? {}),
+          JSON.stringify(mergedDetails),
           ipAddress ?? null,
         ],
       );

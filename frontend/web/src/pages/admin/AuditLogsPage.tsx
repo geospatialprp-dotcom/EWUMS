@@ -63,7 +63,7 @@ function formatDetails(details: Record<string, unknown> | null | undefined): str
   const entries = Object.entries(details).filter(([, v]) => v !== undefined && v !== null && v !== '');
   if (!entries.length) return '—';
 
-  const preferred = ['email', 'divisionName', 'roles', 'changes', 'title', 'status', 'action', 'comments'];
+  const preferred = ['email', 'divisionName', 'place', 'latitude', 'longitude', 'roles', 'changes', 'title', 'status', 'action', 'comments'];
   const parts: string[] = [];
   for (const key of preferred) {
     if (!(key in details) || details[key] === undefined || details[key] === null || details[key] === '') continue;
