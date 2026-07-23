@@ -31,7 +31,7 @@ import {
 } from '../../constants/omComplaints';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { OmDialogHeader, omDialogActionsSx, omDialogContentSx, omDialogPaperSx } from './omUi';
-import { formatCoordinatePair } from '../../utils/coordinateFields';
+import { formatCoordinatePair, mapsExactLocationUrl } from '../../utils/coordinateFields';
 import { useCanViewAllDivisions, divisionScopeSubtitle } from '../../utils/divisionAccess';
 
 type ComplaintRow = {
@@ -130,7 +130,7 @@ function consumerLabel(row: ComplaintRow): string {
 }
 
 function mapPinUrl(lat: number, lng: number): string {
-  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`;
+  return mapsExactLocationUrl(lat, lng);
 }
 
 interface ConsumerComplaintsWorkspaceProps {

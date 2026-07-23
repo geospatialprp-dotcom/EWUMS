@@ -1,4 +1,4 @@
-import { formatAuditDivisionDetail } from './auditDisplay';
+import { formatAuditDivisionDetail, resolveAuditLocation } from './auditDisplay';
 
 /** Client-side PDF export — UJS/EWUMS letterhead, PRP Geospatial footer, tabular reports. */
 
@@ -236,15 +236,21 @@ export function exportAuditTrailPdf(
     sections: [{
       heading: 'Activity Log',
       columns: ['Timestamp', 'User', 'Action', 'Resource', 'IP', 'Location', 'Division'],
-      rows: rows.map((log) => [
-        new Date(log.createdAt).toLocaleString('en-IN'),
-        formatAuditUser(log),
-        log.action,
-        formatAuditResource(log),
-        log.ipAddress ?? '—',
-        log.location ?? '—',
-        truncateCell(formatAuditDetails(log.details), 200),
-      ]),
+      rows: rows.map((log) => {
+        const loc = resolveAuditLocation(log);
+        const locationCell = loc.mapsUrl
+          ? `${loc.text.replace(/\n/g, ' | ')} · ${loc.mapsUrl}`
+          : (loc.text.replace(/\n/g, ' | ') || '—');
+        return [
+          new Date(log.createdAt).toLocaleString('en-IN'),
+          formatAuditUser(log),
+          log.action,
+          formatAuditResource(log),
+          log.ipAddress ?? '—',
+          truncateCell(locationCell, 220),
+          truncateCell(formatAuditDetails(log.details), 80),
+        ];
+      }),
     }],
   });
 }

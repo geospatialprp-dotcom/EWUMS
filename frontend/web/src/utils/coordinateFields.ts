@@ -59,6 +59,35 @@ export function formatCoordinatePair(lat: unknown, lon: unknown): string {
   return `${latStr}° ${latHem}, ${lonStr}° ${lonHem}`;
 }
 
+/** Open exact pin in Google Maps (lat,lng). */
+export function mapsExactLocationUrl(latitude: number, longitude: number): string {
+  const lat = Number(latitude.toFixed(COORDINATE_DECIMALS));
+  const lng = Number(longitude.toFixed(COORDINATE_DECIMALS));
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+export function parseCoordinatePair(
+  latitude: unknown,
+  longitude: unknown,
+): { latitude: number; longitude: number } | null {
+  const lat = typeof latitude === 'number' ? latitude : Number(latitude);
+  const lng = typeof longitude === 'number' ? longitude : Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { latitude: lat, longitude: lng };
+}
+
+/** Extract lat/lng from free-text location lines, e.g. "30.327500, 78.032500 (IP approx)". */
+export function parseCoordsFromLocationText(text: string | null | undefined): {
+  latitude: number;
+  longitude: number;
+} | null {
+  if (!text?.trim()) return null;
+  const match = text.match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (!match) return null;
+  return parseCoordinatePair(match[1], match[2]);
+}
+
 /** Coerce a decimal-degree coordinate to the value type the attribute field expects. */
 export function coordinateValueForField(field: AttributeField, coordinate: number): unknown {
   if (field.type === 'integer') return Math.round(coordinate);

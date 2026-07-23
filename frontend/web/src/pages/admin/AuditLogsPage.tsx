@@ -17,6 +17,7 @@ import SurfaceCard from '../../components/layout/SurfaceCard';
 import { dataTableSx } from '../../utils/pagePresentationStyles';
 import { exportAuditTrailPdf } from '../../utils/pdfExport';
 import { formatAuditDivisionDetail } from '../../utils/auditDisplay';
+import { AuditLocationLink } from '../../components/common/CoordinateMapLink';
 import { useDivisionScope } from '../../context/DivisionContext';
 import ExportPdfButton from '../../components/common/ExportPdfButton';
 
@@ -61,42 +62,6 @@ function formatUser(entry: AuditEntry): string {
 
 function formatDetails(details: Record<string, unknown> | null | undefined): string {
   return formatAuditDivisionDetail(details);
-}
-
-/** Location cell: address on line 1, coords + GPS accuracy on line 2 (ops format). */
-function formatLocationDisplay(log: AuditEntry): string {
-  if (log.location?.includes('\n')) return log.location;
-
-  const details = log.details ?? {};
-  const address =
-    (typeof details.address === 'string' && details.address)
-    || (typeof details.place === 'string' && details.place)
-    || '';
-  const lat = typeof details.latitude === 'number' ? details.latitude : Number(details.latitude);
-  const lon = typeof details.longitude === 'number' ? details.longitude : Number(details.longitude);
-  const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
-  const accuracy = typeof details.accuracyMeters === 'number'
-    ? details.accuracyMeters
-    : Number(details.accuracyMeters);
-  const source = details.locationSource === 'gps' || details.locationSource === 'ip'
-    ? details.locationSource
-    : (hasCoords ? 'gps' : null);
-
-  if (hasCoords) {
-    const coords = `${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}`;
-    let suffix = '';
-    if (source === 'gps' && Number.isFinite(accuracy) && accuracy > 0) {
-      suffix = ` (±${Math.round(accuracy)} m GPS)`;
-    } else if (source === 'gps') {
-      suffix = ' (GPS)';
-    } else if (source === 'ip') {
-      suffix = ' (IP approx)';
-    }
-    const place = address || (log.location?.split('\n')[0] ?? '');
-    return place ? `${place}\n${coords}${suffix}` : `${coords}${suffix}`;
-  }
-
-  return log.location?.trim() || '—';
 }
 
 function AuditField({ label, children }: { label: string; children: ReactNode }) {
@@ -146,9 +111,7 @@ function AuditLogMobileCard({ log, actionColor }: { log: AuditEntry; actionColor
         <Typography variant="body2" fontFamily="monospace">{log.ipAddress ?? '—'}</Typography>
       </AuditField>
       <AuditField label="Location">
-        <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-          {formatLocationDisplay(log)}
-        </Typography>
+        <AuditLocationLink log={log} />
       </AuditField>
       <AuditField label="Division">
         <Typography variant="body2">{detailsText}</Typography>
@@ -299,7 +262,6 @@ export default function AuditLogsPage() {
               <TableBody>
                 {logs.map((log) => {
                   const divisionText = formatDetails(log.details);
-                  const locationText = formatLocationDisplay(log);
 
                   return (
                     <TableRow key={log.id} hover>
@@ -319,9 +281,7 @@ export default function AuditLogsPage() {
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ minWidth: 220, maxWidth: 340 }}>
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-line', lineHeight: 1.35 }}>
-                          {locationText}
-                        </Typography>
+                        <AuditLocationLink log={log} />
                       </TableCell>
                       <TableCell sx={{ minWidth: 160 }}>
                         <Typography variant="body2">{divisionText}</Typography>
