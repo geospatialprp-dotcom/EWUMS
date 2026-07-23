@@ -156,11 +156,17 @@ export default function AuditLogsPage() {
   const { activeDivision, activeDivisionId, canSwitchDivision, scopeKey } = useDivisionScope();
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     setLoading(true);
+    setLoadError('');
     auditApi.logs(200)
-      .then((r) => setLogs(r.data))
+      .then((r) => setLogs(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {
+        setLogs([]);
+        setLoadError('Failed to load audit trail. Check API permissions and try again.');
+      })
       .finally(() => setLoading(false));
   }, [scopeKey]);
 
@@ -192,22 +198,33 @@ export default function AuditLogsPage() {
         )}
       />
 
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>
+      )}
+
       {canSwitchDivision && !activeDivisionId && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Select a division in the header to view a division-wise audit trail.
+          Showing activity for all divisions. Select a division in the header to narrow the trail.
+        </Alert>
+      )}
+
+      {canSwitchDivision && activeDivisionId && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Filtered to {activeDivision?.name}. Switch the header to <strong>All divisions</strong> to see the full HQ audit trail.
         </Alert>
       )}
 
       <SurfaceCard
-        title={activeDivision ? `Activity Log — ${activeDivision.name}` : 'Activity Log'}
+        title={activeDivision ? `Activity Log — ${activeDivision.name}` : 'Activity Log — All Divisions'}
         flush
         cardSx={{ overflow: 'visible' }}
         contentSx={{ overflow: 'visible', minWidth: 0, p: 0, '&:last-child': { pb: 0 } }}
       >
-        {!loading && logs.length === 0 && (
+        {!loading && !loadError && logs.length === 0 && (
           <Alert severity="info" sx={{ m: 2 }}>
-            No activity recorded for {activeDivision?.name ?? 'this scope'} yet.
-            Logins, user changes, and project actions in this division will appear here.
+            {activeDivision
+              ? `No division-linked activity for ${activeDivision.name} yet. Switch header to All divisions to see HQ-wide logins and actions.`
+              : 'No audit activity found yet. New logins and admin actions will appear here.'}
           </Alert>
         )}
 
