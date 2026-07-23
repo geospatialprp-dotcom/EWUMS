@@ -49,7 +49,7 @@ import {
   exportVisibleLayersToShapefile,
 } from '../utils/mapExport';
 import type { MapSnapshotResult } from '../utils/mapSnapshot';
-import { MAP_CHROME, mapMapFrameSx } from '../utils/mapChromeStyles';
+import { MAP_CHROME, mapMapFrameSx, mapRightAttributePanelSx } from '../utils/mapChromeStyles';
 import {
   arcMapShellSx,
   arcMapToolbarSx,
@@ -211,7 +211,7 @@ export default function MapPage() {
   const [activeBasemapId, setActiveBasemapId] = useState('');
   const [loading, setLoading] = useState(true);
   const [mapReady, setMapReady] = useState(false);
-  const [activeTool, setActiveTool] = useState('info');
+  const [activeTool, setActiveTool] = useState('');
   const [measureResult, setMeasureResult] = useState('');
   const [fitLayerId, setFitLayerId] = useState('');
   const [fitRequestId, setFitRequestId] = useState(0);
@@ -402,9 +402,16 @@ export default function MapPage() {
     [visibleFeatureClassLayers, layerAttributeCache, layerAttributeLoading, layerJurisdiction],
   );
 
+  const infoAttributePanelOpen = useMemo(
+    () => activeTool === 'info'
+      && visibleFeatureClassLayers.length > 0
+      && Boolean(activeEditLayerId || visibleFeatureClassLayers[0]?.id),
+    [activeTool, visibleFeatureClassLayers, activeEditLayerId],
+  );
+
   const attributeDockVisible = useMemo(
     () =>
-      (visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze')
+      (visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze' && activeTool !== '')
       || (Boolean(analysisFeatureClass) && activeTool === 'analyze'),
     [visibleFeatureClassLayers.length, activeTool, analysisFeatureClass],
   );
@@ -1793,6 +1800,12 @@ export default function MapPage() {
             placement="arcDesktop"
             activeTool={activeTool}
             onToolChange={(tool) => {
+              // Re-click Identify while active → close right attribute panel.
+              if (tool === '' || (tool === 'info' && activeTool === 'info')) {
+                clearIdentify();
+                setActiveTool('');
+                return;
+              }
               setActiveTool(tool);
               if (tool === 'polygon') setDigitizeShape('Polygon');
               setMeasureResult('');
@@ -1802,6 +1815,16 @@ export default function MapPage() {
               }
               if (tool === 'analyze' && !analysisTargetLayerId) {
                 setAnalysisTargetLayerId(activeEditLayerId || featureClassLayers[0]?.id || '');
+              }
+              if (tool === 'info') {
+                const targetId = activeEditLayerId || visibleFeatureClassLayers[0]?.id || '';
+                if (targetId) {
+                  if (targetId !== activeEditLayerId) {
+                    selectEditLayer(targetId);
+                  } else if (activeEditLayer) {
+                    void refreshEditLayerData(activeEditLayer);
+                  }
+                }
               }
               if (tool !== 'edit' && !geometryDirty) {
                 setSelectedFeatureId(null);
@@ -1979,11 +2002,38 @@ export default function MapPage() {
               onBufferMetersChange={setBufferMeters}
               onApply={() => { void runSpatialAnalysis(); }}
               onClear={clearAnalysis}
-              onClose={() => setActiveTool('info')}
+              onClose={() => setActiveTool('')}
             />
+
+            {infoAttributePanelOpen && (
+              <Box
+                sx={mapRightAttributePanelSx(true)}
+                role="complementary"
+                aria-label="Attribute table"
+              >
+                <MapAttributeSheetBook
+                  sidePanel
+                  sheets={attributeSheets}
+                  activeLayerId={activeEditLayerId || visibleFeatureClassLayers[0]?.id || ''}
+                  onSelectSheet={selectEditLayer}
+                  digitizeActive={false}
+                  editActive={false}
+                  selectedFeatureId={infoSelectedFeatureId || selectedFeatureId}
+                  onSelectFeature={(featureId) => {
+                    handleTableFeatureSelect(featureId);
+                  }}
+                  onRefresh={() => {
+                    if (activeEditLayer) void refreshEditLayerData(activeEditLayer);
+                  }}
+                  onDeleteFeature={canDeleteFeature ? handleDeleteFeature : undefined}
+                  deletingFeatureId={deletingFeatureId}
+                  onError={setMapError}
+                />
+              </Box>
+            )}
           </Box>
 
-          {visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze' && (
+          {visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze' && activeTool !== '' && (
             <MapAttributeSheetBook
               sheets={attributeSheets}
               activeLayerId={activeEditLayerId || visibleFeatureClassLayers[0]?.id || ''}

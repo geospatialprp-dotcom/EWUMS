@@ -448,6 +448,40 @@ export function mapSpatialAnalysisPanelSx(active = false) {
   };
 }
 
+/** Right-side Identify / Attribute Table dock — same rail as Select By Location. */
+export function mapRightAttributePanelSx(active = false) {
+  return {
+    width: { xs: 280, md: 360 },
+    flexShrink: 0,
+    display: { xs: 'none', md: 'flex' },
+    flexDirection: 'column',
+    minHeight: 0,
+    borderLeft: active
+      ? `2px solid ${ARCMAP.selectionBorder}`
+      : `1px solid ${ARCMAP.toolbarBorder}`,
+    bgcolor: '#ffffff',
+    height: '100%',
+    fontFamily: '"Segoe UI", Tahoma, sans-serif',
+    fontSize: '0.8125rem',
+    boxShadow: active ? 'inset 3px 0 0 rgba(49,106,197,0.18)' : 'none',
+    overflow: 'hidden',
+  };
+}
+
+export function mapAttributeBookSideSx() {
+  return {
+    ...mapAttributeBookSx(),
+    flex: 1,
+    minHeight: 0,
+    mx: 0,
+    mb: 0,
+    width: '100%',
+    height: '100%',
+    border: 'none',
+    boxShadow: 'none',
+  };
+}
+
 export function mapAttributeBookSx() {
   return {
     bgcolor: '#ffffff',

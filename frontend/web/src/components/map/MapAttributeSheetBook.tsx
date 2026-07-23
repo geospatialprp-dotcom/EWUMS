@@ -4,7 +4,7 @@ import CropFreeOutlinedIcon from '@mui/icons-material/CropFreeOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import TimelineOutlinedIcon from '@mui/icons-material/TimelineOutlined';
 import type { FeatureClassRecord, ProjectFeatureRecord } from '../../services/api';
-import { mapAttributeBookSx, mapSheetTabRailSx } from '../../utils/mapChromeStyles';
+import { mapAttributeBookSx, mapAttributeBookSideSx, mapSheetTabRailSx } from '../../utils/mapChromeStyles';
 import { ARCMAP } from '../gis/arcMapUi';
 import MapAttributePanel from './MapAttributePanel';
 
@@ -26,6 +26,8 @@ interface MapAttributeSheetBookProps extends MapAttributePanelPassthrough {
   sheets: AttributeSheet[];
   activeLayerId: string;
   onSelectSheet: (layerId: string) => void;
+  /** Place the attribute book in the right map rail (Identify tool). */
+  sidePanel?: boolean;
 }
 
 function GeometryTabIcon({ type }: { type?: string }) {
@@ -96,6 +98,7 @@ export default function MapAttributeSheetBook({
   sheets,
   activeLayerId,
   onSelectSheet,
+  sidePanel = false,
   ...panelProps
 }: MapAttributeSheetBookProps) {
   const activeSheet = sheets.find((sheet) => sheet.layerId === activeLayerId) ?? sheets[0];
@@ -112,10 +115,11 @@ export default function MapAttributeSheetBook({
   };
 
   return (
-    <Paper elevation={0} square sx={mapAttributeBookSx()}>
+    <Paper elevation={0} square sx={sidePanel ? mapAttributeBookSideSx() : mapAttributeBookSx()}>
       <MapAttributePanel
         {...panelProps}
         embedded
+        sidePanel={sidePanel}
         featureClass={placeholderClass}
         features={activeSheet.features}
         loading={activeSheet.loading || !activeSheet.featureClass}

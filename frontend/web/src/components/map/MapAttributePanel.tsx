@@ -38,6 +38,8 @@ interface MapAttributePanelProps {
   analysisActive?: boolean;
   readOnly?: boolean;
   embedded?: boolean;
+  /** Full-height panel for the right map rail (Identify / Attribute Table). */
+  sidePanel?: boolean;
   subtitle?: string;
   emptyMessage?: string;
   selectedFeatureId?: string | null;
@@ -63,6 +65,7 @@ export default function MapAttributePanel({
   analysisActive,
   readOnly,
   embedded,
+  sidePanel,
   subtitle,
   emptyMessage,
   selectedFeatureId,
@@ -120,10 +123,14 @@ export default function MapAttributePanel({
     bgcolor: 'background.paper',
     display: 'flex',
     flexDirection: 'column',
-    ...(expanded ? { maxHeight: 220 } : { height: 32 }),
-    flexShrink: 0,
-    transition: 'height 0.2s ease',
-    flex: embedded ? 1 : undefined,
+    ...(sidePanel
+      ? { flex: 1, minHeight: 0, height: '100%', maxHeight: 'none' }
+      : expanded
+        ? { maxHeight: 220 }
+        : { height: 32 }),
+    flexShrink: sidePanel ? 1 : 0,
+    transition: sidePanel ? undefined : 'height 0.2s ease',
+    flex: embedded || sidePanel ? 1 : undefined,
     minHeight: 0,
     width: '100%',
   };
@@ -194,12 +201,14 @@ export default function MapAttributePanel({
             </span>
           </Tooltip>
         )}
-        <IconButton size="small" onClick={() => setExpanded((v) => !v)} sx={{ p: 0.2, flexShrink: 0 }}>
-          {expanded ? <KeyboardArrowDownIcon sx={{ fontSize: 16 }} /> : <KeyboardArrowUpIcon sx={{ fontSize: 16 }} />}
-        </IconButton>
+        {!sidePanel && (
+          <IconButton size="small" onClick={() => setExpanded((v) => !v)} sx={{ p: 0.2, flexShrink: 0 }}>
+            {expanded ? <KeyboardArrowDownIcon sx={{ fontSize: 16 }} /> : <KeyboardArrowUpIcon sx={{ fontSize: 16 }} />}
+          </IconButton>
+        )}
       </Box>
 
-      {expanded && (
+      {(expanded || sidePanel) && (
         <Box sx={{ overflow: 'auto', flex: 1 }}>
           <Table size="small" stickyHeader sx={attributeTableSx}>
             <TableHead>

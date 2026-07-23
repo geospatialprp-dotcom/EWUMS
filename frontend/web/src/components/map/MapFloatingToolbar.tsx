@@ -93,6 +93,7 @@ function ArcDesktopToolButton({
   disabled,
   ariaLabel,
   onToolChange,
+  toggleable,
   children,
 }: {
   tool: string;
@@ -101,6 +102,8 @@ function ArcDesktopToolButton({
   disabled?: boolean;
   ariaLabel: string;
   onToolChange: (tool: string) => void;
+  /** When true, clicking the active tool again clears it (closes the panel). */
+  toggleable?: boolean;
   children: ReactNode;
 }) {
   const selected = activeTool === tool;
@@ -112,7 +115,13 @@ function ArcDesktopToolButton({
           disabled={disabled}
           aria-label={ariaLabel}
           aria-pressed={selected}
-          onClick={() => onToolChange(tool)}
+          onClick={() => {
+            if (toggleable && selected) {
+              onToolChange('');
+              return;
+            }
+            onToolChange(tool);
+          }}
           sx={mapArcDesktopToolButtonSx(selected, disabled)}
         >
           {children}
@@ -189,7 +198,7 @@ export default function MapFloatingToolbar({
         )}
 
         <Box sx={mapArcDesktopToolGroupSx()}>
-          <ArcDesktopToolButton tool="info" activeTool={activeTool} title="Identify features" ariaLabel="Identify" onToolChange={onToolChange}>
+          <ArcDesktopToolButton tool="info" activeTool={activeTool} title="Identify / Attribute Table — click again to close" ariaLabel="Identify" onToolChange={onToolChange} toggleable>
             <InfoOutlinedIcon sx={arcIconSx} />
           </ArcDesktopToolButton>
           <ArcDesktopToolButton tool="measure" activeTool={activeTool} title="Measure distance" ariaLabel="Measure distance" onToolChange={onToolChange}>
@@ -351,10 +360,10 @@ export default function MapFloatingToolbar({
           exclusive
           size="small"
           value={activeTool}
-          onChange={(_, value) => value && onToolChange(value)}
+          onChange={(_, value) => onToolChange(value || '')}
           sx={mapToolbarToggleGroupSx(placement)}
         >
-        <ToolButton value="info" title="Identify features" ariaLabel="Identify">
+        <ToolButton value="info" title="Identify / Attribute Table — click again to close" ariaLabel="Identify">
           <InfoOutlinedIcon sx={mapToolbarIconSx(placement)} />
         </ToolButton>
         <ToolButton value="measure" title="Measure distance" ariaLabel="Measure distance">
