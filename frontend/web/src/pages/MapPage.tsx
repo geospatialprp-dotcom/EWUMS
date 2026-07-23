@@ -48,7 +48,7 @@ import {
   exportVisibleLayersToShapefile,
 } from '../utils/mapExport';
 import type { MapSnapshotResult } from '../utils/mapSnapshot';
-import { MAP_CHROME, mapMapFrameSx, mapRightAttributePanelSx } from '../utils/mapChromeStyles';
+import { MAP_CHROME, mapMapFrameSx, mapRightAttributePanelSx, mapRightAttributeTablePanelSx } from '../utils/mapChromeStyles';
 import {
   arcMapShellSx,
   arcMapToolbarSx,
@@ -206,6 +206,8 @@ export default function MapPage() {
 
   const [layers, setLayers] = useState<LayerGroup[]>([]);
   const [layerVisibility, setLayerVisibility] = useState<Record<string, boolean>>({});
+  const [removedLayerIds, setRemovedLayerIds] = useState<Record<string, true>>({});
+  const [attributeTableOpen, setAttributeTableOpen] = useState(false);
   const [layerFeatures, setLayerFeatures] = useState<Record<string, GeoFeature[]>>({});
   const [activeBasemapId, setActiveBasemapId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -334,6 +336,15 @@ export default function MapPage() {
   const explorerLayers = useMemo(() => {
     const scopedCatalog = layers
       .map(filterLayerGroup)
+      .filter((group) => group.name === BASEMAP_GROUP_NAME || group.layers.length > 0)
+      .map((group) => (
+        group.name === BASEMAP_GROUP_NAME
+          ? group
+          : {
+              ...group,
+              layers: group.layers.filter((layer) => !removedLayerIds[layer.id]),
+            }
+      ))
       .filter((group) => group.name === BASEMAP_GROUP_NAME || group.layers.length > 0);
 
     if (!scopedOrthoBasemaps.length) return scopedCatalog;
@@ -353,13 +364,14 @@ export default function MapPage() {
         ],
       };
     });
-  }, [layers, scopedOrthoBasemaps, filterLayerGroup]);
+  }, [layers, scopedOrthoBasemaps, filterLayerGroup, removedLayerIds]);
 
   const featureClassLayers = useMemo(
     () => layers
       .flatMap((group) => group.layers.filter((layer) => layer.sourceType === 'project_feature_class'))
-      .filter(isLayerInMapScope),
-    [layers, isLayerInMapScope],
+      .filter(isLayerInMapScope)
+      .filter((layer) => !removedLayerIds[layer.id]),
+    [layers, isLayerInMapScope, removedLayerIds],
   );
 
   const activeEditLayer = useMemo(
@@ -405,9 +417,12 @@ export default function MapPage() {
 
   const attributeDockVisible = useMemo(
     () =>
-      (visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze' && activeTool !== '')
-      || (Boolean(analysisFeatureClass) && activeTool === 'analyze'),
-    [visibleFeatureClassLayers.length, activeTool, analysisFeatureClass],
+      !attributeTableOpen
+      && (
+        (visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze' && activeTool !== '')
+        || (Boolean(analysisFeatureClass) && activeTool === 'analyze')
+      ),
+    [attributeTableOpen, visibleFeatureClassLayers.length, activeTool, analysisFeatureClass],
   );
 
   const mapProjectOptions = useMemo(() => {
@@ -1363,11 +1378,65 @@ export default function MapPage() {
     setInfoClickProperties(null);
   }, []);
 
+  const removeMapLayer = useCallback((layerId: string) => {
+    setRemovedLayerIds((prev) => ({ ...prev, [layerId]: true }));
+    setLayerVisibility((prev) => ({ ...prev, [layerId]: false }));
+    setLayerFeatures((prev) => {
+      if (!(layerId in prev)) return prev;
+      const next = { ...prev };
+      delete next[layerId];
+      return next;
+    });
+    setLayerAttributeCache((prev) => {
+      if (!(layerId in prev)) return prev;
+      const next = { ...prev };
+      delete next[layerId];
+      return next;
+    });
+    if (activeEditLayerId === layerId) {
+      const nextVisible = featureClassLayers.find(
+        (layer) => layer.id !== layerId && layerVisibility[layer.id],
+      );
+      setActiveEditLayerId(nextVisible?.id ?? '');
+      setAttributeTableOpen(false);
+    }
+    if (infoSelectedLayerId === layerId) {
+      clearIdentify();
+    }
+    if (analysisTargetLayerId === layerId) {
+      setAnalysisTargetLayerId('');
+      clearAnalysis();
+    }
+  }, [
+    activeEditLayerId,
+    featureClassLayers,
+    layerVisibility,
+    infoSelectedLayerId,
+    analysisTargetLayerId,
+    clearIdentify,
+    clearAnalysis,
+  ]);
+
+  const openAttributeTable = useCallback((layerId: string) => {
+    if (!layerVisibility[layerId]) {
+      setLayerVisibility((prev) => ({ ...prev, [layerId]: true }));
+    }
+    requestLayerFit(layerId);
+    setActiveEditLayerId(layerId);
+    clearIdentify();
+    if (activeTool === 'analyze') {
+      clearAnalysis();
+    }
+    setActiveTool((tool) => (tool === '' || tool === 'info' || tool === 'analyze' ? 'edit' : tool));
+    setAttributeTableOpen(true);
+  }, [layerVisibility, requestLayerFit, clearIdentify, activeTool, clearAnalysis]);
+
   const handleFeatureIdentify = useCallback((pick: {
     featureId: string;
     layerId: string;
     properties: Record<string, unknown>;
   }) => {
+    setAttributeTableOpen(false);
     setInfoSelectedFeatureId(pick.featureId);
     setInfoSelectedLayerId(pick.layerId);
     setSelectedFeatureId(pick.featureId);
@@ -1756,13 +1825,16 @@ export default function MapPage() {
               if ((tool === 'info' && activeTool === 'info') || (tool === '' && activeTool === 'info')) {
                 clearIdentify();
                 setSelectedFeatureId(null);
+                setAttributeTableOpen(false);
                 setActiveTool('');
                 return;
               }
               if (tool === '') {
+                setAttributeTableOpen(false);
                 setActiveTool('');
                 return;
               }
+              setAttributeTableOpen(false);
               setActiveTool(tool);
               if (tool === 'polygon') setDigitizeShape('Polygon');
               setMeasureResult('');
@@ -1825,15 +1897,10 @@ export default function MapPage() {
             onToggleGroupLayers={toggleGroupLayers}
             onToggleAllLayers={toggleAllLayers}
             onSelectEditLayer={selectEditLayer}
-            onRemoveLayer={(groupName, layerId) => {
-              toggleLayer(groupName, layerId, false);
+            onRemoveLayer={(_groupName, layerId) => {
+              removeMapLayer(layerId);
             }}
-            onOpenAttributeTable={(layerId) => {
-              selectEditLayer(layerId);
-              setActiveTool((tool) => (
-                tool === '' || tool === 'info' || tool === 'analyze' ? 'edit' : tool
-              ));
-            }}
+            onOpenAttributeTable={openAttributeTable}
             onHide={() => handleToggleExplorer(false)}
             onConfigureOrthomosaic={() => setOrthoDialogOpen(true)}
           />
@@ -1973,9 +2040,34 @@ export default function MapPage() {
                 />
               </Box>
             )}
+
+            {attributeTableOpen && !infoAttributePanelOpen && (
+              <Box
+                sx={mapRightAttributeTablePanelSx(true)}
+                role="complementary"
+                aria-label="Attribute table"
+              >
+                <MapAttributeSheetBook
+                  sidePanel
+                  sheets={attributeSheets}
+                  activeLayerId={activeEditLayerId || visibleFeatureClassLayers[0]?.id || ''}
+                  onSelectSheet={selectEditLayer}
+                  digitizeActive={activeTool === 'digitize' || activeTool === 'polygon'}
+                  editActive={activeTool === 'edit'}
+                  selectedFeatureId={selectedFeatureId}
+                  onSelectFeature={handleTableFeatureSelect}
+                  onRefresh={() => {
+                    if (activeEditLayer) void refreshEditLayerData(activeEditLayer);
+                  }}
+                  onDeleteFeature={canDeleteFeature ? handleDeleteFeature : undefined}
+                  deletingFeatureId={deletingFeatureId}
+                  onError={setMapError}
+                />
+              </Box>
+            )}
           </Box>
 
-          {visibleFeatureClassLayers.length > 0 && activeTool !== 'info' && activeTool !== 'analyze' && activeTool !== '' && (
+          {visibleFeatureClassLayers.length > 0 && !attributeTableOpen && activeTool !== 'info' && activeTool !== 'analyze' && activeTool !== '' && (
             <MapAttributeSheetBook
               sheets={attributeSheets}
               activeLayerId={activeEditLayerId || visibleFeatureClassLayers[0]?.id || ''}

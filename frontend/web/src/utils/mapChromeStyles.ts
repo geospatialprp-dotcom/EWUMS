@@ -468,6 +468,14 @@ export function mapRightAttributePanelSx(active = false) {
   };
 }
 
+/** Right-side Open Attribute Table dock — wider sheet book. */
+export function mapRightAttributeTablePanelSx(active = false) {
+  return {
+    ...mapRightAttributePanelSx(active),
+    width: { xs: 280, md: 380 },
+  };
+}
+
 export function mapAttributeBookSideSx() {
   return {
     ...mapAttributeBookSx(),
