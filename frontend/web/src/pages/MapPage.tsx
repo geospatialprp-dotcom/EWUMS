@@ -11,7 +11,7 @@ import MapLayerPanel from '../components/map/MapLayerPanel';
 import OrthomosaicBasemapDialog, { type MapProjectOption } from '../components/map/OrthomosaicBasemapDialog';
 import type { MapExportAction } from '../components/map/MapExportMenu';
 import MapFloatingToolbar from '../components/map/MapFloatingToolbar';
-import MapInfoDialog from '../components/map/MapInfoDialog';
+import MapIdentifySidePanel from '../components/map/MapIdentifySidePanel';
 import MapSpatialAnalysisPanel from '../components/map/MapSpatialAnalysisPanel';
 import DigitizeAttributeDialog from '../components/map/DigitizeAttributeDialog';
 import {
@@ -232,7 +232,6 @@ export default function MapPage() {
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const [geometryDirty, setGeometryDirty] = useState(false);
   const [focusFeature, setFocusFeature] = useState<{ featureId: string; revision: number } | null>(null);
-  const [infoDialogOpen, setInfoDialogOpen] = useState(false);
   const [infoSelectedFeatureId, setInfoSelectedFeatureId] = useState<string | null>(null);
   const [infoSelectedLayerId, setInfoSelectedLayerId] = useState('');
   const [infoSnapshot, setInfoSnapshot] = useState<string | null>(null);
@@ -403,10 +402,8 @@ export default function MapPage() {
   );
 
   const infoAttributePanelOpen = useMemo(
-    () => activeTool === 'info'
-      && visibleFeatureClassLayers.length > 0
-      && Boolean(activeEditLayerId || visibleFeatureClassLayers[0]?.id),
-    [activeTool, visibleFeatureClassLayers, activeEditLayerId],
+    () => activeTool === 'info',
+    [activeTool],
   );
 
   const attributeDockVisible = useMemo(
@@ -1371,7 +1368,7 @@ export default function MapPage() {
     setInfoSelectedFeatureId(null);
     setInfoSelectedLayerId('');
     setInfoClickProperties(null);
-    setInfoDialogOpen(false);
+    setInfoSnapshot(null);
   }, []);
 
   const handleFeatureIdentify = useCallback((pick: {
@@ -1383,7 +1380,6 @@ export default function MapPage() {
     setInfoSelectedLayerId(pick.layerId);
     setSelectedFeatureId(pick.featureId);
     setInfoClickProperties(pick.properties);
-    setInfoDialogOpen(true);
     if (!layerVisibility[pick.layerId]) {
       setLayerVisibility((prev) => ({ ...prev, [pick.layerId]: true }));
     }
@@ -1534,6 +1530,10 @@ export default function MapPage() {
       featureId,
       revision: (prev?.featureId === featureId ? prev.revision : 0) + 1,
     }));
+    if (activeTool === 'info') {
+      setInfoSelectedFeatureId(featureId);
+      return;
+    }
     if (activeTool !== 'edit') setActiveTool('edit');
   }, [activeTool]);
 
@@ -1800,9 +1800,14 @@ export default function MapPage() {
             placement="arcDesktop"
             activeTool={activeTool}
             onToolChange={(tool) => {
-              // Re-click Identify while active → close right attribute panel.
-              if (tool === '' || (tool === 'info' && activeTool === 'info')) {
+              // Re-click highlighted Identify → close right panel and clear selection.
+              if ((tool === 'info' && activeTool === 'info') || (tool === '' && activeTool === 'info')) {
                 clearIdentify();
+                setSelectedFeatureId(null);
+                setActiveTool('');
+                return;
+              }
+              if (tool === '') {
                 setActiveTool('');
                 return;
               }
@@ -1959,18 +1964,6 @@ export default function MapPage() {
                 layoutRevision={mapLayoutRevision + (mapReady ? 1 : 0)}
                 onSnapshot={handleMapSnapshot}
               />
-              <MapInfoDialog
-                open={infoDialogOpen && Boolean(infoSelectedFeatureId)}
-                loading={!identifiedFeature && tableLoading}
-                savingImage={imageSaving}
-                layerName={editFeatureClass?.name}
-                featureClass={editFeatureClass}
-                feature={identifiedFeature}
-                mapSnapshot={infoSnapshot}
-                onClose={clearIdentify}
-                onImageChange={(value) => { void saveIdentifyImage(value); }}
-                onImageClear={() => { void clearIdentifyImage(); }}
-              />
             </>
           )}
           </Box>
@@ -2009,25 +2002,32 @@ export default function MapPage() {
               <Box
                 sx={mapRightAttributePanelSx(true)}
                 role="complementary"
-                aria-label="Attribute table"
+                aria-label="Identify attribute panel"
               >
-                <MapAttributeSheetBook
-                  sidePanel
-                  sheets={attributeSheets}
-                  activeLayerId={activeEditLayerId || visibleFeatureClassLayers[0]?.id || ''}
-                  onSelectSheet={selectEditLayer}
-                  digitizeActive={false}
-                  editActive={false}
-                  selectedFeatureId={infoSelectedFeatureId || selectedFeatureId}
-                  onSelectFeature={(featureId) => {
-                    handleTableFeatureSelect(featureId);
+                <MapIdentifySidePanel
+                  loading={Boolean(infoSelectedFeatureId) && !identifiedFeature && tableLoading}
+                  savingImage={imageSaving}
+                  layerName={editFeatureClass?.name}
+                  featureClass={editFeatureClass}
+                  feature={identifiedFeature}
+                  mapSnapshot={infoSnapshot}
+                  layers={visibleFeatureClassLayers.map((layer) => ({
+                    id: layer.id,
+                    name: layer.name,
+                    geometryType: layer.sourceConfig.geometryType,
+                  }))}
+                  activeLayerId={infoSelectedLayerId || activeEditLayerId || visibleFeatureClassLayers[0]?.id}
+                  onSelectLayer={(layerId) => {
+                    selectEditLayer(layerId);
+                    clearIdentify();
+                    setInfoSelectedLayerId(layerId);
                   }}
-                  onRefresh={() => {
-                    if (activeEditLayer) void refreshEditLayerData(activeEditLayer);
+                  onClose={() => {
+                    clearIdentify();
+                    setActiveTool('');
                   }}
-                  onDeleteFeature={canDeleteFeature ? handleDeleteFeature : undefined}
-                  deletingFeatureId={deletingFeatureId}
-                  onError={setMapError}
+                  onImageChange={(value) => { void saveIdentifyImage(value); }}
+                  onImageClear={() => { void clearIdentifyImage(); }}
                 />
               </Box>
             )}
