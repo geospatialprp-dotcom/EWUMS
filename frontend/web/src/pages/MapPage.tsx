@@ -1825,6 +1825,15 @@ export default function MapPage() {
             onToggleGroupLayers={toggleGroupLayers}
             onToggleAllLayers={toggleAllLayers}
             onSelectEditLayer={selectEditLayer}
+            onRemoveLayer={(groupName, layerId) => {
+              toggleLayer(groupName, layerId, false);
+            }}
+            onOpenAttributeTable={(layerId) => {
+              selectEditLayer(layerId);
+              setActiveTool((tool) => (
+                tool === '' || tool === 'info' || tool === 'analyze' ? 'edit' : tool
+              ));
+            }}
             onHide={() => handleToggleExplorer(false)}
             onConfigureOrthomosaic={() => setOrthoDialogOpen(true)}
           />

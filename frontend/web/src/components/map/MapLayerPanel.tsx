@@ -1,6 +1,7 @@
+import { useState, type MouseEvent } from 'react';
 import {
-  Box, Checkbox, IconButton, List, ListItemButton, ListItemIcon, ListItemText,
-  Tooltip, Typography,
+  Box, Checkbox, Divider, IconButton, List, ListItemButton, ListItemIcon, ListItemText,
+  Menu, MenuItem, Tooltip, Typography,
 } from '@mui/material';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
@@ -11,6 +12,8 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import LinkIcon from '@mui/icons-material/Link';
 import FlightIcon from '@mui/icons-material/Flight';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import CloseIcon from '@mui/icons-material/Close';
+import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import {
   ARCMAP,
   mapDarkHeaderSx,
@@ -39,6 +42,13 @@ export type MapLayerGroup = {
 };
 
 const BASEMAP_GROUP = 'Basemaps';
+
+type LayerContextMenuState = {
+  mouseX: number;
+  mouseY: number;
+  groupName: string;
+  layerId: string;
+};
 
 function getGroupVisibilityState(
   layers: MapCatalogLayer[],
@@ -74,9 +84,36 @@ interface MapLayerPanelProps {
   onToggleGroupLayers?: (groupId: string, enabled: boolean) => void;
   onToggleAllLayers?: (enabled: boolean) => void;
   onSelectEditLayer: (layerId: string) => void;
+  onRemoveLayer?: (groupName: string, layerId: string) => void;
+  onOpenAttributeTable?: (layerId: string) => void;
   onHide?: () => void;
   onConfigureOrthomosaic?: () => void;
 }
+
+const contextMenuItemSx = {
+  fontSize: '0.8125rem',
+  fontFamily: '"Segoe UI", Tahoma, sans-serif',
+  py: 0.35,
+  px: 1,
+  minHeight: 24,
+  gap: 0.75,
+  color: '#1a1a1a',
+  borderRadius: 0,
+  '&:hover, &.Mui-focusVisible': {
+    bgcolor: '#316ac5',
+    color: '#fff',
+    '& .MuiListItemIcon-root': { color: '#fff' },
+  },
+  '& .MuiListItemIcon-root': {
+    minWidth: 22,
+    color: '#333',
+  },
+  '& .MuiListItemText-primary': {
+    fontSize: '0.8125rem',
+    fontWeight: 400,
+    fontFamily: '"Segoe UI", Tahoma, sans-serif',
+  },
+};
 
 export default function MapLayerPanel({
   groups,
@@ -91,17 +128,39 @@ export default function MapLayerPanel({
   onToggleGroupLayers,
   onToggleAllLayers,
   onSelectEditLayer,
+  onRemoveLayer,
+  onOpenAttributeTable,
   onHide,
   onConfigureOrthomosaic,
 }: MapLayerPanelProps) {
+  const [contextMenu, setContextMenu] = useState<LayerContextMenuState | null>(null);
   const visibleCount = visibleLayerCount ?? Object.values(layerVisibility).filter(Boolean).length;
   const allFeatureLayers = groups
     .filter((group) => group.name !== BASEMAP_GROUP)
     .flatMap((group) => group.layers);
   const rootVisibility = getGroupVisibilityState(allFeatureLayers, layerVisibility);
+  const showLayerMenu = Boolean(onRemoveLayer || onOpenAttributeTable);
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const openLayerContextMenu = (
+    event: MouseEvent,
+    groupName: string,
+    layer: MapCatalogLayer,
+  ) => {
+    if (!showLayerMenu) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      mouseX: event.clientX + 2,
+      mouseY: event.clientY - 6,
+      groupName,
+      layerId: layer.id,
+    });
+  };
 
   return (
-    <Box sx={mapLayerPanelSx()}>
+    <Box sx={mapLayerPanelSx()} onContextMenu={(e) => e.preventDefault()}>
       <Box sx={mapDarkHeaderSx()} display="flex" alignItems="center" justifyContent="space-between">
         <Box display="flex" alignItems="center" gap={0.5} flex={1} minWidth={0}>
           {onToggleAllLayers && allFeatureLayers.length > 0 ? (
@@ -183,50 +242,55 @@ export default function MapLayerPanel({
                   const isActive = !isBasemap && activeEditLayerId === layer.id;
                   const isBasemapActive = isBasemap && activeBasemapId === layer.id;
                   const isHighlighted = isBasemapActive || isActive;
+                  const isContextTarget = contextMenu?.layerId === layer.id;
 
-                      return (
-                        <ListItemButton
-                          key={layer.id}
-                          selected={isHighlighted}
-                          onClick={() => {
-                            if (isBasemap) {
-                              onToggleLayer(group.name, layer.id, true);
-                            } else {
-                              onSelectEditLayer(layer.id);
-                            }
-                          }}
-                          sx={mapLayerItemSx(isHighlighted)}
-                        >
-                          {isBasemap ? (
-                            <ListItemIcon sx={{ minWidth: 20, mr: 0.5 }}>
-                              {isOrthoBasemap ? (
-                                <FlightIcon sx={{ fontSize: 16, color: isBasemapActive ? ARCMAP.accent : ARCMAP.textMuted }} />
-                              ) : isBasemapActive ? (
-                                <RadioButtonCheckedIcon sx={{ fontSize: 16, color: ARCMAP.accent }} />
-                              ) : (
-                                <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#a0a0a0' }} />
-                              )}
-                            </ListItemIcon>
+                  return (
+                    <ListItemButton
+                      key={layer.id}
+                      selected={isHighlighted || isContextTarget}
+                      onClick={() => {
+                        if (isBasemap) {
+                          onToggleLayer(group.name, layer.id, true);
+                        } else {
+                          onSelectEditLayer(layer.id);
+                        }
+                      }}
+                      onContextMenu={(event) => {
+                        if (isBasemap) return;
+                        openLayerContextMenu(event, group.name, layer);
+                      }}
+                      sx={mapLayerItemSx(isHighlighted || isContextTarget)}
+                    >
+                      {isBasemap ? (
+                        <ListItemIcon sx={{ minWidth: 20, mr: 0.5 }}>
+                          {isOrthoBasemap ? (
+                            <FlightIcon sx={{ fontSize: 16, color: isBasemapActive ? ARCMAP.accent : ARCMAP.textMuted }} />
+                          ) : isBasemapActive ? (
+                            <RadioButtonCheckedIcon sx={{ fontSize: 16, color: ARCMAP.accent }} />
                           ) : (
-                            <>
-                              <Checkbox
-                                size="small"
-                                checked={visible}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => onToggleLayer(group.name, layer.id, e.target.checked)}
-                                sx={{ p: 0, mr: 0.5, '& .MuiSvgIcon-root': { fontSize: 16 } }}
-                              />
-                              <ListItemIcon sx={{ minWidth: 20 }}>
-                                <GeometryIcon type={layer.sourceConfig.geometryType} />
-                              </ListItemIcon>
-                            </>
+                            <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#a0a0a0' }} />
                           )}
-                          <ListItemText
+                        </ListItemIcon>
+                      ) : (
+                        <>
+                          <Checkbox
+                            size="small"
+                            checked={visible}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => onToggleLayer(group.name, layer.id, e.target.checked)}
+                            sx={{ p: 0, mr: 0.5, '& .MuiSvgIcon-root': { fontSize: 16 } }}
+                          />
+                          <ListItemIcon sx={{ minWidth: 20 }}>
+                            <GeometryIcon type={layer.sourceConfig.geometryType} />
+                          </ListItemIcon>
+                        </>
+                      )}
+                      <ListItemText
                         primary={layer.name}
                         primaryTypographyProps={{
                           variant: 'body2',
                           fontSize: '0.75rem',
-                          fontWeight: isHighlighted ? 600 : 400,
+                          fontWeight: isHighlighted || isContextTarget ? 600 : 400,
                           noWrap: true,
                         }}
                       />
@@ -265,6 +329,85 @@ export default function MapLayerPanel({
           {activeBasemapName ? ` · ${activeBasemapName}` : ''}
         </Typography>
       </Box>
+
+      <Menu
+        open={Boolean(contextMenu)}
+        onClose={closeContextMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          contextMenu
+            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+            : undefined
+        }
+        transitionDuration={0}
+        slotProps={{
+          paper: {
+            elevation: 0,
+            sx: {
+              minWidth: 196,
+              borderRadius: 0,
+              border: '1px solid #8a8a8a',
+              boxShadow: '2px 2px 5px rgba(0,0,0,0.28)',
+              bgcolor: '#f0f0f0',
+              py: 0,
+              overflow: 'hidden',
+            },
+          },
+        }}
+        MenuListProps={{
+          dense: true,
+          sx: {
+            py: 0.25,
+            bgcolor: '#f0f0f0',
+          },
+        }}
+      >
+        {onRemoveLayer && (
+          <MenuItem
+            sx={contextMenuItemSx}
+            onClick={() => {
+              if (!contextMenu) return;
+              onRemoveLayer(contextMenu.groupName, contextMenu.layerId);
+              closeContextMenu();
+            }}
+          >
+            <ListItemIcon>
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  bgcolor: '#c62828',
+                  borderRadius: '2px',
+                }}
+              >
+                <CloseIcon sx={{ fontSize: 12, color: '#fff' }} />
+              </Box>
+            </ListItemIcon>
+            <ListItemText primary="Remove" />
+          </MenuItem>
+        )}
+        {onRemoveLayer && onOpenAttributeTable && (
+          <Divider sx={{ my: 0.25, borderColor: '#c0c0c0' }} />
+        )}
+        {onOpenAttributeTable && (
+          <MenuItem
+            sx={contextMenuItemSx}
+            onClick={() => {
+              if (!contextMenu) return;
+              onOpenAttributeTable(contextMenu.layerId);
+              closeContextMenu();
+            }}
+          >
+            <ListItemIcon>
+              <TableChartOutlinedIcon sx={{ fontSize: 16 }} />
+            </ListItemIcon>
+            <ListItemText primary="Open Attribute Table" />
+          </MenuItem>
+        )}
+      </Menu>
     </Box>
   );
 }
